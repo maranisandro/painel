@@ -1,14 +1,18 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { loadGoogleMaps } from '@/lib/google-maps'
 
 interface LocationMarker {
   id: string
   name: string
   type: 'UNIDADE' | 'CLIENTE'
-  latitude: number
-  longitude: number
+  /** null quando o local usa polígono em vez de ponto+raio */
+  latitude: number | null
+  longitude: number | null
   raioMetros: number
+  /** desenhado no lugar do marcador de ponto quando presente (3+ vértices) */
+  polygon: { lat: number; lng: number }[] | null
 }
 
 interface VehiclePositionMarker {
@@ -24,29 +28,6 @@ interface VehiclePositionMarker {
 interface MapaFrotaProps {
   locations: LocationMarker[]
   positions: VehiclePositionMarker[]
-}
-
-// Carrega a Maps JavaScript API uma única vez (o script global fica cacheado
-// entre navegações/remounts do componente dentro da mesma sessão do navegador).
-let googleMapsPromise: Promise<void> | null = null
-function loadGoogleMaps(apiKey: string): Promise<void> {
-  if (typeof window !== 'undefined' && window.google?.maps) return Promise.resolve()
-  if (googleMapsPromise) return googleMapsPromise
-  googleMapsPromise = new Promise((resolve, reject) => {
-    const script = document.createElement('script')
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}`
-    script.async = true
-    script.onload = () => resolve()
-    script.onerror = () => reject(new Error('Falha ao carregar o script do Google Maps'))
-    document.head.appendChild(script)
-  })
-  return googleMapsPromise
-}
-
-declare global {
-  interface Window {
-    google?: { maps: typeof google.maps }
-  }
 }
 
 /**
@@ -80,6 +61,30 @@ export function MapaFrota({ locations, positions }: MapaFrotaProps) {
         let hasBounds = false
 
         for (const loc of locations) {
+          const info = new maps.InfoWindow({
+            content: `<strong>${loc.name}</strong><br/>${loc.type === 'UNIDADE' ? 'Unidade do grupo' : 'Cliente'}`,
+          })
+          const cor = loc.type === 'UNIDADE' ? '#047857' : '#0891b2'
+
+          if (loc.polygon && loc.polygon.length >= 3) {
+            const polygon = new maps.Polygon({
+              paths: loc.polygon,
+              map,
+              fillColor: cor,
+              fillOpacity: 0.25,
+              strokeColor: cor,
+              strokeWeight: 2,
+            })
+            polygon.addListener('click', (e: google.maps.MapMouseEvent) => {
+              info.setPosition(e.latLng)
+              info.open({ map })
+            })
+            for (const p of loc.polygon) bounds.extend(p)
+            hasBounds = true
+            continue
+          }
+
+          if (loc.latitude == null || loc.longitude == null) continue
           const position = { lat: loc.latitude, lng: loc.longitude }
           const marker = new maps.Marker({
             position,
@@ -88,14 +93,11 @@ export function MapaFrota({ locations, positions }: MapaFrotaProps) {
             icon: {
               path: maps.SymbolPath.CIRCLE,
               scale: 8,
-              fillColor: loc.type === 'UNIDADE' ? '#047857' : '#0891b2',
+              fillColor: cor,
               fillOpacity: 1,
               strokeColor: '#fff',
               strokeWeight: 2,
             },
-          })
-          const info = new maps.InfoWindow({
-            content: `<strong>${loc.name}</strong><br/>${loc.type === 'UNIDADE' ? 'Unidade do grupo' : 'Cliente'}`,
           })
           marker.addListener('click', () => info.open({ map, anchor: marker }))
           bounds.extend(position)

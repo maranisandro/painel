@@ -264,6 +264,13 @@ model Location {
   latitude            Float?
   longitude           Float?
   raioMetros          Float?       @default(500)
+  // Polígono alternativo ao ponto+raio (pedido do usuário 2026-07-30, além
+  // do círculo simples — locais grandes/irregulares como um pátio ou
+  // fazenda não cabem bem num raio): lista de vértices [{lat,lng}, ...],
+  // desenhada no mapa da tela de Locais. Null = local usa ponto+raio
+  // (comportamento anterior); preenchido = usa o polígono para nominar a
+  // posição do caminhão em vez do círculo.
+  polygon             Json?
   active              Boolean      @default(true)
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt

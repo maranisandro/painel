@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ExcelButtons } from '@/components/admin/ExcelButtons'
+import { LocationShapeMap } from '@/components/admin/LocationShapeMap'
 
 interface Location {
   id: string
@@ -14,6 +15,7 @@ interface Location {
   latitude: number | null
   longitude: number | null
   raioMetros: number | null
+  polygon: { lat: number; lng: number }[] | null
   active: boolean
   _count?: { routesFrom: number; routesTo: number }
 }
@@ -35,6 +37,7 @@ const EMPTY = {
   latitude: '',
   longitude: '',
   raioMetros: '',
+  polygon: null as { lat: number; lng: number }[] | null,
 }
 
 export default function LocaisPage() {
@@ -82,6 +85,7 @@ export default function LocaisPage() {
       latitude: l.latitude?.toString() ?? '',
       longitude: l.longitude?.toString() ?? '',
       raioMetros: l.raioMetros?.toString() ?? '',
+      polygon: l.polygon ?? null,
     })
     setError('')
   }
@@ -99,6 +103,7 @@ export default function LocaisPage() {
       latitude: '',
       longitude: '',
       raioMetros: '',
+      polygon: null,
     })
     setError('')
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -118,6 +123,7 @@ export default function LocaisPage() {
       latitude: form.latitude === '' ? null : Number(form.latitude),
       longitude: form.longitude === '' ? null : Number(form.longitude),
       raioMetros: form.raioMetros === '' ? null : Number(form.raioMetros),
+      polygon: form.polygon,
     }
     const res = await fetch(editingId ? `/api/admin/locations/${editingId}` : '/api/admin/locations', {
       method: editingId ? 'PUT' : 'POST',
@@ -307,8 +313,29 @@ export default function LocaisPage() {
         </div>
         <p className="mt-2 text-[11px] text-slate-500">
           Latitude/longitude e raio são usados para nominar em qual local um caminhão está a partir da
-          posição GPS (integração Omnilink) — preencher quando souber as coordenadas do local.
+          posição GPS (integração Omnilink) — preencher quando souber as coordenadas do local, ou desenhar
+          no mapa abaixo (círculo ou polígono, para locais com formato irregular).
         </p>
+        <div className="mt-3">
+          <LocationShapeMap
+            key={editingId ?? 'novo'}
+            value={{
+              latitude: form.latitude === '' ? null : Number(form.latitude),
+              longitude: form.longitude === '' ? null : Number(form.longitude),
+              raioMetros: form.raioMetros === '' ? null : Number(form.raioMetros),
+              polygon: form.polygon,
+            }}
+            onChange={(v) =>
+              setForm((prev) => ({
+                ...prev,
+                latitude: v.latitude != null ? String(v.latitude) : '',
+                longitude: v.longitude != null ? String(v.longitude) : '',
+                raioMetros: v.raioMetros != null ? String(v.raioMetros) : '',
+                polygon: v.polygon,
+              }))
+            }
+          />
+        </div>
         {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
         <div className="mt-3 flex gap-2">
           <button
@@ -432,9 +459,11 @@ export default function LocaisPage() {
                 <td className="px-3 py-2">{l.matchFilial ?? '—'}</td>
                 <td className="px-3 py-2">{l.matchClientePattern ?? '—'}</td>
                 <td className="px-3 py-2 text-xs text-slate-500">
-                  {l.latitude != null && l.longitude != null
-                    ? `${l.latitude.toFixed(4)}, ${l.longitude.toFixed(4)} (${l.raioMetros ?? 500}m)`
-                    : '—'}
+                  {l.polygon && l.polygon.length >= 3
+                    ? `Polígono (${l.polygon.length} pontos)`
+                    : l.latitude != null && l.longitude != null
+                      ? `${l.latitude.toFixed(4)}, ${l.longitude.toFixed(4)} (${l.raioMetros ?? 500}m)`
+                      : '—'}
                 </td>
                 <td className="px-3 py-2">{(l._count?.routesFrom ?? 0) + (l._count?.routesTo ?? 0)}</td>
                 <td className="px-3 py-2 text-right">

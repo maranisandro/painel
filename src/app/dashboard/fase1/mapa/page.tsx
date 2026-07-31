@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { Prisma } from '@prisma/client'
 import { getSessionUser, hasModuleAccess } from '@/lib/authz'
 import { prisma } from '@/lib/prisma'
 import { MapaFrota } from '@/components/fase1/MapaFrota'
@@ -9,9 +10,14 @@ export default async function MapaPage() {
   const user = await getSessionUser()
   if (!hasModuleAccess(user, 'fase1')) redirect('/dashboard')
 
+  // Local aparece no mapa se tiver ponto+raio OU polígono (pedido do
+  // usuário 2026-07-30) cadastrado em Cadastros → Locais.
   const locations = await prisma.location.findMany({
-    where: { active: true, latitude: { not: null }, longitude: { not: null } },
-    select: { id: true, name: true, type: true, latitude: true, longitude: true, raioMetros: true },
+    where: {
+      active: true,
+      OR: [{ latitude: { not: null }, longitude: { not: null } }, { polygon: { not: Prisma.JsonNull } }],
+    },
+    select: { id: true, name: true, type: true, latitude: true, longitude: true, raioMetros: true, polygon: true },
     orderBy: { name: 'asc' },
   })
 
@@ -33,9 +39,10 @@ export default async function MapaPage() {
         id: l.id,
         name: l.name,
         type: l.type,
-        latitude: l.latitude!,
-        longitude: l.longitude!,
+        latitude: l.latitude,
+        longitude: l.longitude,
         raioMetros: l.raioMetros ?? 500,
+        polygon: (l.polygon as { lat: number; lng: number }[] | null) ?? null,
       }))}
       positions={[...latestByPlaca.values()].map((p) => ({
         placa: p.placa,
