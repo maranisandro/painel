@@ -460,6 +460,53 @@ async function main() {
     create: { datasetId: custosTransporte.id, intervalMinutes: 60 },
   })
 
+  // --- Fonte de dados: API Omnilink Turbo (Show Tecnologia) — rastreamento ---
+  // Pedido do usuário 2026-07-30, especificação fornecida por ele: login
+  // (POST /api/login, token válido 24h) + consulta paginada de posições
+  // (POST /api/omniturbo/relatorios/posicoes, parâmetro "parte"). Foge do
+  // modelo "GET + rowsPath" do webserviceConnector genérico (é POST com
+  // corpo próprio e paginação por página, não por watermark direto na URL) —
+  // por isso authType vira connectorMode: 'omnilink-turbo', delegando pra
+  // src/lib/sync/connectors/omnilink.ts (mesmo padrão de extensão usado
+  // pelo authType 'session-login' da Controladoria).
+  //
+  // PENDÊNCIA (2026-07-30): testado ao vivo — login funciona (retorna
+  // {status,auth,token}), mas as 49 placas conhecidas da frota própria (base
+  // de vendas) responderam "Placa não localizada" em todos os testes — ou os
+  // rastreadores ainda não foram instalados/ativados nessas placas, ou essa
+  // conta cobre outro conjunto de veículos. primaryKeyFields/incrementalField
+  // abaixo são um ponto de partida (nomes de campo da resposta de posição
+  // ainda não confirmados) — ajustar assim que uma placa real responder.
+  const omnilink = await prisma.dataSource.upsert({
+    where: { id: 'a1f0c6d2-7e4b-4a9d-9c1e-3b6f2d8a5c70' },
+    update: { config: { baseUrl: 'https://api.showtecnologia.com', connectorMode: 'omnilink-turbo' } },
+    create: {
+      id: 'a1f0c6d2-7e4b-4a9d-9c1e-3b6f2d8a5c70',
+      name: 'Omnilink Turbo (Show Tecnologia)',
+      type: 'WEBSERVICE',
+      envPrefix: 'OMNILINK_API',
+      config: { baseUrl: 'https://api.showtecnologia.com', connectorMode: 'omnilink-turbo' },
+    },
+  })
+  const omnilinkPosicoes = await prisma.dataset.upsert({
+    where: { code: 'fase1_omnilink_posicoes' },
+    update: {},
+    create: {
+      dataSourceId: omnilink.id,
+      code: 'fase1_omnilink_posicoes',
+      name: 'Posições e eventos (Omnilink Turbo)',
+      description:
+        'Posições/eventos dos rastreadores da frota própria (Show Tecnologia/Omnilink). Alimenta VehiclePosition para o mapa da frota — ver src/lib/sync/post-process.ts quando o mapeamento de campos for confirmado com dados reais.',
+      query: 'POST /api/omniturbo/relatorios/posicoes (login + paginação por "parte", ver connectorMode)',
+      primaryKeyFields: 'placa,dataHora', // provisório — confirmar nomes reais dos campos
+    },
+  })
+  await prisma.syncSchedule.upsert({
+    where: { datasetId: omnilinkPosicoes.id },
+    update: {},
+    create: { datasetId: omnilinkPosicoes.id, intervalMinutes: 15, enabled: false }, // desabilitado até confirmar placas reais
+  })
+
   // --- Colunas condicionais (migradas das etapas do PowerQuery) ---
   const computedColumns: {
     name: string

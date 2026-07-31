@@ -1,5 +1,6 @@
 import type { DataSource, Dataset } from '@prisma/client'
 import { type Connector, type ExternalRow } from '../types'
+import { fetchOmnilinkPosicoes } from './omnilink'
 
 /**
  * Conector de Web Service REST.
@@ -63,7 +64,16 @@ export const webserviceConnector: Connector = {
       loginPath?: string
       usernameField?: string
       passwordField?: string
+      connectorMode?: string
     }
+
+    // Omnilink Turbo (Show Tecnologia): fluxo próprio (login → token de 24h
+    // no header x-access-token → consulta POST paginada por "parte") — foge
+    // demais do modelo "GET + rowsPath" genérico abaixo para caber nele.
+    if (config.connectorMode === 'omnilink-turbo') {
+      return fetchOmnilinkPosicoes(source, dataset, watermark)
+    }
+
     if (!config.baseUrl) throw new Error(`DataSource ${source.name}: config.baseUrl ausente`)
 
     const path = dataset.query.replace('{{watermark}}', watermark ? encodeURIComponent(watermark) : '')
