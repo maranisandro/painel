@@ -1,0 +1,448 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================
+// Usuários e auditoria
+// ============================================================
+
+enum UserRole {
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+model User {
+  id                 String             @id @default(uuid())
+  email              String             @unique
+  password           String
+  name               String
+  role               UserRole           @default(VIEWER)
+  active             Boolean            @default(true)
+  // Força troca de senha no próximo login (usado no admin inicial do seed)
+  mustChangePassword Boolean            @default(false)
+  // Incrementado quando uma redefinição administrativa deve invalidar JWTs antigos.
+  sessionVersion     Int                @default(0)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  moduleAccesses     UserModuleAccess[]
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  userName  String?
+  action    String
+  entity    String
+  entityId  String?
+  details   Json?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+}
+
+// ============================================================
+// Fontes de dados externas (Oracle / MySQL / Web Service)
+// ============================================================
+
+enum DataSourceType {
+  ORACLE
+  MYSQL
+  WEBSERVICE
+}
+
+model DataSource {
+  id        String         @id @default(uuid())
+  name      String
+  type      DataSourceType
+  // Prefixo das variáveis de ambiente com as credenciais desta fonte.
+  // Ex.: "ORACLE_DBPRD" -> ORACLE_DBPRD_USER / _PASSWORD / _CONNECT_STRING
+  // Credenciais NUNCA são gravadas no banco.
+  envPrefix String
+  // Configurações não sensíveis (ex.: baseUrl de webservice, timeout, schema)
+  config    Json?
+  active    Boolean        @default(true)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  datasets  Dataset[]
+}
+
+// ============================================================
+// Datasets: consultas registradas + cache local + sincronização
+// ============================================================
+
+enum IncrementalFieldType {
+  DATE
+  DATETIME
+  NUMBER
+}
+
+model Dataset {
+  id               String                @id @default(uuid())
+  dataSourceId     String
+  dataSource       DataSource            @relation(fields: [dataSourceId], references: [id])
+  code             String                @unique // ex.: "fase1_vendas_transporte"
+  name             String
+  description      String?
+  // SQL da consulta (Oracle/MySQL) ou caminho/corpo da chamada (webservice)
+  query            String
+  // Campos que formam a chave lógica de cada linha, para upsert no cache (CSV)
+  primaryKeyFields String
+  // Campo de recuperação incremental (marca d'água). Null = sempre carga completa.
+  incrementalField String?
+  incrementalType  IncrementalFieldType?
+  // Última marca d'água sincronizada (texto; interpretado conforme incrementalType)
+  watermark        String?
+  active           Boolean               @default(true)
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  rows             DatasetRow[]
+  schedule         SyncSchedule?
+  syncRuns         SyncRun[]
+  computedColumns  ComputedColumn[]
+}
+
+// Cache local: uma linha da consulta externa, com os valores originais
+// imutáveis em JSONB. Colunas condicionais são calculadas por cima, nunca
+// alteram `data`.
+model DatasetRow {
+  id        String   @id @default(uuid())
+  datasetId String
+  dataset   Dataset  @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  // Valor concatenado dos primaryKeyFields
+  pk        String
+  data      Json
+  syncedAt  DateTime @default(now())
+
+  @@unique([datasetId, pk])
+  @@index([datasetId, syncedAt])
+}
+
+model SyncSchedule {
+  id              String    @id @default(uuid())
+  datasetId       String    @unique
+  dataset         Dataset   @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  // Intervalo em minutos entre sincronizações
+  intervalMinutes Int
+  enabled         Boolean   @default(true)
+  lastRunAt       DateTime?
+  nextRunAt       DateTime?
+  updatedAt       DateTime  @updatedAt
+}
+
+enum SyncStatus {
+  RUNNING
+  SUCCESS
+  ERROR
+}
+
+model SyncRun {
+  id              String     @id @default(uuid())
+  datasetId       String
+  dataset         Dataset    @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  status          SyncStatus @default(RUNNING)
+  startedAt       DateTime   @default(now())
+  finishedAt      DateTime?
+  rowsUpserted    Int?
+  watermarkBefore String?
+  watermarkAfter  String?
+  error           String?
+
+  @@index([datasetId, startedAt])
+}
+
+// ============================================================
+// Camada semântica: colunas condicionais e parâmetros
+// ============================================================
+
+enum ComputedColumnType {
+  CONDITIONAL // regras se/então sobre campos da linha (equivale à coluna condicional do PowerQuery)
+  LOOKUP // busca valor em cadastro de apoio (ex.: rota -> distância)
+}
+
+model ComputedColumn {
+  id        String             @id @default(uuid())
+  datasetId String
+  dataset   Dataset            @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  name      String // nome da coluna resultante, ex.: "TipoProduto"
+  type      ComputedColumnType @default(CONDITIONAL)
+  position  Int                @default(0)
+  // Regras em JSON, avaliadas em ordem. Formato (CONDITIONAL):
+  // { rules: [ { when: [{ field, op: "contains"|"equals"|"in"|"gte"|"lte", value }], then: "Carvão" } ], else: "Outros" }
+  // Formato (LOOKUP): { table: "Route", matchOn: [...], return: "distanceKm" }
+  rules     Json
+  active    Boolean            @default(true)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  @@unique([datasetId, name])
+}
+
+// Parâmetros nomeados com valor e/ou fórmula. Ex.:
+//   META_KM_MES = 8000
+//   RITMO = META_KM_MES / diasDoMes * diaDoMes
+// Fórmulas podem referenciar outros parâmetros e as variáveis de calendário
+// diasDoMes / diaDoMes.
+model Parameter {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  name        String
+  description String?
+  valueNumber Decimal?
+  valueText   String?
+  formula     String?
+  updatedAt   DateTime @updatedAt
+}
+
+// ============================================================
+// Módulos (fases de negócio) e painéis
+// ============================================================
+
+model Module {
+  id           String             @id @default(uuid())
+  code         String             @unique // fase1..fase5
+  name         String
+  phase        Int
+  active       Boolean            @default(false)
+  panels       Panel[]
+  userAccesses UserModuleAccess[]
+}
+
+// Escopo por fase/negócio. ADMIN tem acesso global; EDITOR/VIEWER precisam
+// de um vínculo para enxergar o módulo. O papel define se o acesso é de
+// edição ou somente leitura.
+model UserModuleAccess {
+  userId    String
+  moduleId  String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  module    Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([userId, moduleId])
+  @@index([moduleId])
+}
+
+model Panel {
+  id       String @id @default(uuid())
+  moduleId String
+  module   Module @relation(fields: [moduleId], references: [id])
+  code     String @unique
+  name     String
+  // Configuração livre do painel (layout, dataset(s), filtros, tipo de visual)
+  config   Json?
+  position Int    @default(0)
+}
+
+// ============================================================
+// Fase 1 — Transporte Rodoviário: cadastros de apoio
+// ============================================================
+
+enum LocationType {
+  UNIDADE // unidade do grupo (UPC, filial, fazenda)
+  CLIENTE // destino externo
+}
+
+// Local: origem (unidades do grupo) ou destino (clientes) das rotas.
+// Os campos match* fazem o casamento com as linhas sincronizadas:
+// UNIDADE casa por coligada/filial; CLIENTE casa por trecho do NOMEFANTASIA.
+model Location {
+  id                  String       @id @default(uuid())
+  name                String       @unique // nome amigável (definido pelo usuário)
+  officialName        String? // nome real/oficial no ERP (referência)
+  type                LocationType
+  matchColigada       Int?
+  matchFilial         Int?
+  matchClientePattern String?
+  // Coordenadas para nominar onde o caminhão está a partir da posição GPS
+  // (Omnilink) — pedido do usuário 2026-07-30, integração de rastreamento.
+  // raioMetros = raio de tolerância para considerar o caminhão "neste local".
+  latitude            Float?
+  longitude           Float?
+  raioMetros          Float?       @default(500)
+  active              Boolean      @default(true)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  routesFrom          Route[]      @relation("RouteOrigin")
+  routesTo            Route[]      @relation("RouteDestination")
+}
+
+// Posições de GPS de cada caminhão durante a viagem, vindas do rastreamento
+// Omnilink — pedido do usuário 2026-07-30. Guardar o histórico permite saber
+// se a viagem está atrasada com base na posição real, não só na estimativa
+// por rota. Lat/lng em colunas simples por enquanto (Prisma não modela bem
+// tipos PostGIS nativos sem SQL bruto); a extensão PostGIS já fica habilitada
+// no banco para consultas espaciais futuras (raio, distância até a rota
+// etc.) assim que a integração real estiver validada com dados de verdade.
+model VehiclePosition {
+  id         String   @id @default(uuid())
+  placa      String
+  capturedAt DateTime // data/hora da posição no rastreador (não da gravação)
+  latitude   Float
+  longitude  Float
+  speedKmh   Float?
+  // Direção em graus (0-360, 0 = norte), quando o rastreador informar
+  heading    Float?
+  status     String? // status bruto do rastreador (ex.: ligado, parado, ignição)
+  source     String   @default("OMNILINK")
+  createdAt  DateTime @default(now())
+
+  @@index([placa, capturedAt])
+}
+
+// Composição (implemento) de cada placa, com histórico de mudanças por data.
+// effectiveFrom = NULL é a composição de cadastro (vale desde sempre até a
+// primeira mudança); cada mudança vale a partir da sua data. A viagem usa a
+// composição vigente na DATA DE SAÍDA — um relatório que cruza mudanças
+// mostra cada implemento no seu período.
+model PlateComposition {
+  id            String    @id @default(uuid())
+  placa         String
+  composition   String // ex.: "LS 4 Eixos", "RodoTrem", "LS 3 Eixos"
+  effectiveFrom DateTime? // null = composição de cadastro (inicial)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([placa, effectiveFrom])
+}
+
+// Rota origem->destino com dados operacionais para cálculo de expectativa
+// de viagem e retorno (ver Fase1 - Transporte Rodoviário no Obsidian).
+// Distância separada por tipo de piso; velocidades separadas por condição
+// de carga (cheio na ida, vazio na volta).
+model Route {
+  id                    String   @id @default(uuid())
+  originId              String
+  origin                Location @relation("RouteOrigin", fields: [originId], references: [id])
+  destinationId         String
+  destination           Location @relation("RouteDestination", fields: [destinationId], references: [id])
+  distanceAsphaltKm     Decimal  @default(0) // trecho de asfalto
+  distanceDirtKm        Decimal  @default(0) // trecho de terra
+  speedLoadedKmh        Decimal? // velocidade média carregado (cheio)
+  speedEmptyKmh         Decimal? // velocidade média vazio
+  loadMinutes           Int? // tempo de espera para carga
+  unloadMinutes         Int? // tempo de espera para descarga
+  // Expectativa total de ida e volta em DIAS. Quando preenchida, tem
+  // prioridade sobre o cálculo por velocidades/tempos.
+  expectedRoundTripDays Decimal?
+  // Composição fixa desta rota (ex.: trecho interno sempre feito de Tritrem).
+  // Quando preenchida, tem prioridade sobre o cadastro de placa e a coluna
+  // condicional — vazio significa que a viagem usa a composição normal da placa.
+  fixedComposition      String?
+  active                Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  freightPrices         RouteFreightPrice[]
+
+  @@unique([originId, destinationId])
+}
+
+// Unidade do valor de referência de frete — o preço da nota fiscal mistura
+// frete e produto, então a receita de frete não pode vir de lá; vem do valor
+// contratado por rota, na unidade que o produto daquela rota realmente usa
+// (pedido do usuário 2026-07-29). MDC = medida volumétrica de carvão.
+enum FreightRateUnit {
+  KM
+  TONELADA
+  MDC
+  M3
+}
+
+// Valor de referência de frete por rota, com histórico por data (mesmo
+// padrão de PlateComposition): o preço pode mudar, e as comparações devem
+// considerar o valor vigente na data de cada viagem, não só o mais recente.
+model RouteFreightPrice {
+  id              String          @id @default(uuid())
+  routeId         String
+  route           Route           @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  // Valor de referência em R$ POR unidade (ver campo unidade abaixo)
+  valorReferencia Decimal
+  unidade         FreightRateUnit @default(TONELADA)
+  effectiveFrom   DateTime? // null = cadastro inicial (vale desde sempre até a primeira mudança)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([routeId, effectiveFrom])
+}
+
+// Período de manutenção de um caminhão (placa). endDate NULL = manutenção em
+// aberto (ainda não voltou a rodar) — "colocar em manutenção" cria sem
+// endDate; "retirar de manutenção" preenche o endDate. O caminhão continua
+// contando na meta/ritmo esperado (ele deveria estar rodando) — o período em
+// manutenção só serve para explicar o desvio de performance no painel.
+model VehicleMaintenance {
+  id        String    @id @default(uuid())
+  placa     String
+  startDate DateTime
+  endDate   DateTime?
+  motivo    String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([placa, startDate])
+}
+
+// Período de férias de um motorista, mesmo padrão de VehicleMaintenance.
+model DriverVacation {
+  id        String    @id @default(uuid())
+  motorista String
+  startDate DateTime
+  endDate   DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([motorista, startDate])
+}
+
+// Justificativa de atraso de uma viagem específica (chave = mesma
+// normalização usada para agrupar a viagem em src/lib/fase1/trips.ts:
+// data+placa+motorista+destino). Uma viagem tem no máximo uma justificativa;
+// editar substitui o motivo anterior.
+model TripJustification {
+  id        String    @id @default(uuid())
+  tripKey   String    @unique
+  motivo    String
+  // Nova previsão de retorno dada junto com a justificativa (opcional). Se
+  // vencer e a viagem continuar sem correção (mesmo tripKey ainda
+  // atrasado/muito atrasado), o painel gera um novo alerta.
+  novaPrevisao DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+// Tabela de referência: peso máximo permitido por tipo de composição
+// (implemento), usada na conformidade de peso (Fase 1). `composition` casa
+// com o mesmo valor usado em PlateComposition.composition / TipoComposição —
+// é a chave, não precisa de tabela de associação separada.
+model CompositionSpec {
+  id                 String   @id @default(uuid())
+  composition        String   @unique
+  numEixos           String?
+  pbtcMaximoTon      Decimal?
+  taraMinTon         Decimal?
+  taraMaxTon         Decimal?
+  cargaLiquidaMinTon Decimal?
+  // Teto usado na conformidade: peso líquido da viagem não pode superar este valor.
+  cargaLiquidaMaxTon Decimal?
+  active             Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+// Classificação de produto (Carvão, Cavaco, Maravalha, ...) — substitui a
+// coluna condicional fixa migrada do PowerQuery por um cadastro editável.
+// Casa pelo código do produto no ERP (CODIGOPRD), estável mesmo quando o
+// nome (PRODUTO) muda ou tem variação de acentuação.
+model ProductType {
+  id          String   @id @default(uuid())
+  codigoPrd   String   @unique
+  produtoNome String? // último nome (PRODUTO) visto no ERP, só referência
+  tipoProduto String // classificação (Carvão, Cavaco, Maravalha, Outros, ...)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
