@@ -7,8 +7,13 @@ export interface Connector {
    * Executa a consulta do dataset na fonte externa e retorna as linhas.
    * Se `watermark` for informado, deve retornar apenas registros com
    * incrementalField > watermark (recuperação incremental).
+   *
+   * `syncRunId` é opcional e hoje só usado pelo conector Omnilink, para
+   * registrar o detalhe por placa da sincronização (pedido do usuário
+   * 2026-08-17: "log mais detalhado para as recuperações do omnilink") —
+   * outros conectores simplesmente ignoram o parâmetro.
    */
-  fetchRows(source: DataSource, dataset: Dataset, watermark: string | null): Promise<ExternalRow[]>
+  fetchRows(source: DataSource, dataset: Dataset, watermark: string | null, syncRunId?: string): Promise<ExternalRow[]>
 }
 
 /** Lê credencial da fonte a partir do prefixo de env cadastrado. */

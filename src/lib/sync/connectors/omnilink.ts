@@ -1,4 +1,5 @@
 import type { DataSource, Dataset } from '@prisma/client'
+import { prisma } from '@/lib/prisma'
 import { type ExternalRow, envFor } from '../types'
 import { getDatasetView } from '@/lib/semantic/dataset-view'
 
@@ -139,14 +140,79 @@ export function parseVelocidadeSentido(s: string): { speedKmh: number | null; he
   return { speedKmh, heading }
 }
 
+export type ResultadoPlacaOmnilink = {
+  linhas: ExternalRow[]
+  status: 'OK' | 'NAO_LOCALIZADA' | 'ERRO'
+  mensagem: string | null
+}
+
+/**
+ * Busca as posições de UMA placa no intervalo [inicio, fim]. Extraído de
+ * `fetchOmnilinkPosicoes` para ser reutilizado também pela busca individual
+ * sob demanda (`buscarPosicaoIndividual`, `src/lib/sync/omnilink-manual.ts`)
+ * — pedido do usuário 2026-08-17: "tentar os que estão a muito tempo parado
+ * individualmente".
+ */
+export async function fetchPosicoesDaPlaca(
+  source: DataSource,
+  placa: string,
+  inicio: Date,
+  fim: Date,
+): Promise<ResultadoPlacaOmnilink> {
+  const baseUrl = baseUrlDe(source)
+  const token = await login(source)
+  const linhas: ExternalRow[] = []
+  try {
+    for (let parte = 1; parte <= MAX_PARTES; parte++) {
+      const res = await fetch(`${baseUrl}/api/omniturbo/relatorios/posicoes`, {
+        method: 'POST',
+        headers: { 'x-access-token': token, accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          inicio: fmtDataHora(inicio),
+          fim: fmtDataHora(fim),
+          placas: [placa],
+          withSinalVida: false,
+          parte,
+        }),
+      })
+      const body = (await res.json().catch(() => null)) as { dados?: { tabela?: ExternalRow[] } | string; mensagem?: string } | null
+      if (!res.ok) {
+        // IMPORTANTE (achado ao vivo 2026-07-30): "placa não localizada" não é
+        // um erro de sincronização — é essa placa específica sem rastreador
+        // instalado/ativado. "parte inválida" é só o fim da paginação (a API
+        // erra em vez de devolver página vazia).
+        if (typeof body?.dados === 'string' && body.dados.includes('não localizada')) {
+          return { linhas: [], status: 'NAO_LOCALIZADA', mensagem: null }
+        }
+        if (typeof body?.mensagem === 'string' && body.mensagem.includes('parte inválida')) break
+        const texto = JSON.stringify(body).slice(0, 300)
+        throw new Error(`Consulta de posições Omnilink falhou (status ${res.status}, placa ${placa}, parte ${parte}): ${texto}`)
+      }
+      const pagina = typeof body?.dados === 'object' ? body.dados?.tabela : undefined
+      if (!Array.isArray(pagina) || pagina.length === 0) break
+
+      // Enriquece cada linha com um campo ISO próprio para marca d'água/chave
+      // primária — o campo original (`envio_recepcao`) é um intervalo em
+      // texto (DD/MM/AAAA), não ordena corretamente como string simples.
+      for (const row of pagina) {
+        const capturedAt = parseEnvioRecepcao(String(row.envio_recepcao ?? ''))
+        if (capturedAt) row._capturedAtIso = capturedAt.toISOString()
+        linhas.push(row)
+      }
+    }
+    return { linhas, status: 'OK', mensagem: null }
+  } catch (err) {
+    const mensagem = err instanceof Error ? err.message : String(err)
+    return { linhas, status: 'ERRO', mensagem }
+  }
+}
+
 export async function fetchOmnilinkPosicoes(
   source: DataSource,
   _dataset: Dataset,
   watermark: string | null,
+  syncRunId?: string,
 ): Promise<ExternalRow[]> {
-  const baseUrl = baseUrlDe(source)
-  const token = await login(source)
-
   const fim = new Date()
   // Sem marca d'água ainda (1ª sincronização): última hora, para não puxar
   // um histórico enorme de uma vez (mesmo sem sinal de vida, o volume é
@@ -166,36 +232,37 @@ export async function fetchOmnilinkPosicoes(
   // (token, rede, etc.) continua interrompendo a sincronização.
   const linhas: ExternalRow[] = []
   for (const placa of placas) {
-    for (let parte = 1; parte <= MAX_PARTES; parte++) {
-      const res = await fetch(`${baseUrl}/api/omniturbo/relatorios/posicoes`, {
-        method: 'POST',
-        headers: { 'x-access-token': token, accept: 'application/json', 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          inicio: fmtDataHora(inicio),
-          fim: fmtDataHora(fim),
-          placas: [placa],
-          withSinalVida: false,
-          parte,
-        }),
-      })
-      const body = (await res.json().catch(() => null)) as { dados?: { tabela?: ExternalRow[] } | string; mensagem?: string } | null
-      if (!res.ok) {
-        if (typeof body?.dados === 'string' && body.dados.includes('não localizada')) break // placa sem rastreador — ignora, segue pras outras
-        if (typeof body?.mensagem === 'string' && body.mensagem.includes('parte inválida')) break // fim da paginação: API erra em vez de devolver página vazia
-        const texto = JSON.stringify(body).slice(0, 300)
-        throw new Error(`Consulta de posições Omnilink falhou (status ${res.status}, placa ${placa}, parte ${parte}): ${texto}`)
-      }
-      const pagina = typeof body?.dados === 'object' ? body.dados?.tabela : undefined
-      if (!Array.isArray(pagina) || pagina.length === 0) break
+    const resultado = await fetchPosicoesDaPlaca(source, placa, inicio, fim)
+    linhas.push(...resultado.linhas)
 
-      // Enriquece cada linha com um campo ISO próprio para marca d'água/chave
-      // primária — o campo original (`envio_recepcao`) é um intervalo em
-      // texto (DD/MM/AAAA), não ordena corretamente como string simples.
-      for (const row of pagina) {
-        const capturedAt = parseEnvioRecepcao(String(row.envio_recepcao ?? ''))
-        if (capturedAt) row._capturedAtIso = capturedAt.toISOString()
-        linhas.push(row)
+    // Log detalhado por placa (pedido do usuário 2026-08-17: "vamos precisar
+    // de um log mais detalhado para as recuperações do omnilink") — sem isso
+    // o SyncRun só tinha um total agregado da sincronização inteira inteira,
+    // sem dar pra saber qual placa parou de responder e quando.
+    if (syncRunId) {
+      let ultimaPosicaoEm: Date | null = null
+      for (const row of resultado.linhas) {
+        if (!row._capturedAtIso) continue
+        const d = new Date(String(row._capturedAtIso))
+        if (!ultimaPosicaoEm || d > ultimaPosicaoEm) ultimaPosicaoEm = d
       }
+      await prisma.omnilinkSyncPlaca.create({
+        data: {
+          syncRunId,
+          placa,
+          status: resultado.status,
+          rowsRecebidas: resultado.linhas.length,
+          ultimaPosicaoEm,
+          mensagem: resultado.mensagem,
+        },
+      })
+    }
+
+    // Erro genuíno (não "não localizada") continua interrompendo a
+    // sincronização inteira, como antes — só que agora o log da placa que
+    // falhou já ficou registrado acima antes de propagar o erro.
+    if (resultado.status === 'ERRO') {
+      throw new Error(resultado.mensagem ?? `Falha desconhecida ao buscar posições da placa ${placa}`)
     }
   }
   return linhas

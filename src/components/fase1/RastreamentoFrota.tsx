@@ -114,10 +114,35 @@ function minutosDesde(iso: string): number {
   return Math.round((Date.now() - new Date(iso).getTime()) / 60_000)
 }
 
+// Acima disso, a última posição do rastreador é velha demais pra confiar no
+// "parado há Xh" — pode ser um problema real de comunicação (rastreador
+// morto), não necessariamente o veículo parado por tanto tempo assim. Achado
+// real 2026-08-17: usuário reportou placas com "250h+ na Palmyra", que pode
+// ser tanto um problema mecânico real quanto o rastreador que parou de
+// responder — sem comparar com a última posição recebida não dá pra saber.
+const LIMIAR_SEM_COMUNICACAO_MIN = 120
+
 /** Badge "no local: X, há Yh" — sobrepõe indo/voltando quando o caminhão está parado num Local cadastrado (pedido do usuário 2026-08-03, caso TBH2C02). */
-function LocalAtualBadge({ localAtual }: { localAtual: { nome: string; chegada: string } }) {
+function LocalAtualBadge({
+  localAtual,
+  ultimaComunicacao,
+}: {
+  localAtual: { nome: string; chegada: string }
+  /** capturedAt da última posição GPS conhecida da placa — usado só para o alerta de comunicação parada, não para a duração exibida */
+  ultimaComunicacao?: string
+}) {
+  const minutosSemComunicacao = ultimaComunicacao != null ? minutosDesde(ultimaComunicacao) : null
+  const semComunicacao = minutosSemComunicacao != null && minutosSemComunicacao > LIMIAR_SEM_COMUNICACAO_MIN
   return (
-    <span className="rounded bg-violet-100 px-2 py-0.5 text-xs text-violet-800" title={fmtDataHora(localAtual.chegada)}>
+    <span
+      className={`rounded px-2 py-0.5 text-xs ${semComunicacao ? 'bg-red-100 text-red-800' : 'bg-violet-100 text-violet-800'}`}
+      title={
+        semComunicacao
+          ? `Última posição recebida há ${fmtDuracao(minutosSemComunicacao!)} (${fmtDataHora(ultimaComunicacao!)}) — pode ser rastreador sem comunicar, não necessariamente o veículo parado`
+          : fmtDataHora(localAtual.chegada)
+      }
+    >
+      {semComunicacao ? '⚠ sem comunicação · ' : ''}
       no local: {localAtual.nome} · há {fmtDuracao(minutosDesde(localAtual.chegada))}
     </span>
   )
@@ -443,7 +468,7 @@ export function RastreamentoFrota({
                       </td>
                       <td className="px-3 py-2">
                         {p.localAtual ? (
-                          <LocalAtualBadge localAtual={p.localAtual} />
+                          <LocalAtualBadge localAtual={p.localAtual} ultimaComunicacao={p.capturedAt} />
                         ) : p.sentido ? (
                           <span className={`rounded px-2 py-0.5 text-xs ${SENTIDO_CLASS[p.sentido]}`}>
                             {SENTIDO_LABEL[p.sentido]}
@@ -508,7 +533,7 @@ export function RastreamentoFrota({
                       <td className="px-3 py-2">{p.status ?? '—'}</td>
                       <td className="px-3 py-2">
                         {p.localAtual ? (
-                          <LocalAtualBadge localAtual={p.localAtual} />
+                          <LocalAtualBadge localAtual={p.localAtual} ultimaComunicacao={p.capturedAt} />
                         ) : p.sentido ? (
                           <span className={`rounded px-2 py-0.5 text-xs ${SENTIDO_CLASS[p.sentido]}`}>
                             {SENTIDO_LABEL[p.sentido]}

@@ -163,9 +163,42 @@ model SyncRun {
   watermarkBefore String?    @map("watermark_before")
   watermarkAfter  String?    @map("watermark_after")
   error           String?
+  omnilinkDetalhes OmnilinkSyncPlaca[]
 
   @@index([datasetId, startedAt])
   @@map("sync_runs")
+}
+
+enum OmnilinkSyncStatus {
+  OK
+  NAO_LOCALIZADA
+  ERRO
+}
+
+/**
+ * Detalhe por placa de cada sincronização do Omnilink (pedido do usuário
+ * 2026-08-17: "vamos precisar de um log mais detalhado para as recuperações
+ * do omnilink") — o SyncRun sozinho só tinha um total agregado da
+ * sincronização inteira, sem dar pra saber qual placa parou de responder e
+ * quando. `manual` marca uma busca individual sob demanda (botão "buscar
+ * agora"), fora do ciclo normal de sincronização — não tem SyncRun de
+ * dataset associado, por isso syncRunId é opcional.
+ */
+model OmnilinkSyncPlaca {
+  id              String             @id @default(uuid())
+  syncRunId       String?            @map("sync_run_id")
+  syncRun         SyncRun?           @relation(fields: [syncRunId], references: [id], onDelete: Cascade)
+  placa           String
+  status          OmnilinkSyncStatus
+  rowsRecebidas   Int                @default(0) @map("rows_recebidas")
+  ultimaPosicaoEm DateTime?          @map("ultima_posicao_em")
+  mensagem        String?
+  manual          Boolean            @default(false)
+  createdAt       DateTime           @default(now()) @map("created_at")
+
+  @@index([placa, createdAt])
+  @@index([syncRunId])
+  @@map("omnilink_sync_placa")
 }
 
 // ============================================================

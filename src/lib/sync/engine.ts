@@ -105,7 +105,7 @@ async function syncDatasetUnlocked(datasetId: string): Promise<{ rowsUpserted: n
     // o servidor — pedido do usuário: detalhar o erro de sincronização.
     let rows: ExternalRow[]
     try {
-      rows = await connector.fetchRows(dataset.dataSource as DataSource, dataset, dataset.watermark)
+      rows = await connector.fetchRows(dataset.dataSource as DataSource, dataset, dataset.watermark, run.id)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       // "fetch failed" sozinho não diz nada — o motivo real (DNS, conexão

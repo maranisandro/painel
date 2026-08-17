@@ -283,6 +283,14 @@ function fmtDateHora(iso: string): string {
   return `${fmtDate(iso)} ${hh}:${mm}`
 }
 
+/** minutos -> "Xh Ymin" / "Xmin" — usado no card de comunicação GPS (Omnilink). */
+function fmtDuracaoCurta(min: number): string {
+  if (min < 60) return `${min} min`
+  const h = Math.floor(min / 60)
+  const m = min % 60
+  return m > 0 ? `${h}h${m}min` : `${h}h`
+}
+
 function countBy(rows: Trip[], field: string): NameValue[] {
   const map = new Map<string, number>()
   for (const r of rows) {
@@ -3101,6 +3109,49 @@ function PlacaDetailModal({
   // raramente gasolina/lubrificante) cai na aba Diesel.
   const [detalheSubTab, setDetalheSubTab] = useState<'diesel' | 'arla'>('diesel')
   const detalheFiltrado = consumo?.detalhe.filter((a) => (detalheSubTab === 'arla' ? /ARLA/i.test(a.produto) : !/ARLA/i.test(a.produto))) ?? []
+
+  // Comunicação GPS (Omnilink) — pedido do usuário 2026-08-17: "talvez na
+  // aba por placa tentar um modal para ter a informação por placa destas
+  // comunicações", motivado pelo caso real de placas aparecendo "250h+ na
+  // Palmyra" (ambíguo entre problema mecânico real e rastreador que parou de
+  // comunicar). Só faz sentido na aba Por Placa (truck.key é uma placa) —
+  // na aba Por Motorista, truck.key é o nome do motorista.
+  const ehPlaca = otherFieldKey === 'MOTORISTA'
+  const [comunicacao, setComunicacao] = useState<{
+    ultimaPosicao: { capturedAt: string; localizacao: string | null } | null
+    localAtual: { nome: string; chegada: string } | null
+    ultimosLogs: { status: string; rowsRecebidas: number; ultimaPosicaoEm: string | null; mensagem: string | null; manual: boolean; createdAt: string }[]
+  } | null>(null)
+  const [buscandoAgora, setBuscandoAgora] = useState(false)
+  const [erroBuscarAgora, setErroBuscarAgora] = useState<string | null>(null)
+
+  const carregarComunicacao = useCallback(async () => {
+    if (!ehPlaca) return
+    const res = await fetch(`/api/fase1/rastreamento/ultima-comunicacao?placa=${encodeURIComponent(truck.key)}`)
+    if (res.ok) setComunicacao(await res.json())
+  }, [ehPlaca, truck.key])
+
+  useEffect(() => {
+    void carregarComunicacao()
+  }, [carregarComunicacao])
+
+  async function buscarAgora() {
+    setBuscandoAgora(true)
+    setErroBuscarAgora(null)
+    const res = await fetch('/api/fase1/rastreamento/buscar-agora', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ placa: truck.key }),
+    })
+    const body = await res.json().catch(() => null)
+    setBuscandoAgora(false)
+    if (!res.ok) {
+      setErroBuscarAgora(body?.error ?? 'Falha ao buscar posição')
+      return
+    }
+    await carregarComunicacao()
+  }
+
   if (typeof document === 'undefined') return null
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
@@ -3211,6 +3262,66 @@ function PlacaDetailModal({
             {consumo?.arlaAlerta && <p className="mt-0.5 text-xs text-red-700">{consumo.arlaAlerta}</p>}
           </div>
         </div>
+
+        {ehPlaca && (() => {
+          const minutosSemComunicacao = comunicacao?.ultimaPosicao
+            ? Math.round((Date.now() - new Date(comunicacao.ultimaPosicao.capturedAt).getTime()) / 60_000)
+            : null
+          const semComunicacao = minutosSemComunicacao != null && minutosSemComunicacao > 120
+          return (
+            <div className="mt-6 rounded-lg border border-slate-200 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="font-medium">Comunicação GPS (Omnilink)</h3>
+                <button
+                  onClick={buscarAgora}
+                  disabled={buscandoAgora}
+                  className="rounded bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200 disabled:opacity-50"
+                >
+                  {buscandoAgora ? 'Buscando…' : '🔄 buscar agora'}
+                </button>
+              </div>
+              {erroBuscarAgora && <p className="mt-1 text-xs text-red-700">{erroBuscarAgora}</p>}
+              {!comunicacao ? (
+                <p className="mt-2 text-sm text-slate-500">Carregando…</p>
+              ) : (
+                <div className="mt-2 space-y-1 text-sm">
+                  {comunicacao.ultimaPosicao ? (
+                    <p className={semComunicacao ? 'font-medium text-red-700' : 'text-slate-700'}>
+                      {semComunicacao ? '⚠ ' : ''}Última posição recebida: {fmtDateHora(comunicacao.ultimaPosicao.capturedAt)}
+                      {' '}({fmtDuracaoCurta(minutosSemComunicacao!)} atrás)
+                      {comunicacao.ultimaPosicao.localizacao && ` · ${comunicacao.ultimaPosicao.localizacao}`}
+                    </p>
+                  ) : (
+                    <p className="text-slate-500">Nenhuma posição GPS registrada para esta placa.</p>
+                  )}
+                  {comunicacao.localAtual && (
+                    <p className="text-slate-500">
+                      Parado em: {comunicacao.localAtual.nome} desde {fmtDateHora(comunicacao.localAtual.chegada)}
+                    </p>
+                  )}
+                  {semComunicacao && (
+                    <p className="text-xs text-slate-500">
+                      Rastreador sem responder há mais de 2h — o tempo "parado" pode estar contando um problema de comunicação, não necessariamente o veículo. Use "buscar agora" para checar.
+                    </p>
+                  )}
+                  {comunicacao.ultimosLogs.length > 0 && (
+                    <details className="mt-1">
+                      <summary className="cursor-pointer text-xs text-slate-500">Últimas recuperações desta placa ({comunicacao.ultimosLogs.length})</summary>
+                      <ul className="mt-1 space-y-0.5 text-xs text-slate-500">
+                        {comunicacao.ultimosLogs.map((l, i) => (
+                          <li key={i}>
+                            {fmtDateHora(l.createdAt)} — {l.manual ? 'busca individual' : 'sincronização'}:{' '}
+                            {l.status === 'OK' ? `${l.rowsRecebidas} posição(ões)` : l.status === 'NAO_LOCALIZADA' ? 'placa não localizada' : `erro: ${l.mensagem ?? ''}`}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })()}
 
         {consumo && consumo.detalhe.length > 0 && (
           <div className="mt-6">
