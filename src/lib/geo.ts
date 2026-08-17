@@ -31,6 +31,41 @@ export interface GeofenceLocation {
   polygon: { lat: number; lng: number }[] | null
 }
 
+/**
+ * Agrupa pontos por proximidade (clustering guloso simples, sem dependência
+ * externa): cada ponto entra no cluster já existente mais próximo (dentro do
+ * raio) ou abre um novo. O(n × clusters), aceitável para os volumes deste
+ * projeto (posições de um recorte de tempo limitado, não o histórico
+ * inteiro). Usado para sugerir Locais (oficina/pernoite) a partir de GPS sem
+ * nenhum identificador de negócio associado.
+ */
+export function agruparPorProximidade<T extends { lat: number; lng: number }>(
+  pontos: T[],
+  raioMetros: number,
+): T[][] {
+  const clusters: { centroLat: number; centroLng: number; n: number; itens: T[] }[] = []
+  for (const p of pontos) {
+    let melhor: (typeof clusters)[number] | null = null
+    let melhorDist = Infinity
+    for (const c of clusters) {
+      const d = haversineKm({ lat: c.centroLat, lng: c.centroLng }, { lat: p.lat, lng: p.lng }) * 1000
+      if (d <= raioMetros && d < melhorDist) {
+        melhor = c
+        melhorDist = d
+      }
+    }
+    if (melhor) {
+      melhor.centroLat = (melhor.centroLat * melhor.n + p.lat) / (melhor.n + 1)
+      melhor.centroLng = (melhor.centroLng * melhor.n + p.lng) / (melhor.n + 1)
+      melhor.n++
+      melhor.itens.push(p)
+    } else {
+      clusters.push({ centroLat: p.lat, centroLng: p.lng, n: 1, itens: [p] })
+    }
+  }
+  return clusters.map((c) => c.itens)
+}
+
 /** Local (ponto+raio OU polígono) que contém a posição informada, se houver. */
 export function findContainingLocation<T extends GeofenceLocation>(
   point: { lat: number; lng: number },

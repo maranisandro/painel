@@ -47,6 +47,16 @@ interface PendingUnit {
   viagens: number
 }
 
+interface PendingOficina {
+  latitude: number
+  longitude: number
+  nPosicoes: number
+  placas: string[]
+  primeiraData: string
+  ultimaData: string
+  horasEstimadas: number
+}
+
 const EMPTY = {
   name: '',
   officialName: '',
@@ -64,6 +74,7 @@ const EMPTY = {
 export default function LocaisPage() {
   const [locations, setLocations] = useState<Location[]>([])
   const [pending, setPending] = useState<PendingUnit[]>([])
+  const [pendingOficinas, setPendingOficinas] = useState<PendingOficina[]>([])
   const [form, setForm] = useState(EMPTY)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [error, setError] = useState('')
@@ -81,12 +92,14 @@ export default function LocaisPage() {
   }, [locations, filter])
 
   const load = useCallback(async () => {
-    const [res, pend] = await Promise.all([
+    const [res, pend, pendOficinas] = await Promise.all([
       fetch('/api/admin/locations'),
       fetch('/api/admin/locations/pending'),
+      fetch('/api/admin/locations/pending-oficinas'),
     ])
     if (res.ok) setLocations(await res.json())
     if (pend.ok) setPending(await pend.json())
+    if (pendOficinas.ok) setPendingOficinas(await pendOficinas.json())
   }, [])
 
   useEffect(() => {
@@ -126,6 +139,26 @@ export default function LocaisPage() {
       latitude: '',
       longitude: '',
       raioMetros: '',
+      polygon: null,
+    })
+    setError('')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  /** Pré-preenche o formulário a partir de um cluster de GPS candidato a Oficina. */
+  function startFromPendingOficina(p: PendingOficina) {
+    setEditingId(null)
+    setForm({
+      name: '',
+      officialName: '',
+      type: 'OFICINA',
+      matchColigada: '',
+      matchFilial: '',
+      matchClientePattern: '',
+      motoristaNome: '',
+      latitude: p.latitude.toFixed(6),
+      longitude: p.longitude.toFixed(6),
+      raioMetros: '300',
       polygon: null,
     })
     setError('')
@@ -432,6 +465,42 @@ export default function LocaisPage() {
                   className="rounded-md border border-emerald-600 px-3 py-1 text-xs text-emerald-700 hover:bg-emerald-50"
                 >
                   Cadastrar
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {pendingOficinas.length > 0 && (
+        <div className="rounded-xl border border-violet-300 bg-violet-50 p-4">
+          <h2 className="font-medium text-violet-900">
+            Possíveis oficinas encontradas no rastreamento ({pendingOficinas.length})
+          </h2>
+          <p className="text-sm text-violet-800">
+            Placas em manutenção ficaram um bom tempo (GPS) num ponto sem Local cadastrado — confira e
+            dê um nome para registrar como Oficina.
+          </p>
+          <div className="mt-2 space-y-1">
+            {pendingOficinas.map((p, i) => (
+              <div
+                key={`${p.latitude}-${p.longitude}-${i}`}
+                className="flex items-center justify-between rounded-md bg-white px-3 py-1.5 text-sm"
+              >
+                <span>
+                  <span className="font-mono text-xs text-slate-500">
+                    {p.latitude.toFixed(5)}, {p.longitude.toFixed(5)}
+                  </span>{' '}
+                  <span className="font-medium">
+                    ~{p.horasEstimadas}h parado(s) ({p.nPosicoes} posições)
+                  </span>
+                  <span className="ml-2 text-xs text-slate-500">placa(s): {p.placas.join(', ')}</span>
+                </span>
+                <button
+                  onClick={() => startFromPendingOficina(p)}
+                  className="rounded-md border border-violet-600 px-3 py-1 text-xs text-violet-700 hover:bg-violet-50"
+                >
+                  Cadastrar como Oficina
                 </button>
               </div>
             ))}

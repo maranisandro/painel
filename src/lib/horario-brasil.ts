@@ -5,12 +5,28 @@
  * usuário 2026-08-13: "os comparativos do mês... até o D-1... chegou as
  * 18:00h do D já podemos incluir".
  */
+// Instâncias reaproveitadas (não recriadas a cada chamada) — `diaBrasilDe`/
+// `horaBrasilDe` rodam num loop por posição de GPS (até centenas de milhares
+// de linhas, ver rota de pernoite) e `new Intl.DateTimeFormat(...)` a cada
+// chamada é caro o bastante para virar um travamento real nesse volume
+// (achado real 2026-08-17: mais de 2 minutos para ~355 mil posições).
+const FMT_DIA_BRASIL = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' })
+const FMT_HORA_BRASIL = new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Sao_Paulo', hour: '2-digit', hourCycle: 'h23' })
+
 export function hojeBrasil(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date())
+  return FMT_DIA_BRASIL.format(new Date())
 }
 
 export function horaBrasil(): number {
-  return Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Sao_Paulo', hour: '2-digit', hourCycle: 'h23' }).format(new Date()))
+  return Number(FMT_HORA_BRASIL.format(new Date()))
+}
+
+/** Mesmas `hojeBrasil()`/`horaBrasil()`, mas para um instante qualquer — usado para classificar posições de GPS por dia/hora local (pedido do usuário 2026-08-17: identificar onde os caminhões param à noite). */
+export function diaBrasilDe(data: Date): string {
+  return FMT_DIA_BRASIL.format(data)
+}
+export function horaBrasilDe(data: Date): number {
+  return Number(FMT_HORA_BRASIL.format(data))
 }
 
 /**

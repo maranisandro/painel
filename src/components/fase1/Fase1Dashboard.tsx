@@ -8,6 +8,7 @@ import { calcularConsumo, agruparConsumoPorMotorista, type ConsumoPlaca } from '
 import { DateRangeInputs, fmtDateBR } from '@/components/shared/DateRangeInputs'
 import { CriticaModeloTab } from './CriticaModeloTab'
 import { Fase1Estrategico } from './Fase1Estrategico'
+import { Fase1Disponibilidade } from './Fase1Disponibilidade'
 
 type Trip = Record<string, unknown>
 
@@ -74,6 +75,7 @@ interface ApiData {
     placa: string
     aberta: boolean
     startDate: string
+    endDate: string | null
     previsaoConclusao: string | null
     dias: number
     motivo: string | null
@@ -224,7 +226,7 @@ const DIM_LABELS: Record<DimKey, string> = {
 // valer para as duas — a lógica abaixo é parametrizada por groupField
 // exatamente para isso. "board" é o acompanhamento simples (ícones por
 // caminhão) — não segue essa regra de espelhamento, tem estrutura própria.
-type Aba = 'placa' | 'motorista' | 'board' | 'atrasados' | 'combustivel' | 'critica' | 'estrategico'
+type Aba = 'placa' | 'motorista' | 'board' | 'atrasados' | 'combustivel' | 'critica' | 'estrategico' | 'disponibilidade'
 
 // Ícone por classificação de produto no acompanhamento simples
 function produtoIcone(tipo: string): string {
@@ -1892,7 +1894,7 @@ export function Fase1Dashboard() {
       )}
 
       <div id="secao-tabela" className="flex flex-wrap gap-2 border-b border-slate-200">
-        {(['placa', 'estrategico', 'motorista', 'board', 'atrasados', 'combustivel', 'critica'] as Aba[]).map((a) => (
+        {(['placa', 'estrategico', 'disponibilidade', 'motorista', 'board', 'atrasados', 'combustivel', 'critica'] as Aba[]).map((a) => (
           <button
             key={a}
             onClick={() => setAba(a)}
@@ -1910,7 +1912,9 @@ export function Fase1Dashboard() {
                       ? 'Combustível'
                       : a === 'critica'
                         ? 'Crítica ao modelo'
-                        : 'Painel estratégico (ano)'}
+                        : a === 'disponibilidade'
+                          ? 'Disponibilidade & Eficiência'
+                          : 'Painel estratégico (ano)'}
           </button>
         ))}
       </div>
@@ -2265,6 +2269,15 @@ export function Fase1Dashboard() {
         <CriticaModeloTab />
       ) : aba === 'estrategico' ? (
         <Fase1Estrategico trips={data?.trips ?? []} custoMesRegistrado={data?.params.custoMesRegistrado ?? {}} />
+      ) : aba === 'disponibilidade' ? (
+        <Fase1Disponibilidade
+          trips={data?.trips ?? []}
+          manutencoes={data?.manutencoes ?? []}
+          from={from}
+          to={to}
+          metaKm={data?.params.metaKm ?? 8000}
+          metaKmPorComposicao={data?.params.metaKmPorComposicao ?? {}}
+        />
       ) : (
         <>
       {/* Tabela principal: agrupada por placa ou motorista, conforme a aba */}

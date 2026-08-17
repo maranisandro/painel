@@ -315,6 +315,7 @@ export async function GET(req: NextRequest) {
     // 2026-08-17), que mostra o tempo parado desde sempre, não só a
     // sobreposição com o período filtrado (isso fica em `dias` abaixo).
     startDate: m.startDate.toISOString().slice(0, 10),
+    endDate: m.endDate ? m.endDate.toISOString().slice(0, 10) : null,
     previsaoConclusao: m.previsaoConclusao ? m.previsaoConclusao.toISOString().slice(0, 10) : null,
     dias: overlapDays(
       m.startDate.toISOString().slice(0, 10),

@@ -80,6 +80,25 @@ interface PermanenciaInfo {
   duracaoMinutos: number | null
 }
 
+interface PernoiteInfo {
+  placa: string
+  noite: string
+  latitude: number
+  longitude: number
+  localNome: string | null
+  localTipo: string | null
+  nPosicoes: number
+  primeiraHora: string
+  ultimaHora: string
+}
+
+interface ResumoPernoiteInfo {
+  nome: string
+  tipo: string | null
+  noites: number
+  placas: string[]
+}
+
 function fmtDuracao(min: number | null): string {
   if (min == null) return 'em andamento'
   if (min < 60) return `${min} min`
@@ -117,6 +136,12 @@ function fmtDataHora(iso: string): string {
   return new Date(iso).toLocaleString('pt-BR')
 }
 
+/** 'YYYY-MM-DD' -> 'dd/mm/yyyy', sem passar por Date (evita deslocamento de fuso numa data pura). */
+function fmtDataCurta(dataStr: string): string {
+  const [y, m, d] = dataStr.split('-')
+  return `${d}/${m}/${y}`
+}
+
 function haQuanto(iso: string): string {
   const min = Math.round((Date.now() - new Date(iso).getTime()) / 60_000)
   if (min < 1) return 'agora'
@@ -140,7 +165,7 @@ export function RastreamentoFrota({
   locations: LocationMarker[]
   positions: VehiclePositionInfo[]
 }) {
-  const [tab, setTab] = useState<'mapa' | 'lista' | 'permanencia'>('mapa')
+  const [tab, setTab] = useState<'mapa' | 'lista' | 'permanencia' | 'pernoite'>('mapa')
   const [historicoPlaca, setHistoricoPlaca] = useState<string | null>(null)
   const [historico, setHistorico] = useState<HistoricoPonto[]>([])
   const [carregandoHistorico, setCarregandoHistorico] = useState(false)
@@ -172,6 +197,35 @@ export function RastreamentoFrota({
     if (tab === 'permanencia') void loadPermanencias()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, permFrom, permTo])
+
+  // Locais de pernoite — pedido do usuário 2026-08-17: "identificar os
+  // locais que os caminhões estão ficando parados a noite". Mesma UX de
+  // período do que a aba Permanência, mas por GPS bruto (não depende de
+  // Local cadastrado) — ver src/app/api/fase1/rastreamento/pernoite/route.ts.
+  const [pernoites, setPernoites] = useState<PernoiteInfo[]>([])
+  const [resumoPernoite, setResumoPernoite] = useState<ResumoPernoiteInfo[]>([])
+  const [pernFrom, setPernFrom] = useState(() => new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10))
+  const [pernTo, setPernTo] = useState(() => new Date().toISOString().slice(0, 10))
+  const [carregandoPernoite, setCarregandoPernoite] = useState(false)
+
+  const loadPernoites = async () => {
+    setCarregandoPernoite(true)
+    const res = await fetch(`/api/fase1/rastreamento/pernoite?from=${pernFrom}&to=${pernTo}`)
+    if (res.ok) {
+      const body = await res.json()
+      setPernoites(body.pernoites)
+      setResumoPernoite(body.resumo)
+    } else {
+      setPernoites([])
+      setResumoPernoite([])
+    }
+    setCarregandoPernoite(false)
+  }
+
+  useEffect(() => {
+    if (tab === 'pernoite') void loadPernoites()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, pernFrom, pernTo])
 
   // Alertas de excesso de velocidade — pedido do usuário 2026-08-03: precisam
   // de reconhecimento formal (motivo + usuário), não só aparecer no mapa.
@@ -332,7 +386,7 @@ export function RastreamentoFrota({
       )}
 
       <div className="mb-4 flex gap-1 border-b border-slate-200">
-        {(['mapa', 'lista', 'permanencia'] as const).map((t) => (
+        {(['mapa', 'lista', 'permanencia', 'pernoite'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -342,7 +396,7 @@ export function RastreamentoFrota({
                 : 'border-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-700'
             }`}
           >
-            {t === 'mapa' ? 'Mapa' : t === 'lista' ? 'Última posição' : 'Permanência'}
+            {t === 'mapa' ? 'Mapa' : t === 'lista' ? 'Última posição' : t === 'permanencia' ? 'Permanência' : 'Pernoite'}
           </button>
         ))}
       </div>
@@ -470,7 +524,7 @@ export function RastreamentoFrota({
             </tbody>
           </table>
         </div>
-      ) : (
+      ) : tab === 'permanencia' ? (
         <div>
           <div className="mb-3 flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-3">
             <div>
@@ -533,6 +587,108 @@ export function RastreamentoFrota({
                   <tr>
                     <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
                       Nenhuma visita a local cadastrado no período.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <div className="mb-3 flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-600">De</label>
+              <input
+                type="date"
+                value={pernFrom}
+                onChange={(e) => setPernFrom(e.target.value)}
+                className="mt-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600">Até</label>
+              <input
+                type="date"
+                value={pernTo}
+                onChange={(e) => setPernTo(e.target.value)}
+                className="mt-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+              />
+            </div>
+            <span className="text-xs text-slate-500">
+              {carregandoPernoite ? 'carregando…' : `${pernoites.length} pernoite(s) no período`}
+            </span>
+          </div>
+
+          <div className="mb-4 overflow-x-auto rounded-xl border border-slate-200 bg-white">
+            <div className="border-b border-slate-100 px-3 py-2 text-xs font-semibold text-slate-600">
+              Locais mais frequentes de pernoite
+            </div>
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-left text-slate-600">
+                <tr>
+                  <th className="px-3 py-2">Local</th>
+                  <th className="px-3 py-2">Tipo</th>
+                  <th className="px-3 py-2 text-right">Noites</th>
+                  <th className="px-3 py-2">Placas</th>
+                </tr>
+              </thead>
+              <tbody>
+                {resumoPernoite.map((r) => (
+                  <tr key={r.nome} className="border-t border-slate-100">
+                    <td className="px-3 py-2">{r.nome}</td>
+                    <td className="px-3 py-2 text-xs text-slate-500">
+                      {r.tipo ?? <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-800">sem cadastro</span>}
+                    </td>
+                    <td className="px-3 py-2 text-right font-medium">{r.noites}</td>
+                    <td className="px-3 py-2 font-mono text-xs text-slate-600">{r.placas.join(', ')}</td>
+                  </tr>
+                ))}
+                {resumoPernoite.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
+                      Nenhum pernoite identificado no período.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+            <div className="border-b border-slate-100 px-3 py-2 text-xs font-semibold text-slate-600">
+              Detalhe por noite
+            </div>
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-left text-slate-600">
+                <tr>
+                  <th className="px-3 py-2">Placa</th>
+                  <th className="px-3 py-2">Noite</th>
+                  <th className="px-3 py-2">Local</th>
+                  <th className="px-3 py-2">Primeira posição</th>
+                  <th className="px-3 py-2">Última posição</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pernoites.map((p) => (
+                  <tr key={`${p.placa}-${p.noite}`} className="border-t border-slate-100">
+                    <td className="px-3 py-2 font-mono font-medium">{p.placa}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{fmtDataCurta(p.noite)}</td>
+                    <td className="px-3 py-2">
+                      {p.localNome ?? (
+                        <span className="text-xs text-slate-500">
+                          {p.latitude.toFixed(4)}, {p.longitude.toFixed(4)} (sem cadastro)
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap">{fmtDataHora(p.primeiraHora)}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{fmtDataHora(p.ultimaHora)}</td>
+                  </tr>
+                ))}
+                {pernoites.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                      Nenhum pernoite identificado no período.
                     </td>
                   </tr>
                 )}
