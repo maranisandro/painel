@@ -660,13 +660,35 @@ export function Fase1Dashboard() {
     return () => window.clearTimeout(timer)
   }, [load])
 
+  // Justificativas de atraso por viagem (chave = VIAGEM_KEY) — carregadas uma
+  // vez; salvar atualiza o mapa local sem precisar recarregar o painel todo.
+  // novaPrevisao (opcional): se vencer sem a viagem ser corrigida (mesmo
+  // tripKey ainda atrasado), vira um novo alerta — ver promessasVencidas.
+  // Também recarregado explicitamente depois de colocar uma placa em
+  // manutenção (achado real 2026-08-17: o servidor cria a justificativa
+  // automática, mas como este mapa só era buscado uma vez ao montar a
+  // página, a linha continuava mostrando "Justificar atraso" até o F5).
+  const [justificativas, setJustificativas] = useState<Map<string, Justificativa>>(new Map())
+  const loadJustificativas = useCallback(async () => {
+    const r = await fetch('/api/admin/trip-justifications')
+    if (!r.ok) return
+    const rows: { tripKey: string; motivo: string; novaPrevisao: string | null }[] = await r.json()
+    setJustificativas(new Map(rows.map((row) => [row.tripKey, { motivo: row.motivo, novaPrevisao: row.novaPrevisao }])))
+  }, [])
+  useEffect(() => {
+    void loadJustificativas()
+  }, [loadJustificativas])
+
   // Recarrega ao voltar para a aba: composição/limite de peso/preço editados
   // em outra tela (Cadastros) precisam refletir aqui sem exigir F5 manual —
   // conformidade de peso é sempre recalculada no servidor a partir do
   // cadastro vigente, então só falta buscar os dados de novo.
   useEffect(() => {
     function onVisible() {
-      if (document.visibilityState === 'visible') load()
+      if (document.visibilityState === 'visible') {
+        load()
+        void loadJustificativas()
+      }
     }
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('focus', onVisible)
@@ -674,7 +696,7 @@ export function Fase1Dashboard() {
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('focus', onVisible)
     }
-  }, [load])
+  }, [load, loadJustificativas])
 
   // Notificações reconhecíveis: cadastros faltando ajuste (unidades e
   // produtos sem classificação) — carregadas uma vez, não dependem do
@@ -688,21 +710,6 @@ export function Fase1Dashboard() {
   useEffect(() => {
     fetch('/api/admin/locations/pending').then((r) => (r.ok ? r.json() : [])).then(setPendingLocations)
     fetch('/api/admin/product-types/pending').then((r) => (r.ok ? r.json() : [])).then(setPendingProducts)
-  }, [])
-
-  // Justificativas de atraso por viagem (chave = VIAGEM_KEY) — carregadas uma
-  // vez; salvar atualiza o mapa local sem precisar recarregar o painel todo.
-  // novaPrevisao (opcional): se vencer sem a viagem ser corrigida (mesmo
-  // tripKey ainda atrasado), vira um novo alerta — ver promessasVencidas.
-  const [justificativas, setJustificativas] = useState<Map<string, Justificativa>>(new Map())
-  useEffect(() => {
-    fetch('/api/admin/trip-justifications')
-      .then((r) => (r.ok ? r.json() : []))
-      .then((rows: { tripKey: string; motivo: string; novaPrevisao: string | null }[]) =>
-        setJustificativas(
-          new Map(rows.map((r) => [r.tripKey, { motivo: r.motivo, novaPrevisao: r.novaPrevisao }])),
-        ),
-      )
   }, [])
 
   const saveJustificativa = useCallback(async (tripKey: string, motivo: string, novaPrevisao: string | null) => {
@@ -723,21 +730,21 @@ export function Fase1Dashboard() {
   // pra badge/dias refletirem na hora.
   const [manutencaoErro, setManutencaoErro] = useState<string | null>(null)
   const toggleManutencao = useCallback(
-    async (placa: string) => {
+    async (placa: string, previsaoConclusao: string | null = null) => {
       setManutencaoErro(null)
       const res = await fetch('/api/fase1/manutencao/toggle', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ placa }),
+        body: JSON.stringify({ placa, previsaoConclusao }),
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
         setManutencaoErro(`${placa}: ${body.error ?? 'falha ao atualizar manutenção'}`)
         return
       }
-      await load()
+      await Promise.all([load(), loadJustificativas()])
     },
-    [load],
+    [load, loadJustificativas],
   )
 
   const pendingLocationsSig = pendingLocations.length
@@ -2386,7 +2393,7 @@ export function Fase1Dashboard() {
                     })
                   }
                   onSelect={(additive) => toggleFilter(activeDim, tr.key, additive)}
-                  onToggleManutencao={aba === 'placa' ? () => toggleManutencao(tr.key) : undefined}
+                  onToggleManutencao={aba === 'placa' ? (previsao) => toggleManutencao(tr.key, previsao) : undefined}
                 />
               )
             })}
@@ -2734,14 +2741,16 @@ function FragmentRow({
   anySelected: boolean
   onToggleExpand: () => void
   onSelect: (additive: boolean) => void
-  /** Botão rápido iniciar/parar manutenção (pedido do usuário 2026-08-14) — só na aba Por Placa, ausente na aba Por Motorista */
-  onToggleManutencao?: () => void
+  /** Botão rápido iniciar/parar manutenção (pedido do usuário 2026-08-14) — só na aba Por Placa, ausente na aba Por Motorista. Recebe a previsão de conclusão (opcional) quando está ABRINDO a manutenção — pedido do usuário 2026-08-17. */
+  onToggleManutencao?: (previsaoConclusao: string | null) => void
 }) {
   const st = STATUS_STYLE[truck.status]
   const [justificando, setJustificando] = useState(false)
   const [motivoInput, setMotivoInput] = useState(justificativa?.motivo ?? '')
   const [previsaoInput, setPrevisaoInput] = useState(justificativa?.novaPrevisao?.slice(0, 10) ?? '')
   const [salvandoMotivo, setSalvandoMotivo] = useState(false)
+  const [abrindoManutencao, setAbrindoManutencao] = useState(false)
+  const [previsaoManutencaoInput, setPrevisaoManutencaoInput] = useState('')
   const atrasado = truck.status === 'ATRASADO' || truck.status === 'MUITO_ATRASADO'
 
   async function salvarJustificativa(e: React.FormEvent) {
@@ -2831,25 +2840,56 @@ function FragmentRow({
               {ausencia.aberta ? ' (em aberto)' : ''}
             </span>
           )}
-          {onToggleManutencao && (
+          {onToggleManutencao && ausencia?.aberta && (
             <button
               onClick={(e) => {
                 e.stopPropagation()
-                onToggleManutencao()
+                onToggleManutencao(null)
               }}
-              title={
-                ausencia?.aberta
-                  ? 'Retirar esta placa da manutenção (fecha hoje)'
-                  : 'Colocar esta placa em manutenção a partir de hoje'
-              }
-              className={`ml-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                ausencia?.aberta
-                  ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
+              title="Retirar esta placa da manutenção (fecha hoje)"
+              className="ml-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 hover:bg-emerald-200"
             >
-              {ausencia?.aberta ? '✓ retirar manutenção' : '🔧 iniciar manutenção'}
+              ✓ retirar manutenção
             </button>
+          )}
+          {onToggleManutencao && !ausencia?.aberta && !abrindoManutencao && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                setPrevisaoManutencaoInput('')
+                setAbrindoManutencao(true)
+              }}
+              title="Colocar esta placa em manutenção a partir de hoje"
+              className="ml-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 hover:bg-slate-200"
+            >
+              🔧 iniciar manutenção
+            </button>
+          )}
+          {onToggleManutencao && !ausencia?.aberta && abrindoManutencao && (
+            <span className="ml-1 inline-flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+              <label className="text-[10px] text-slate-500">previsão de conclusão:</label>
+              <input
+                type="date"
+                value={previsaoManutencaoInput}
+                onChange={(e) => setPrevisaoManutencaoInput(e.target.value)}
+                className="rounded border border-slate-300 px-1 py-0.5 text-[10px]"
+              />
+              <button
+                onClick={() => {
+                  onToggleManutencao(previsaoManutencaoInput === '' ? null : previsaoManutencaoInput)
+                  setAbrindoManutencao(false)
+                }}
+                className="rounded bg-emerald-700 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-emerald-800"
+              >
+                confirmar
+              </button>
+              <button
+                onClick={() => setAbrindoManutencao(false)}
+                className="rounded border border-slate-300 px-1.5 py-0.5 text-[10px] hover:bg-slate-100"
+              >
+                cancelar
+              </button>
+            </span>
           )}
           <span className="block text-[11px] text-slate-500">
             {atrasado

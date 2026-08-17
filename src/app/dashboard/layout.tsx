@@ -50,6 +50,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
             </nav>
           </div>
           <div className="flex items-center gap-3 text-sm text-slate-600">
+            <span
+              className="hidden font-mono text-[11px] text-slate-400 sm:inline"
+              title="Versão do painel — compare com o mesmo texto em produção para saber se estão sincronizados"
+            >
+              {process.env.NEXT_PUBLIC_BUILD_VERSION ?? 'dev-local'}
+            </span>
             <span>{user.name}</span>
             <LogoutButton />
           </div>

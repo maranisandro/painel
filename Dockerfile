@@ -26,6 +26,12 @@ ENV DATABASE_URL="postgresql://build:build@localhost:5432/build_db"
 # NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=<chave>).
 ARG NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
 ENV NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=$NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+# Versão exibida no topo do painel (pedido do usuário 2026-08-17) — a pasta
+# .git não existe aqui dentro (está no .dockerignore), por isso o valor vem
+# pronto via build-arg (calculado pelo script de deploy a partir do git
+# local antes do build), não recalculado no container.
+ARG BUILD_VERSION
+ENV NEXT_PUBLIC_BUILD_VERSION=$BUILD_VERSION
 RUN npx prisma generate
 RUN npm run build
 
