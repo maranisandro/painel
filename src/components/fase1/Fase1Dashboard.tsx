@@ -70,7 +70,14 @@ interface ApiData {
   /** TODAS as viagens enriquecidas — período e dimensões são filtrados aqui no cliente */
   trips: Trip[]
   /** Manutenções de placa sobrepondo o período selecionado (dias já calculados no servidor) */
-  manutencoes: { placa: string; aberta: boolean; dias: number; motivo: string | null }[]
+  manutencoes: {
+    placa: string
+    aberta: boolean
+    startDate: string
+    previsaoConclusao: string | null
+    dias: number
+    motivo: string | null
+  }[]
   /** Férias de motorista sobrepondo o período selecionado */
   ferias: { motorista: string; aberta: boolean; dias: number }[]
   /** Abastecimento (Officium) já filtrado à frota própria conhecida — usado no controle km/l */
@@ -1182,6 +1189,21 @@ export function Fase1Dashboard() {
     return map
   }, [data])
 
+  // Card do topo "veículos em manutenção" (pedido do usuário 2026-08-17) —
+  // tempo parado desde o início real da manutenção (não recortado pelo
+  // período filtrado, diferente de manutencaoPorPlaca acima).
+  const manutencoesAbertas = useMemo(() => {
+    if (!data) return []
+    const hoje = new Date().toISOString().slice(0, 10)
+    return [...data.manutencoes]
+      .filter((m) => m.aberta)
+      .map((m) => ({
+        ...m,
+        diasParado: Math.max(0, Math.floor((Date.parse(hoje) - Date.parse(m.startDate)) / 86_400_000)),
+      }))
+      .sort((a, b) => b.diasParado - a.diasParado)
+  }, [data])
+
   // Abre o modal de detalhamento direto ao chegar via link externo (pedido
   // do usuário 2026-08-12: botão "ver viagem" no balão do mapa de
   // Rastreamento) — /dashboard/fase1?abrirDetalhe=PLACA. Mesma lógica do
@@ -1294,6 +1316,31 @@ export function Fase1Dashboard() {
 
   return (
     <div className="space-y-6">
+      {manutencoesAbertas.length > 0 && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+          <p className="text-sm font-medium text-amber-900">
+            🔧 {manutencoesAbertas.length} veículo(s) em manutenção — ver Cadastros → Manutenção
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {manutencoesAbertas.map((m) => (
+              <span
+                key={m.placa}
+                title={m.motivo ?? undefined}
+                className="rounded-md bg-white px-2 py-1 text-xs text-amber-900 shadow-sm"
+              >
+                <span className="font-mono font-semibold">{m.placa}</span> — {m.diasParado}{' '}
+                {m.diasParado === 1 ? 'dia' : 'dias'} parado
+                {m.previsaoConclusao && (
+                  <span className="text-amber-700">
+                    {' '}
+                    (previsão: {m.previsaoConclusao.slice(8, 10)}/{m.previsaoConclusao.slice(5, 7)})
+                  </span>
+                )}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       {hasNotifications && (
         <div className="space-y-2">
           {showLocationsAlert && (

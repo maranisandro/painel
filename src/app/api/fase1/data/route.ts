@@ -310,6 +310,12 @@ export async function GET(req: NextRequest) {
   const manutencoes = maintenanceRecords.map((m) => ({
     placa: m.placa,
     aberta: m.endDate === null,
+    // Datas reais do período de manutenção (não recortadas pelo filtro) —
+    // usadas no card do topo "veículos em manutenção" (pedido do usuário
+    // 2026-08-17), que mostra o tempo parado desde sempre, não só a
+    // sobreposição com o período filtrado (isso fica em `dias` abaixo).
+    startDate: m.startDate.toISOString().slice(0, 10),
+    previsaoConclusao: m.previsaoConclusao ? m.previsaoConclusao.toISOString().slice(0, 10) : null,
     dias: overlapDays(
       m.startDate.toISOString().slice(0, 10),
       m.endDate ? m.endDate.toISOString().slice(0, 10) : todayStr,

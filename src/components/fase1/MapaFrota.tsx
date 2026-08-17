@@ -51,19 +51,23 @@ interface VehiclePositionMarker {
   localAtual: { nome: string; tipo: string; chegada: string } | null
   /** dados da última viagem (composição em curso) — pedido do usuário 2026-08-12: ao clicar na placa no mapa, mostrar dia da saída, previsão de retorno e velocidade média (real, das leituras do rastreador) */
   ultimaViagem: { dataSaida: string | null; previsaoRetorno: string | null; velocidadeMediaKmh: number | null } | null
+  /** placa com VehicleMaintenance em aberto — destacada no mapa (pedido do usuário 2026-08-17: "apontar no mapa para avaliação dos locais que estão se iniciando as manutenções") */
+  emManutencao?: boolean
 }
 
-const SENTIDO_COR: Record<'indo' | 'voltando' | 'sem_rota' | 'no_local', string> = {
+const SENTIDO_COR: Record<'indo' | 'voltando' | 'sem_rota' | 'no_local' | 'manutencao', string> = {
   indo: '#2563eb',
   voltando: '#c2410c',
   sem_rota: '#64748b',
   no_local: '#7c3aed',
+  manutencao: '#b91c1c',
 }
-const SENTIDO_LABEL: Record<'indo' | 'voltando' | 'sem_rota' | 'no_local', string> = {
+const SENTIDO_LABEL: Record<'indo' | 'voltando' | 'sem_rota' | 'no_local' | 'manutencao', string> = {
   indo: 'indo ao destino',
   voltando: 'voltando à origem',
   sem_rota: 'sentido desconhecido (sem rota cadastrada)',
   no_local: 'parado no local',
+  manutencao: '🔧 em manutenção',
 }
 
 function fmtDuracaoCurta(min: number): string {
@@ -194,16 +198,31 @@ export function MapaFrota({ locations, positions, selectedPlaca }: MapaFrotaProp
 
         for (const pos of positions) {
           const position = { lat: pos.latitude, lng: pos.longitude }
-          const sentidoKey: 'indo' | 'voltando' | 'sem_rota' | 'no_local' = pos.localAtual
-            ? 'no_local'
-            : (pos.sentido ?? 'sem_rota')
+          // Manutenção tem prioridade máxima na cor — sobrepõe até "parado no
+          // local" (pedido do usuário 2026-08-17): é o sinal mais relevante
+          // para avaliação visual de onde as manutenções estão concentradas.
+          const sentidoKey: 'indo' | 'voltando' | 'sem_rota' | 'no_local' | 'manutencao' = pos.emManutencao
+            ? 'manutencao'
+            : pos.localAtual
+              ? 'no_local'
+              : (pos.sentido ?? 'sem_rota')
           const localAtualTxt = pos.localAtual
             ? `${pos.localAtual.nome} (há ${fmtDuracaoCurta(Math.round((Date.now() - new Date(pos.localAtual.chegada).getTime()) / 60_000))})`
             : null
+          // Em manutenção tem prioridade no texto também — combina com o local
+          // (se houver) em vez de escondê-lo, já que "onde a manutenção está
+          // acontecendo" é justamente o que o usuário quer avaliar.
+          const statusTxt = pos.emManutencao
+            ? localAtualTxt
+              ? `🔧 em manutenção, no local: ${localAtualTxt}`
+              : '🔧 em manutenção'
+            : localAtualTxt
+              ? `no local: ${localAtualTxt}`
+              : SENTIDO_LABEL[sentidoKey]
           const marker = new maps.Marker({
             position,
             map,
-            title: `${pos.placa} — ${localAtualTxt ? `no local: ${localAtualTxt}` : SENTIDO_LABEL[sentidoKey]}`,
+            title: `${pos.placa} — ${statusTxt}`,
             icon: {
               // Material Icons "local_shipping" (viewBox 24x24) — ícone de caminhão real.
               // Sem rotação: é um pictograma (rodas/cabine fixas), não uma seta —
@@ -223,9 +242,7 @@ export function MapaFrota({ locations, positions, selectedPlaca }: MapaFrotaProp
             },
           })
           const atualizado = new Date(pos.capturedAt).toLocaleString('pt-BR')
-          const sentidoLinha = localAtualTxt
-            ? `no local: ${localAtualTxt}`
-            : SENTIDO_LABEL[sentidoKey]
+          const sentidoLinha = statusTxt
           // Dados da última viagem — pedido do usuário 2026-08-12: ao clicar
           // na placa/composição no mapa, mostrar dia da saída, previsão de
           // retorno e velocidade média (real, calculada a partir das leituras

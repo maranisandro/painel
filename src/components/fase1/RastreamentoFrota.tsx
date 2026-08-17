@@ -26,6 +26,8 @@ interface VehiclePositionInfo {
   capturedAt: string
   sentido: 'indo' | 'voltando' | null
   statusViagem: StatusViagem | null
+  /** placa com VehicleMaintenance em aberto — destacada no mapa (pedido do usuário 2026-08-17) */
+  emManutencao?: boolean
   /** parado num Local cadastrado (geofence) — quando presente, sobrepõe indo/voltando (pedido do usuário 2026-08-03, caso TBH2C02) */
   localAtual: { nome: string; tipo: string; chegada: string } | null
   /** dia da saída, previsão de retorno e velocidade média real da última viagem (pedido do usuário 2026-08-12, mostrado no balão do mapa) */
@@ -363,7 +365,14 @@ export function RastreamentoFrota({
                       onClick={() => setSelectedPlaca(p.placa)}
                       className={`cursor-pointer border-t border-slate-100 hover:bg-slate-50 ${selectedPlaca === p.placa ? 'bg-emerald-50' : ''}`}
                     >
-                      <td className="px-3 py-2 font-mono font-medium">{p.placa}</td>
+                      <td className="px-3 py-2 font-mono font-medium">
+                        {p.placa}
+                        {p.emManutencao && (
+                          <span className="ml-1 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-medium text-violet-800">
+                            🔧 manutenção
+                          </span>
+                        )}
+                      </td>
                       <td className="px-3 py-2">
                         {p.localAtual ? (
                           <LocalAtualBadge localAtual={p.localAtual} />

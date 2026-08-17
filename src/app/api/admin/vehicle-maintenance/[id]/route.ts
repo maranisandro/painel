@@ -7,6 +7,7 @@ import { requireResourceEditor, badRequest } from '@/lib/api-helpers'
 const updateSchema = z.object({
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  previsaoConclusao: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   motivo: z.string().nullable().optional(),
 })
 
@@ -27,6 +28,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           : parsed.data.endDate === null
             ? null
             : new Date(`${parsed.data.endDate}T00:00:00`),
+      previsaoConclusao:
+        parsed.data.previsaoConclusao === undefined
+          ? undefined
+          : parsed.data.previsaoConclusao === null
+            ? null
+            : new Date(`${parsed.data.previsaoConclusao}T00:00:00`),
       motivo: parsed.data.motivo,
     },
   })

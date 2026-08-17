@@ -12,6 +12,7 @@ import {
   achadosDesvioRotaGps,
   achadosComparativoViagensReferencia,
   achadosPlacaSemComposicao,
+  achadosMovimentoDuranteManutencao,
   type AchadoDetectado,
   type PosicaoGps,
 } from '@/lib/fase1/critica'
@@ -79,6 +80,15 @@ export async function GET() {
   const composicoes = await prisma.plateComposition.findMany({ select: { placa: true } })
   const placasComComposicao = new Set(composicoes.map((c) => c.placa.trim().toUpperCase()))
 
+  const manutencoesAbertas = await prisma.vehicleMaintenance.findMany({
+    where: { endDate: null },
+    select: { placa: true, startDate: true },
+  })
+  const manutencoesAbertasFmt = manutencoesAbertas.map((m) => ({
+    placa: m.placa.trim().toUpperCase(),
+    startDate: m.startDate.toISOString().slice(0, 10),
+  }))
+
   const detectados: AchadoDetectado[] = [
     ...achadosAnormalidadeCritica(abastecimento, placasConhecidas, 2),
     ...achadosHodometroTravado(abastecimento, placasConhecidas),
@@ -89,6 +99,7 @@ export async function GET() {
     ...achadosDesvioRotaGps(tripsEnriquecidas, posicoesGps),
     ...achadosComparativoViagensReferencia(placasComViagem),
     ...achadosPlacaSemComposicao(placasComViagem, placasComComposicao),
+    ...achadosMovimentoDuranteManutencao(manutencoesAbertasFmt, posicoesGps),
   ]
 
   const registros = await prisma.criticaModeloAchado.findMany({ where: { modulo: MODULO } })

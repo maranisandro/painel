@@ -471,6 +471,48 @@ export function achadosDesvioRotaGps(tripsEnriquecidas: Row[], posicoesGps: Posi
 }
 
 /**
+ * Placa marcada como em manutenção (aberta, sem endDate) mas o rastreamento
+ * real (Omnilink) mostra deslocamento — pedido do usuário 2026-08-17: "um
+ * veículo em manutenção que começar a deslocar para alguma unidade ou
+ * cliente deve criar uma crítica para ação". Não usa `LIMIAR_DATA_CRITICA`
+ * (mesmo motivo de `achadosSemAbastecimentoProlongado`): é inerentemente
+ * sobre um problema ainda em aberto agora, não uma varredura histórica.
+ * Reaproveita o mesmo limiar mínimo de km real de `achadosMovimentoSemAbastecimento`
+ * (`KM_MOVIMENTO_MINIMO`) para não soar com manobra de pátio/oficina.
+ */
+export function achadosMovimentoDuranteManutencao(
+  manutencoesAbertas: { placa: string; startDate: string }[],
+  posicoesGps: PosicaoGps[],
+): AchadoDetectado[] {
+  const posicoesPorPlaca = new Map<string, PosicaoGps[]>()
+  for (const p of posicoesGps) {
+    const list = posicoesPorPlaca.get(p.placa) ?? []
+    list.push(p)
+    posicoesPorPlaca.set(p.placa, list)
+  }
+
+  const out: AchadoDetectado[] = []
+  for (const m of manutencoesAbertas) {
+    const inicioJanela = `${m.startDate}T00:00:00.000Z`
+    const posicoesDuranteManutencao = (posicoesPorPlaca.get(m.placa) ?? []).filter(
+      (p) => p.capturedAt >= inicioJanela,
+    )
+    if (posicoesDuranteManutencao.length < 2) continue
+    const kmRodado = kmPercorridoGps(posicoesDuranteManutencao)
+    if (kmRodado < KM_MOVIMENTO_MINIMO) continue
+    const ordenadas = [...posicoesDuranteManutencao].sort((a, b) => a.capturedAt.localeCompare(b.capturedAt))
+    const ultimaData = ordenadas[ordenadas.length - 1].capturedAt.slice(0, 10)
+    out.push({
+      categoria: 'movimento_durante_manutencao',
+      chave: `manutencao-movimento-${m.placa}|${m.startDate}`,
+      titulo: `Placa ${m.placa} — em manutenção, mas rastreamento mostra ${Math.round(kmRodado)} km rodados`,
+      descricao: `Placa está com manutenção em aberto desde ${m.startDate.split('-').reverse().join('/')}, mas o rastreamento (Omnilink) mostra ~${Math.round(kmRodado)} km percorridos entre o início da manutenção e ${ultimaData.split('-').reverse().join('/')} — confira se o veículo já voltou a rodar (encerrar a manutenção) ou se é um deslocamento até a oficina/local de manutenção (sem indicar uso real).`,
+    })
+  }
+  return out
+}
+
+/**
  * Contagem de viagens de junho/2026 por placa, colada pelo usuário em
  * 2026-08-13 como referência externa para conferência cruzada (fonte não
  * identificada na conversa — provavelmente planilha/relatório usado à

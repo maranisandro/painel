@@ -4,10 +4,12 @@ import { prisma } from '@/lib/prisma'
 import { logAudit } from '@/lib/audit'
 import { requireResourceEditor, badRequest } from '@/lib/api-helpers'
 import { hojeBrasil } from '@/lib/horario-brasil'
+import { justificarViagemAoIniciarManutencao } from '@/lib/fase1/manutencao'
 
 const schema = z.object({
   placa: z.string().min(5).transform((v) => v.trim().toUpperCase()),
   motivo: z.string().trim().nullable().optional(),
+  previsaoConclusao: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
 })
 
 /**
@@ -27,7 +29,7 @@ export async function POST(req: NextRequest) {
 
   const parsed = schema.safeParse(await req.json())
   if (!parsed.success) return badRequest(parsed.error.issues.map((i) => i.message).join('; '))
-  const { placa, motivo } = parsed.data
+  const { placa, motivo, previsaoConclusao } = parsed.data
   const hoje = hojeBrasil()
 
   const aberta = await prisma.vehicleMaintenance.findFirst({ where: { placa, endDate: null } })
@@ -48,14 +50,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ aberta: false, record })
   }
 
+  const startDateObj = new Date(`${hoje}T00:00:00`)
+  const previsaoConclusaoObj = previsaoConclusao ? new Date(`${previsaoConclusao}T00:00:00`) : null
   const record = await prisma.vehicleMaintenance.create({
     data: {
       placa,
-      startDate: new Date(`${hoje}T00:00:00`),
+      startDate: startDateObj,
       endDate: null,
+      previsaoConclusao: previsaoConclusaoObj,
       motivo: motivo?.trim() || null,
     },
   })
+  await justificarViagemAoIniciarManutencao(placa, startDateObj, previsaoConclusaoObj)
   await logAudit({
     userId: auth.user.id,
     userName: auth.user.name,

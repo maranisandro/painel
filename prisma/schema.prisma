@@ -542,16 +542,20 @@ model RouteFreightPrice {
 // contando na meta/ritmo esperado (ele deveria estar rodando) — o período em
 // manutenção só serve para explicar o desvio de performance no painel.
 model VehicleMaintenance {
-  id        String    @id @default(uuid())
-  placa     String
-  startDate DateTime  @map("start_date")
-  endDate   DateTime? @map("end_date")
-  motivo    String?
-  holdingId String?   @map("holding_id")
-  companyId String?   @map("company_id")
-  branchId  String?   @map("branch_id")
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
+  id                String    @id @default(uuid())
+  placa             String
+  startDate         DateTime  @map("start_date")
+  endDate           DateTime? @map("end_date")
+  // Previsão de conclusão dada pela oficina/operação ao abrir a manutenção
+  // (pedido do usuário 2026-08-17) — usada como novaPrevisao ao justificar
+  // automaticamente a última viagem em aberto da placa (ver TripJustification).
+  previsaoConclusao DateTime? @map("previsao_conclusao")
+  motivo            String?
+  holdingId         String?   @map("holding_id")
+  companyId         String?   @map("company_id")
+  branchId          String?   @map("branch_id")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
   @@index([placa, startDate])
   @@map("vehicle_maintenances")

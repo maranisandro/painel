@@ -218,8 +218,45 @@ export async function processOmnilinkPosicoes(rows: ExternalRow[]): Promise<void
   await purgeOldVehiclePositions()
 }
 
+/**
+ * Encerra automaticamente a manutenção em aberto de uma placa quando surge
+ * uma viagem nova (nota fiscal com DATASAIDA) para ela — pedido do usuário
+ * 2026-08-17: "o veículo sai de manutenção manualmente ai passa a contar
+ * como tempo disponível ou quando emitir uma nota para viagem". Só reage às
+ * linhas NOVAS/atualizadas desta sincronização (incremental), não ao
+ * dataset inteiro. Uma viagem com DATASAIDA anterior ao início da
+ * manutenção não conta (nota antiga sendo re-sincronizada, não indica que o
+ * caminhão voltou a rodar).
+ */
+export async function processFase1VendasTransporte(rows: ExternalRow[]): Promise<void> {
+  const primeiraDataNovaPorPlaca = new Map<string, string>()
+  for (const row of rows) {
+    const placa = String(row.PLACA ?? '').trim().toUpperCase()
+    const data = String(row.DATASAIDA ?? '').slice(0, 10)
+    if (!placa || !data) continue
+    const atual = primeiraDataNovaPorPlaca.get(placa)
+    if (!atual || data < atual) primeiraDataNovaPorPlaca.set(placa, data)
+  }
+  if (primeiraDataNovaPorPlaca.size === 0) return
+
+  const abertas = await prisma.vehicleMaintenance.findMany({
+    where: { placa: { in: [...primeiraDataNovaPorPlaca.keys()] }, endDate: null },
+  })
+  for (const m of abertas) {
+    const primeiraViagemNova = primeiraDataNovaPorPlaca.get(m.placa)
+    if (!primeiraViagemNova) continue
+    const startDateStr = m.startDate.toISOString().slice(0, 10)
+    if (primeiraViagemNova < startDateStr) continue
+    await prisma.vehicleMaintenance.update({
+      where: { id: m.id },
+      data: { endDate: new Date(`${primeiraViagemNova}T00:00:00`) },
+    })
+  }
+}
+
 /** Passos extras específicos por dataset, executados após o sync bater com sucesso. */
 export const POST_SYNC_PROCESSORS: Record<string, (rows: ExternalRow[]) => Promise<void>> = {
   fase1_custos_transporte: processCustosTransporteRodoviario,
   fase1_omnilink_posicoes: processOmnilinkPosicoes,
+  fase1_vendas_transporte: processFase1VendasTransporte,
 }

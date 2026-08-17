@@ -79,6 +79,14 @@ export default async function MapaPage() {
   // Quando há visita aberta, ela substitui o indo/voltando (que só faz
   // sentido em trânsito) por "no local: X, há Yh" — a duração já indica se
   // pode ser um atraso de carga/descarga.
+  // Placas em manutenção (aberta) — pedido do usuário 2026-08-17: "apontar no
+  // mapa para avaliação dos locais que estão se iniciando as manutenções".
+  const manutencaoAbertaPlacas = new Set(
+    (await prisma.vehicleMaintenance.findMany({ where: { endDate: null }, select: { placa: true } })).map((m) =>
+      m.placa.trim().toUpperCase(),
+    ),
+  )
+
   const localAtualPorPlaca = new Map<string, { nome: string; tipo: string; chegada: string }>()
   const visitasAbertas = await prisma.locationVisit.findMany({
     where: { saida: null },
@@ -158,6 +166,7 @@ export default async function MapaPage() {
           // caminhão em trânsito, não um caminhão parado).
           sentido: localAtual ? null : (sentidoPorPlaca.get(p.placa) ?? null),
           statusViagem: statusPorPlaca.get(p.placa) ?? null,
+          emManutencao: manutencaoAbertaPlacas.has(p.placa),
           localAtual,
           ultimaViagem: trip
             ? {

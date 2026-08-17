@@ -8,11 +8,12 @@ interface MaintenanceRecord {
   placa: string
   startDate: string
   endDate: string | null
+  previsaoConclusao: string | null
   motivo: string | null
 }
 
-const EMPTY = { placa: '', startDate: '', endDate: '', motivo: '' }
-const BULK_EMPTY = { startDate: '', endDate: '', motivo: '' }
+const EMPTY = { placa: '', startDate: '', endDate: '', previsaoConclusao: '', motivo: '' }
+const BULK_EMPTY = { startDate: '', endDate: '', previsaoConclusao: '', motivo: '' }
 
 function fmtDate(iso: string | null): string {
   if (!iso) return 'em aberto'
@@ -85,6 +86,7 @@ export default function ManutencaoPage() {
       placa: r.placa,
       startDate: r.startDate.slice(0, 10),
       endDate: r.endDate ? r.endDate.slice(0, 10) : '',
+      previsaoConclusao: r.previsaoConclusao ? r.previsaoConclusao.slice(0, 10) : '',
       motivo: r.motivo ?? '',
     })
     setError('')
@@ -99,12 +101,14 @@ export default function ManutencaoPage() {
       ? {
           startDate: form.startDate,
           endDate: form.endDate === '' ? null : form.endDate,
+          previsaoConclusao: form.previsaoConclusao === '' ? null : form.previsaoConclusao,
           motivo: form.motivo === '' ? null : form.motivo,
         }
       : {
           placa: form.placa,
           startDate: form.startDate,
           endDate: form.endDate === '' ? null : form.endDate,
+          previsaoConclusao: form.previsaoConclusao === '' ? null : form.previsaoConclusao,
           motivo: form.motivo === '' ? null : form.motivo,
         }
     const res = await fetch(
@@ -158,11 +162,12 @@ export default function ManutencaoPage() {
     startDate: string,
     endDate: string | null,
     motivo: string | null,
+    previsaoConclusao: string | null = null,
   ): Promise<{ ok: boolean; error?: string }> {
     const res = await fetch('/api/admin/vehicle-maintenance', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ placa, startDate, endDate, motivo }),
+      body: JSON.stringify({ placa, startDate, endDate, previsaoConclusao, motivo }),
     })
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
@@ -184,6 +189,7 @@ export default function ManutencaoPage() {
         bulkForm.startDate,
         bulkForm.endDate === '' ? null : bulkForm.endDate,
         bulkForm.motivo === '' ? null : bulkForm.motivo,
+        bulkForm.previsaoConclusao === '' ? null : bulkForm.previsaoConclusao,
       )
       if (result.ok) ok++
       else errors.push(`${placa}: ${result.error}`)
@@ -271,6 +277,15 @@ export default function ManutencaoPage() {
               type="date"
               value={form.endDate}
               onChange={(e) => setForm({ ...form, endDate: e.target.value })}
+              className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600">Previsão de conclusão</label>
+            <input
+              type="date"
+              value={form.previsaoConclusao}
+              onChange={(e) => setForm({ ...form, previsaoConclusao: e.target.value })}
               className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
             />
           </div>
@@ -365,6 +380,15 @@ export default function ManutencaoPage() {
               />
             </div>
             <div>
+              <label className="block text-xs font-medium text-slate-600">Previsão de conclusão</label>
+              <input
+                type="date"
+                value={bulkForm.previsaoConclusao}
+                onChange={(e) => setBulkForm({ ...bulkForm, previsaoConclusao: e.target.value })}
+                className="mt-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+              />
+            </div>
+            <div>
               <label className="block text-xs font-medium text-slate-600">Motivo</label>
               <input
                 value={bulkForm.motivo}
@@ -408,6 +432,11 @@ export default function ManutencaoPage() {
                       className={`rounded px-2 py-0.5 ${r.endDate ? 'bg-slate-100 text-slate-700' : 'bg-amber-100 text-amber-900'}`}
                     >
                       {fmtDate(r.startDate)} → {fmtDate(r.endDate)}
+                      {!r.endDate && r.previsaoConclusao && (
+                        <span className="ml-1 text-xs text-amber-700">
+                          (previsão: {fmtDate(r.previsaoConclusao)})
+                        </span>
+                      )}
                       {r.motivo && <span className="ml-1 text-xs text-slate-500">({r.motivo})</span>}
                     </span>
                     {!r.endDate && (
