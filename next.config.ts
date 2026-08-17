@@ -18,6 +18,15 @@ function getBuildVersion(): string {
   }
 }
 
+// Rótulo de ambiente (pedido do usuário 2026-08-17: "conseguirmos diferenciar
+// as versões dev e produção" — o texto de versão sozinho, hash+data, não era
+// óbvio à primeira vista). `NEXT_PUBLIC_BUILD_VERSION` só existe quando o
+// build passou pelo build-arg do Dockerfile (deploy real) — sem ele, é
+// sempre `next dev`/`next build` local.
+function getAppEnv(): 'producao' | 'dev' {
+  return process.env.NEXT_PUBLIC_BUILD_VERSION ? 'producao' : 'dev';
+}
+
 const nextConfig: NextConfig = {
   // Imagem Docker enxuta (só o necessário pra rodar, sem node_modules
   // inteiro) — pedido do usuário 2026-08-12, migração para servidor com
@@ -25,6 +34,7 @@ const nextConfig: NextConfig = {
   output: 'standalone',
   env: {
     NEXT_PUBLIC_BUILD_VERSION: getBuildVersion(),
+    NEXT_PUBLIC_APP_ENV: getAppEnv(),
   },
 };
 

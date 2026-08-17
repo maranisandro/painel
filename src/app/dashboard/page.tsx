@@ -26,8 +26,24 @@ export default async function DashboardPage() {
       : Promise.resolve([]),
   ])
 
+  const producao = process.env.NEXT_PUBLIC_APP_ENV === 'producao'
+
   return (
     <div className="space-y-8">
+      {/* Ambiente + versão (pedido do usuário 2026-08-17: "conseguirmos diferenciar as
+          versões dev e produção") — tirado do cabeçalho (ficava apertado ao lado do
+          menu) e movido para um card discreto aqui na home. */}
+      <div
+        className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${
+          producao ? 'border-red-200 bg-red-50 text-red-800' : 'border-slate-200 bg-slate-50 text-slate-600'
+        }`}
+      >
+        <span className={`rounded px-1.5 py-0.5 font-semibold ${producao ? 'bg-red-100' : 'bg-slate-200'}`}>
+          {producao ? 'PRODUÇÃO' : 'DEV'}
+        </span>
+        <span className="font-mono opacity-80">{process.env.NEXT_PUBLIC_BUILD_VERSION ?? 'sem versão'}</span>
+      </div>
+
       <section>
         <h1 className="text-xl font-semibold">Negócios</h1>
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
