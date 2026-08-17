@@ -1939,6 +1939,7 @@ export function Fase1Dashboard() {
           <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
             {placaGroupsFull.map((tr) => {
               const st = STATUS_STYLE[tr.status]
+              const emManutencaoTr = !!manutencaoPorPlaca.get(tr.key)?.aberta
               const last = tr.trips[0]
               const destino = String(last?.NOMEFANTASIA ?? '—')
               const produto = String(last?.TipoProduto ?? '—')
@@ -1966,8 +1967,8 @@ export function Fase1Dashboard() {
                       consumo: consumoPorPlaca.get(tr.key),
                     })
                   }}
-                  title={`${tr.key} · ${st.label} · ${destino}${consumoTr?.kmPorLitro != null ? ` · ${fmt(consumoTr.kmPorLitro, 2)} km/l` : ''} · clique para ver a viagem atual, Ctrl+clique para filtrar`}
-                  className={`rounded-xl border p-3 text-left ${st.cls} ${anySelected && !isSelected ? 'opacity-30' : ''} ${isSelected ? 'ring-2 ring-emerald-600' : ''}`}
+                  title={`${tr.key} · ${emManutencaoTr ? 'Em manutenção' : st.label} · ${destino}${consumoTr?.kmPorLitro != null ? ` · ${fmt(consumoTr.kmPorLitro, 2)} km/l` : ''} · clique para ver a viagem atual, Ctrl+clique para filtrar`}
+                  className={`rounded-xl border p-3 text-left ${emManutencaoTr ? 'border-violet-300 bg-violet-100 text-violet-800' : st.cls} ${anySelected && !isSelected ? 'opacity-30' : ''} ${isSelected ? 'ring-2 ring-emerald-600' : ''}`}
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-2xl">🚚</span>
@@ -1975,7 +1976,7 @@ export function Fase1Dashboard() {
                   </div>
                   <p className="mt-1 truncate font-mono text-sm font-semibold">{tr.key}</p>
                   <p className="truncate text-xs">{destino}</p>
-                  <p className="text-[11px] opacity-80">{st.label}</p>
+                  <p className="text-[11px] opacity-80">{emManutencaoTr ? '🔧 Em manutenção' : st.label}</p>
                   {consumoTr?.kmPorLitro != null && (
                     <p
                       className={`text-[11px] font-semibold ${consumoTr.kmPorLitro < data.params.metaConsumoKmL ? 'text-red-700' : 'opacity-80'}`}
@@ -2752,6 +2753,12 @@ function FragmentRow({
   const [abrindoManutencao, setAbrindoManutencao] = useState(false)
   const [previsaoManutencaoInput, setPrevisaoManutencaoInput] = useState('')
   const atrasado = truck.status === 'ATRASADO' || truck.status === 'MUITO_ATRASADO'
+  // Placa em manutenção em aberto: o status de atraso da viagem deixa de ser
+  // o foco (o veículo está formalmente parado por um motivo já conhecido,
+  // não "atrasado" numa viagem em curso) — achado real 2026-08-17: o
+  // usuário reportou que a placa continuava aparecendo como "Muito
+  // atrasado" mesmo depois de entrar em manutenção.
+  const emManutencao = ausenciaLabel === 'manutenção' && !!ausencia?.aberta
 
   async function salvarJustificativa(e: React.FormEvent) {
     e.preventDefault()
@@ -2814,7 +2821,16 @@ function FragmentRow({
         </td>
         <td className="px-3 py-2 text-right">{fmt(truck.score)}</td>
         <td className="px-3 py-2 whitespace-nowrap">
-          <span className={`rounded px-2 py-0.5 text-xs ${st.cls}`}>{st.label}</span>
+          {emManutencao ? (
+            <span
+              className="rounded bg-violet-100 px-2 py-0.5 text-xs text-violet-800"
+              title="Atraso não avaliado enquanto a placa está em manutenção — ver Cadastros → Manutenção"
+            >
+              🔧 Em manutenção
+            </span>
+          ) : (
+            <span className={`rounded px-2 py-0.5 text-xs ${st.cls}`}>{st.label}</span>
+          )}
           {truck.quaseAtrasado && (
             <span
               className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-800"
@@ -2892,9 +2908,11 @@ function FragmentRow({
             </span>
           )}
           <span className="block text-[11px] text-slate-500">
-            {atrasado
-              ? `${fmt(truck.statusDays, 1)} dia(s) de atraso`
-              : `há ${fmt(truck.statusDays, 1)} dia(s) desde a saída`}
+            {emManutencao
+              ? `${fmt(truck.statusDays, 1)} dia(s) desde a última viagem — em manutenção`
+              : atrasado
+                ? `${fmt(truck.statusDays, 1)} dia(s) de atraso`
+                : `há ${fmt(truck.statusDays, 1)} dia(s) desde a saída`}
           </span>
           {atrasado && (
             <div onClick={(e) => e.stopPropagation()} className="mt-1">
@@ -3057,6 +3075,7 @@ function PlacaDetailModal({
   onClose: () => void
 }) {
   const st = STATUS_STYLE[truck.status]
+  const emManutencao = ausenciaLabel === 'manutenção' && !!ausencia?.aberta
   // Linhas de abastecimento "fracionado" (soma de 2+ no mesmo hodômetro/dia)
   // que o usuário expandiu para ver os itens individuais por trás da soma —
   // pedido do usuário 2026-08-03: "pode fundir [por] data mas abrir as opções".
@@ -3092,7 +3111,16 @@ function PlacaDetailModal({
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className={`rounded-full px-3 py-1 text-sm font-medium ${st.cls}`}>{st.label}</span>
+          {emManutencao ? (
+            <span
+              className="rounded-full bg-violet-100 px-3 py-1 text-sm font-medium text-violet-800"
+              title="Atraso não avaliado enquanto a placa está em manutenção — ver Cadastros → Manutenção"
+            >
+              🔧 Em manutenção
+            </span>
+          ) : (
+            <span className={`rounded-full px-3 py-1 text-sm font-medium ${st.cls}`}>{st.label}</span>
+          )}
           {ausencia && ausencia.dias > 0 && (
             <span className="rounded-full bg-violet-100 px-3 py-1 text-sm text-violet-800">
               {ausenciaLabel === 'manutenção' ? '🔧' : '🏖'} {fmt(ausencia.dias)}d {ausenciaLabel}
