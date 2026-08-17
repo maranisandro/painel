@@ -13,13 +13,26 @@ import { getDatasetView } from '@/lib/semantic/dataset-view'
  *
  * Não é um DataSource.type novo — reaproveita WEBSERVICE com
  * `config.connectorMode: "omnilink-turbo"` (mesmo padrão de extensão já
- * usado pelo `authType: "session-login"` da Controladoria), pra não precisar
- * de migration só por causa da estratégia de busca.
+ * usado pelo `authType: "session-login"` da Controladoria).
  *
- * Formato exato da resposta (nomes de campo do token e de cada posição)
- * ainda não confirmado com uma chamada real — `extrairToken`/o mapeamento
- * de campos tentam os nomes mais prováveis e falham com uma mensagem clara
- * se não reconhecerem o formato, em vez de adivinhar silenciosamente.
+ * Formato real confirmado ao vivo em 2026-07-30 (`dados.tabela[]`), bem
+ * diferente do que um JSON "limpo" teria — quase todo campo é uma string
+ * formatada, exige parsing:
+ *  - `lat_log`: "21°26'55.29\"S / 43°36'36.44\"W" (graus/min/seg, não
+ *    decimal) → `parseLatLog`.
+ *  - `envio_recepcao`: "30/07/2026 20:00:00 - 31/07/2026 16:07:31" (envio
+ *    do rastreador - recepção do servidor) → usa a primeira data (quando a
+ *    posição realmente aconteceu, não quando o servidor recebeu).
+ *  - `velocidade_sentido`: "-/Norte" (velocidade/direção cardinal em texto,
+ *    não em graus) → `parseVelocidadeSentido`.
+ *  - `causa`/`estado`: motivo do evento e status do rastreador — sem campo
+ *    próprio no schema, combinados em `status`.
+ *
+ * `withSinalVida: false` (o exemplo do usuário usava `true`): testado ao
+ * vivo — com `true`, uma placa trouxe 42 mil registros em ~2,5 dias (sinal
+ * de vida = keepalive do equipamento, não movimento real); com `false`,
+ * ~16 registros/hora. Para o mapa (onde está o caminhão agora), sinal de
+ * vida é ruído — reduz o volume ~1000x sem perder posição real.
  */
 
 const BASE_URL_PADRAO = 'https://api.showtecnologia.com'
@@ -47,19 +60,12 @@ async function login(source: DataSource): Promise<string> {
     const texto = await res.text().catch(() => '')
     throw new Error(`Login Omnilink falhou (status ${res.status}): ${texto.slice(0, 300)}`)
   }
-  const body = (await res.json()) as Record<string, unknown>
-  const token =
-    (body.token as string | undefined) ??
-    (body.access_token as string | undefined) ??
-    (body.accessToken as string | undefined) ??
-    ((body.data as Record<string, unknown> | undefined)?.token as string | undefined)
-  if (!token || typeof token !== 'string') {
-    throw new Error(
-      `Login Omnilink não retornou um token reconhecível. Corpo da resposta: ${JSON.stringify(body).slice(0, 300)}`,
-    )
+  const body = (await res.json()) as { token?: string }
+  if (!body.token) {
+    throw new Error(`Login Omnilink não retornou token. Corpo da resposta: ${JSON.stringify(body).slice(0, 300)}`)
   }
-  tokenCache = { token, expiraEm: Date.now() + TOKEN_TTL_MS }
-  return token
+  tokenCache = { token: body.token, expiraEm: Date.now() + TOKEN_TTL_MS }
+  return body.token
 }
 
 function fmtDataHora(d: Date): string {
@@ -80,6 +86,59 @@ async function placasProprias(): Promise<string[]> {
   return [...set]
 }
 
+/**
+ * "21°26'55.29"S / 43°36'36.44"W" → {lat: -21.44869..., lng: -43.61012...}
+ * (graus/minutos/segundos para decimal; S e W ficam negativos).
+ */
+export function parseLatLog(latLog: string): { lat: number; lng: number } | null {
+  const m = latLog.match(/(\d+)°(\d+)'([\d.]+)"?\s*([NS])\s*\/\s*(\d+)°(\d+)'([\d.]+)"?\s*([EW])/)
+  if (!m) return null
+  const [, latD, latM, latS, latDir, lngD, lngM, lngS, lngDir] = m
+  let lat = Number(latD) + Number(latM) / 60 + Number(latS) / 3600
+  let lng = Number(lngD) + Number(lngM) / 60 + Number(lngS) / 3600
+  if (latDir === 'S') lat = -lat
+  if (lngDir === 'W') lng = -lng
+  return { lat, lng }
+}
+
+/** "30/07/2026 20:00:00 - 31/07/2026 16:07:31" → Date da PRIMEIRA data (envio do rastreador). */
+export function parseEnvioRecepcao(s: string): Date | null {
+  const primeira = s.split(' - ')[0]?.trim()
+  const m = primeira?.match(/^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2}):(\d{2})$/)
+  if (!m) return null
+  const [, dd, mm, yyyy, hh, mi, ss] = m
+  const d = new Date(`${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}Z`)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
+const DIRECOES_GRAUS: Record<string, number> = {
+  Norte: 0,
+  Nordeste: 45,
+  Leste: 90,
+  Sudeste: 135,
+  Sul: 180,
+  Sudoeste: 225,
+  Oeste: 270,
+  Noroeste: 315,
+}
+
+/**
+ * "-/Sul" (parado) ou "98,0 km/h/Nordeste" (em movimento) → {speedKmh, heading
+ * em graus}. Formato real descoberto ao vivo em 2026-08-03 — diferente do
+ * assumido inicialmente ("-/Norte"): quando em movimento, a velocidade vem
+ * com vírgula decimal E contém sua própria barra ("km/h"), então o texto tem
+ * 3 segmentos por "/", não 2 — a direção é sempre o ÚLTIMO segmento.
+ */
+export function parseVelocidadeSentido(s: string): { speedKmh: number | null; heading: number | null } {
+  const partes = s.split('/')
+  const dirRaw = partes[partes.length - 1]?.trim()
+  const velRaw = partes.slice(0, -1).join('/').trim()
+  const speedKmh =
+    velRaw && velRaw !== '-' ? Number(velRaw.replace(/[^\d,.-]/g, '').replace(',', '.')) || null : null
+  const heading = dirRaw ? (DIRECOES_GRAUS[dirRaw] ?? null) : null
+  return { speedKmh, heading }
+}
+
 export async function fetchOmnilinkPosicoes(
   source: DataSource,
   _dataset: Dataset,
@@ -89,41 +148,55 @@ export async function fetchOmnilinkPosicoes(
   const token = await login(source)
 
   const fim = new Date()
-  // Sem marca d'água ainda (1ª sincronização): últimas 24h, para não puxar
-  // meses de histórico de uma vez. Sincronizações seguintes usam a última
-  // posição já sincronizada como início.
-  const inicio = watermark ? new Date(watermark) : new Date(fim.getTime() - 24 * 3_600_000)
+  // Sem marca d'água ainda (1ª sincronização): última hora, para não puxar
+  // um histórico enorme de uma vez (mesmo sem sinal de vida, o volume é
+  // considerável). Sincronizações seguintes usam a última posição já
+  // sincronizada como início.
+  const inicio = watermark ? new Date(watermark) : new Date(fim.getTime() - 3_600_000)
 
   const placas = await placasProprias()
   if (placas.length === 0) return []
 
+  // IMPORTANTE (achado ao vivo 2026-07-30): se UMA única placa do array não
+  // for reconhecida pela conta Omnilink, a API rejeita a consulta INTEIRA
+  // com "Placa não localizada" — não filtra, não avisa qual. Como nem toda
+  // placa da frota própria necessariamente tem rastreador instalado/ativado,
+  // a consulta precisa ser placa por placa: "não localizada" vira "sem
+  // dados desta placa" (não interrompe as demais); qualquer OUTRO erro
+  // (token, rede, etc.) continua interrompendo a sincronização.
   const linhas: ExternalRow[] = []
-  for (let parte = 1; parte <= MAX_PARTES; parte++) {
-    const res = await fetch(`${baseUrl}/api/omniturbo/relatorios/posicoes`, {
-      method: 'POST',
-      headers: { 'x-access-token': token, accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        inicio: fmtDataHora(inicio),
-        fim: fmtDataHora(fim),
-        placas,
-        withSinalVida: true,
-        parte,
-      }),
-    })
-    if (!res.ok) {
-      const texto = await res.text().catch(() => '')
-      throw new Error(`Consulta de posições Omnilink falhou (status ${res.status}, parte ${parte}): ${texto.slice(0, 300)}`)
+  for (const placa of placas) {
+    for (let parte = 1; parte <= MAX_PARTES; parte++) {
+      const res = await fetch(`${baseUrl}/api/omniturbo/relatorios/posicoes`, {
+        method: 'POST',
+        headers: { 'x-access-token': token, accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          inicio: fmtDataHora(inicio),
+          fim: fmtDataHora(fim),
+          placas: [placa],
+          withSinalVida: false,
+          parte,
+        }),
+      })
+      const body = (await res.json().catch(() => null)) as { dados?: { tabela?: ExternalRow[] } | string; mensagem?: string } | null
+      if (!res.ok) {
+        if (typeof body?.dados === 'string' && body.dados.includes('não localizada')) break // placa sem rastreador — ignora, segue pras outras
+        if (typeof body?.mensagem === 'string' && body.mensagem.includes('parte inválida')) break // fim da paginação: API erra em vez de devolver página vazia
+        const texto = JSON.stringify(body).slice(0, 300)
+        throw new Error(`Consulta de posições Omnilink falhou (status ${res.status}, placa ${placa}, parte ${parte}): ${texto}`)
+      }
+      const pagina = typeof body?.dados === 'object' ? body.dados?.tabela : undefined
+      if (!Array.isArray(pagina) || pagina.length === 0) break
+
+      // Enriquece cada linha com um campo ISO próprio para marca d'água/chave
+      // primária — o campo original (`envio_recepcao`) é um intervalo em
+      // texto (DD/MM/AAAA), não ordena corretamente como string simples.
+      for (const row of pagina) {
+        const capturedAt = parseEnvioRecepcao(String(row.envio_recepcao ?? ''))
+        if (capturedAt) row._capturedAtIso = capturedAt.toISOString()
+        linhas.push(row)
+      }
     }
-    const body = (await res.json()) as unknown
-    const pagina: unknown = Array.isArray(body)
-      ? body
-      : ((body as Record<string, unknown>)?.data ??
-        (body as Record<string, unknown>)?.registros ??
-        (body as Record<string, unknown>)?.resultado ??
-        (body as Record<string, unknown>)?.rows ??
-        [])
-    if (!Array.isArray(pagina) || pagina.length === 0) break
-    linhas.push(...(pagina as ExternalRow[]))
   }
   return linhas
 }

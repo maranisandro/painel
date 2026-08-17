@@ -85,8 +85,15 @@ export function applyCompositionOverrides(
     //  - exatamente 2 notas mas o cadastro diz que a placa TEM uma composição
     //    diferente de RodoTrem — sem cadastro (null/undefined), não dá para
     //    afirmar nada, então não marca.
+    //  - só 1 nota, mas a placa está cadastrada como RodoTrem: o RodoTrem
+    //    sempre puxa dois semirreboques, então sempre precisa emitir duas
+    //    notas na mesma viagem — 1 nota é evidência de que o cadastro está
+    //    desatualizado ou a viagem não usou de fato o RodoTrem (pedido do
+    //    usuário 2026-08-03).
     const inconsistente =
-      numNotas >= 3 || (duasOuMaisNotas && !!composicaoCadastrada && composicaoCadastrada !== 'RodoTrem')
+      numNotas >= 3 ||
+      (duasOuMaisNotas && !!composicaoCadastrada && composicaoCadastrada !== 'RodoTrem') ||
+      (!duasOuMaisNotas && composicaoCadastrada === 'RodoTrem')
     return {
       ...trip,
       ...(composition === trip['TipoComposição'] ? {} : { ['TipoComposição']: composition }),

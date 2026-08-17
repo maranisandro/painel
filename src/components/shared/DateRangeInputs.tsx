@@ -1,0 +1,201 @@
+'use client'
+
+import { useEffect, useRef, useState } from 'react'
+
+// Máscara dd/mm/aaaa para filtros de período (padrão do painel) — o input
+// nativo type="date" segue o locale do navegador/SO, que nem sempre é pt-BR
+// (ex.: exibe mm/dd/aaaa e nomes de mês em inglês mesmo com <html lang="pt-BR">).
+export function formatBRInput(raw: string): string {
+  const digits = raw.replace(/\D/g, '').slice(0, 8)
+  const parts = [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4, 8)].filter(Boolean)
+  return parts.join('/')
+}
+
+export function parseBRToIso(br: string): string | null {
+  const m = br.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  if (!m) return null
+  const [, d, mo, y] = m
+  return `${y}-${mo}-${d}`
+}
+
+/** 'YYYY-MM-DD' -> 'DD/MM/AAAA' */
+export function fmtDateBR(iso: string): string {
+  const [ano, mes, dia] = iso.slice(0, 10).split('-')
+  if (!ano || !mes || !dia) return iso
+  return `${dia}/${mes}/${ano}`
+}
+
+const DIAS_SEMANA = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S']
+
+// Calendário pequeno em popover — alternativa a digitar, sem usar o input
+// nativo type="date" (ver formatBRInput acima). Clique num dia seleciona e fecha.
+export function MiniCalendarButton({
+  valueIso,
+  onSelect,
+}: {
+  valueIso: string
+  onSelect: (iso: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [view, setView] = useState(() => {
+    const d = valueIso ? new Date(`${valueIso}T00:00:00`) : new Date()
+    return { y: d.getFullYear(), m: d.getMonth() }
+  })
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function onClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onClickOutside)
+    return () => document.removeEventListener('mousedown', onClickOutside)
+  }, [open])
+
+  function abrir() {
+    const d = valueIso ? new Date(`${valueIso}T00:00:00`) : new Date()
+    setView({ y: d.getFullYear(), m: d.getMonth() })
+    setOpen(true)
+  }
+
+  const daysInMonth = new Date(view.y, view.m + 1, 0).getDate()
+  const firstWeekday = new Date(view.y, view.m, 1).getDay()
+  const monthLabel = new Date(view.y, view.m, 1).toLocaleDateString('pt-BR', {
+    month: 'long',
+    year: 'numeric',
+  })
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => (open ? setOpen(false) : abrir())}
+        title="Escolher data no calendário"
+        className="mt-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm hover:bg-slate-100"
+      >
+        📅
+      </button>
+      {open && (
+        <div className="absolute z-20 mt-1 w-64 rounded-md border border-slate-200 bg-white p-2 shadow-lg">
+          <div className="flex items-center justify-between px-1 pb-1">
+            <button
+              type="button"
+              onClick={() => setView((v) => (v.m === 0 ? { y: v.y - 1, m: 11 } : { y: v.y, m: v.m - 1 }))}
+              className="rounded px-2 py-0.5 text-slate-600 hover:bg-slate-100"
+            >
+              ‹
+            </button>
+            <span className="text-sm font-medium capitalize">{monthLabel}</span>
+            <button
+              type="button"
+              onClick={() => setView((v) => (v.m === 11 ? { y: v.y + 1, m: 0 } : { y: v.y, m: v.m + 1 }))}
+              className="rounded px-2 py-0.5 text-slate-600 hover:bg-slate-100"
+            >
+              ›
+            </button>
+          </div>
+          <div className="grid grid-cols-7 gap-0.5 text-center text-[11px] text-slate-400">
+            {DIAS_SEMANA.map((d, i) => (
+              <span key={i}>{d}</span>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 gap-0.5">
+            {Array.from({ length: firstWeekday }).map((_, i) => (
+              <span key={`vazio-${i}`} />
+            ))}
+            {Array.from({ length: daysInMonth }).map((_, i) => {
+              const day = i + 1
+              const iso = `${view.y}-${String(view.m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+              const isSelected = iso === valueIso
+              return (
+                <button
+                  key={day}
+                  type="button"
+                  onClick={() => {
+                    onSelect(iso)
+                    setOpen(false)
+                  }}
+                  className={`rounded py-1 text-xs hover:bg-emerald-100 ${isSelected ? 'bg-emerald-700 text-white hover:bg-emerald-700' : 'text-slate-700'}`}
+                >
+                  {day}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Par De/Até com máscara dd/mm/aaaa + calendário — ver MiniCalendarButton acima. */
+export function DateRangeInputs({
+  from,
+  to,
+  onFromChange,
+  onToChange,
+}: {
+  from: string
+  to: string
+  onFromChange: (iso: string) => void
+  onToChange: (iso: string) => void
+}) {
+  const [fromText, setFromText] = useState(fmtDateBR(from))
+  const [toText, setToText] = useState(fmtDateBR(to))
+
+  useEffect(() => setFromText(fmtDateBR(from)), [from])
+  useEffect(() => setToText(fmtDateBR(to)), [to])
+
+  return (
+    <>
+      <div>
+        <label className="block text-xs font-medium text-slate-600">De</label>
+        <input
+          type="text"
+          inputMode="numeric"
+          value={fromText}
+          onChange={(e) => {
+            const formatted = formatBRInput(e.target.value)
+            setFromText(formatted)
+            const iso = parseBRToIso(formatted)
+            if (iso) onFromChange(iso)
+          }}
+          placeholder="dd/mm/aaaa"
+          maxLength={10}
+          className="mt-1 w-28 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+        />
+      </div>
+      <MiniCalendarButton
+        valueIso={from}
+        onSelect={(iso) => {
+          onFromChange(iso)
+          setFromText(fmtDateBR(iso))
+        }}
+      />
+      <div>
+        <label className="block text-xs font-medium text-slate-600">Até</label>
+        <input
+          type="text"
+          inputMode="numeric"
+          value={toText}
+          onChange={(e) => {
+            const formatted = formatBRInput(e.target.value)
+            setToText(formatted)
+            const iso = parseBRToIso(formatted)
+            if (iso) onToChange(iso)
+          }}
+          placeholder="dd/mm/aaaa"
+          maxLength={10}
+          className="mt-1 w-28 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+        />
+      </div>
+      <MiniCalendarButton
+        valueIso={to}
+        onSelect={(iso) => {
+          onToChange(iso)
+          setToText(fmtDateBR(iso))
+        }}
+      />
+    </>
+  )
+}

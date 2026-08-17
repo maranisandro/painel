@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { getSessionUser, isAdmin, canEditModule } from '@/lib/authz'
+import { getSessionUser, isAdmin, canEditModule, hasResourceAccess } from '@/lib/authz'
 import { prisma } from '@/lib/prisma'
 
 export const dynamic = 'force-dynamic'
@@ -8,9 +8,14 @@ export const dynamic = 'force-dynamic'
 export default async function AdminPage() {
   const user = await getSessionUser()
   const admin = isAdmin(user)
-  if (!admin && !canEditModule(user, 'fase1')) redirect('/dashboard')
+  const canEditFase3 = canEditModule(user, 'fase3')
+  // Acesso granular por tela (pedido do usuário 2026-08-14) — cada card
+  // abaixo já se filtra por hasResourceAccess; aqui só decide se a PÁGINA
+  // em si é acessível (admin, algum recurso concedido, ou editor de fase3
+  // pra Cotas de venda, que continua no esquema antigo por módulo).
+  if (!admin && (user?.resourceCodes.length ?? 0) === 0 && !canEditFase3) redirect('/dashboard')
 
-  const [locais, rotas, parametros, composicoes, produtos, precosFrete, manutencoes, ferias, usuarios] =
+  const [locais, rotas, parametros, composicoes, produtos, precosFrete, manutencoes, ferias, tickets, usuarios, cotasProduto] =
     await Promise.all([
       prisma.location.count(),
       prisma.route.count(),
@@ -20,58 +25,90 @@ export default async function AdminPage() {
       prisma.routeFreightPrice.count(),
       prisma.vehicleMaintenance.count(),
       prisma.driverVacation.count(),
+      prisma.tripTicket.count(),
       admin ? prisma.user.count() : Promise.resolve(0),
+      canEditFase3 ? prisma.productQuota.count() : Promise.resolve(0),
     ])
 
-  const cards = [
+  // Cada card só aparece se o usuário tiver acesso ao AdminResource
+  // correspondente (pedido do usuário 2026-08-14: acesso granular por tela
+  // de Cadastro) — admin sempre vê tudo (hasResourceAccess trata isso).
+  const cardsPorRecurso = [
     {
+      resource: 'locais',
       href: '/dashboard/admin/locais',
       title: 'Locais',
       count: locais,
       desc: 'Unidades do grupo e clientes — origens e destinos das rotas.',
     },
     {
+      resource: 'rotas',
       href: '/dashboard/admin/rotas',
       title: 'Rotas',
       count: rotas,
       desc: 'Distâncias (asfalto/terra), velocidades cheio/vazio e tempos de carga/descarga.',
     },
     {
+      resource: 'parametros',
       href: '/dashboard/admin/parametros',
       title: 'Parâmetros',
       count: parametros,
       desc: 'Metas e fórmulas usadas nos painéis (ex.: meta de KM mensal, ritmo).',
     },
     {
+      resource: 'composicoes',
       href: '/dashboard/admin/composicoes',
       title: 'Composições',
       count: composicoes,
       desc: 'Implemento de cada placa, com histórico de mudanças por data, e limites de peso por composição.',
     },
     {
+      resource: 'produtos',
       href: '/dashboard/admin/produtos',
       title: 'Produtos',
       count: produtos,
       desc: 'Classificação de produto (Carvão, Cavaco, Maravalha…) por código do ERP.',
     },
     {
+      resource: 'precos_frete',
       href: '/dashboard/admin/precos-frete',
       title: 'Preços de frete',
       count: precosFrete,
       desc: 'Valor de referência (R$/tonelada) por rota, com histórico por data.',
     },
     {
+      resource: 'manutencao',
       href: '/dashboard/admin/manutencao',
       title: 'Manutenção',
       count: manutencoes,
       desc: 'Períodos de manutenção por placa — entram no desvio de performance do painel.',
     },
     {
+      resource: 'ferias',
       href: '/dashboard/admin/ferias',
       title: 'Férias',
       count: ferias,
       desc: 'Períodos de férias por motorista.',
     },
+    {
+      resource: 'tickets_viagem',
+      href: '/dashboard/admin/tickets-viagem',
+      title: 'Tickets de viagem',
+      count: tickets,
+      desc: 'Conciliação de tickets de pesagem (foto/PDF) com as notas fiscais emitidas.',
+    },
+  ].filter((c) => hasResourceAccess(user, c.resource))
+
+  const cards = [
+    ...cardsPorRecurso,
+    ...(canEditFase3
+      ? [{
+          href: '/dashboard/admin/cotas-venda',
+          title: 'Cotas de venda (Madeira Tratada)',
+          count: cotasProduto,
+          desc: 'Meta mensal de volume, distribuição por ICMS, e cota por distribuidor/produto.',
+        }]
+      : []),
     ...(admin
       ? [{
           href: '/dashboard/admin/usuarios',

@@ -10,6 +10,8 @@ const updateSchema = z.object({
   role: z.enum(['ADMIN', 'EDITOR', 'VIEWER']),
   active: z.boolean(),
   moduleCodes: z.array(z.string().min(1)).transform((codes) => [...new Set(codes)]),
+  // Acesso granular por tela de Cadastro (pedido do usuário 2026-08-14) — mesmo padrão de moduleCodes
+  resourceCodes: z.array(z.string().min(1)).default([]).transform((codes) => [...new Set(codes)]),
 })
 
 const userSelect = {
@@ -24,6 +26,12 @@ const userSelect = {
     orderBy: { module: { phase: 'asc' as const } },
     select: {
       module: { select: { id: true, code: true, name: true, phase: true, active: true } },
+    },
+  },
+  adminAccesses: {
+    orderBy: { resource: { position: 'asc' as const } },
+    select: {
+      resource: { select: { id: true, code: true, name: true, position: true } },
     },
   },
 }
@@ -45,6 +53,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       role: true,
       active: true,
       moduleAccesses: { select: { module: { select: { code: true } } } },
+      adminAccesses: { select: { resource: { select: { code: true } } } },
     },
   })
   if (!existing) return NextResponse.json({ error: 'Usuário não encontrado' }, { status: 404 })
@@ -69,6 +78,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   if (modules.length !== parsed.data.moduleCodes.length) {
     return badRequest('Um ou mais módulos informados não existem')
   }
+  const resources = await prisma.adminResource.findMany({
+    where: { code: { in: parsed.data.resourceCodes } },
+    select: { id: true, code: true },
+  })
+  if (resources.length !== parsed.data.resourceCodes.length) {
+    return badRequest('Um ou mais cadastros informados não existem')
+  }
 
   const before = {
     name: existing.name,
@@ -76,6 +92,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     role: existing.role,
     active: existing.active,
     moduleCodes: existing.moduleAccesses.map((access) => access.module.code).sort(),
+    resourceCodes: existing.adminAccesses.map((access) => access.resource.code).sort(),
   }
 
   let user
@@ -95,6 +112,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       }
 
       await tx.userModuleAccess.deleteMany({ where: { userId: id } })
+      await tx.userAdminAccess.deleteMany({ where: { userId: id } })
       return tx.user.update({
         where: { id },
         data: {
@@ -109,6 +127,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           moduleAccesses:
             parsed.data.role !== 'ADMIN' && modules.length > 0
               ? { create: modules.map((module) => ({ moduleId: module.id })) }
+              : undefined,
+          adminAccesses:
+            parsed.data.role !== 'ADMIN' && resources.length > 0
+              ? { create: resources.map((resource) => ({ resourceId: resource.id })) }
               : undefined,
         },
         select: userSelect,
@@ -135,6 +157,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         role: user.role,
         active: user.active,
         moduleCodes: user.moduleAccesses.map((access) => access.module.code).sort(),
+        resourceCodes: user.adminAccesses.map((access) => access.resource.code).sort(),
       },
     },
   })

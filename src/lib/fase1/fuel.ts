@@ -42,6 +42,7 @@
 type Row = Record<string, unknown>
 
 export interface AbastecimentoDetalhe {
+  /** data/hora completa (ISO, direto da tabela) — pedido do usuário 2026-08-03: "sempre usar data hora conforme dados da tabela" */
   data: string
   litros: number
   hodometro: number
@@ -51,10 +52,25 @@ export interface AbastecimentoDetalhe {
   kmDesdeAnterior: number | null
   /** km/l do intervalo (km desde o diesel anterior ÷ litros de diesel deste abastecimento — tanque cheio a tanque cheio; null se esta parada não teve diesel, ex.: só Arla/lubrificante) */
   kmPorLitroIntervalo: number | null
+  /**
+   * km desde o abastecimento de ARLA anterior (null quando esta parada não
+   * tem Arla, ou é o primeiro Arla do histórico) — pedido do usuário
+   * 2026-08-14: "porque no arla não vem as médias?" (a aba Arla só mostrava
+   * o total do período, sem intervalo por linha, igual ao Diesel já tinha).
+   * Mesmo raciocínio do Diesel, mas ancorado no Arla anterior — ATENÇÃO:
+   * mais ruidoso que o do Diesel, porque o Arla não é completado a cada
+   * parada (o intervalo entre 2 abastecimentos de Arla é bem mais
+   * irregular que entre 2 de diesel).
+   */
+  kmDesdeArlaAnterior: number | null
+  /** Arla (L/km) do intervalo — litros de Arla desta parada ÷ km desde o Arla anterior; null se esta parada não teve Arla, ou é a primeira do histórico */
+  arlaPorKmIntervalo: number | null
   /** true = dentro do período selecionado; false = só serve de referência para o primeiro intervalo */
   noPeriodo: boolean
-  /** true = este ponto é a soma de 2+ abastecimentos fracionados no mesmo hodômetro */
+  /** true = este ponto é a soma de 2+ abastecimentos fracionados no mesmo hodômetro e mesmo dia */
   fracionado: boolean
+  /** abastecimentos individuais que compõem este ponto quando fracionado=true (pedido do usuário 2026-08-03: "pode fundir [por] data mas abrir as opções") — cada um com sua data/hora real */
+  itens?: { data: string; litros: number; produto: string }[]
   /** motivo do alerta (ícone ⚠ no painel), null = sem nada fora do comum */
   alerta: string | null
 }
@@ -70,6 +86,54 @@ export interface ConsumoPlaca {
   /** litros de DIESEL considerados no cálculo de km/l (kmRodado ÷ litrosConsiderados = kmPorLitro) — exposto para permitir combinar vários placas (ex.: ranking por motorista) sem recalcular a média errado */
   litrosConsiderados: number
   kmPorLitro: number | null
+  /**
+   * true = `kmPorLitro` NÃO veio de um intervalo válido dentro do período
+   * selecionado — é o último km/l válido encontrado em qualquer ponto do
+   * histórico da placa, usado como estimativa. Pedido do usuário 2026-08-05
+   * (caso real TBH2C10, sem abastecimento válido no mês nem no anterior):
+   * "pegar a média quando não houver abastecimento no mês ou no anterior,
+   * pegar o último que encontrar" — em vez de deixar em branco.
+   */
+  kmPorLitroEstimado: boolean
+  /** data do abastecimento que originou o km/l estimado (null quando kmPorLitroEstimado=false ou quando não existe nenhum intervalo válido em todo o histórico) */
+  kmPorLitroReferenciaEm: string | null
+  /** litros de ARLA32 no período — pedido do usuário 2026-08-03: "média de arla por km" */
+  litrosArla: number
+  /** litrosArla ÷ kmRodado (L de Arla por km) — mantido como dado de referência, mas NÃO é mais o indicador principal (ver `arlaPctDiesel`). */
+  arlaPorKm: number | null
+  /**
+   * true = `arlaPorKm` não veio do período selecionado (sem km rodado
+   * calculável no período) — é a razão litros-Arla/km de todo o histórico da
+   * placa até `to`, usada como estimativa. Pedido do usuário 2026-08-13: "as
+   * médias e último abastecimento deve acontecer para arla e diesel [também]
+   * — não podemos ter média zerada", mesmo tratamento que `kmPorLitroEstimado`
+   * já tinha só para diesel.
+   */
+  arlaPorKmEstimado: boolean
+  /** último dia com abastecimento (diesel ou Arla) que entrou na razão histórica usada em `arlaPorKm` quando `arlaPorKmEstimado`=true; null caso contrário */
+  arlaPorKmReferenciaEm: string | null
+  /**
+   * Arla como % do Diesel consumido (litrosArla ÷ litrosConsiderados × 100)
+   * — pedido do usuário 2026-08-14: "o consumo de Arla 32 não é medido nem
+   * em km/l nem em l/km, mas sim como uma porcentagem em relação ao consumo
+   * de diesel. O padrão de mercado é que o veículo consuma entre 3% e 5% de
+   * Arla para cada litro de diesel queimado (~1L de Arla a cada 20L de
+   * diesel)". Este é o indicador principal agora — `arlaPorKm` continua
+   * disponível só como dado de referência.
+   */
+  arlaPctDiesel: number | null
+  /** mesmo tratamento de fallback histórico que `arlaPorKmEstimado`, aplicado ao `arlaPctDiesel`. */
+  arlaPctDieselEstimado: boolean
+  /**
+   * Alerta quando `arlaPctDiesel` foge muito da faixa normal de mercado
+   * (3%-5%) — abaixo de `ARLA_PCT_MIN_ALERTA` é o caso mais grave: indício
+   * de adulteração/remoção do sistema de redução de emissões ("Arla
+   * delete"), prática ilegal que pode gerar multa ambiental e anula a
+   * garantia do motor. Acima de `ARLA_PCT_MAX_ALERTA` sugere vazamento ou
+   * erro de abastecimento/leitura. `null` = dentro do normal ou sem dado
+   * suficiente para avaliar.
+   */
+  arlaAlerta: string | null
   abastecimentos: number
   /** produtos distintos abastecidos no período (Diesel S10 / Arla32 / …) */
   produtos: string
@@ -90,6 +154,39 @@ const KM_INTERVALO_MAX = 5000 // descarta saltos de hodômetro implausíveis (re
 // hoje). Arla32/gasolina/etanol/lubrificante continuam aparecendo na coluna
 // Produto, só não entram na conta (pedido do usuário 2026-07-30).
 const DIESEL_MATCH = /DIESEL/i
+// Arla32 (aditivo do escapamento) — pedido do usuário 2026-08-03: "preciso
+// ter a média de arla por km". Cobre "ARLA 32 (GRUPO 30)" e "SERVICO
+// ABASTECIMENTO ARLA", os dois nomes que a Officium usa hoje.
+const ARLA_MATCH = /ARLA/i
+const GASOLINA_MATCH = /GASOLINA/i
+const ETANOL_MATCH = /ETANOL/i
+// Faixa normal de mercado (pedido do usuário 2026-08-14): 3%-5% de Arla por
+// litro de diesel queimado. Alerta só fora de uma margem mais larga que a
+// faixa normal, pra não sinalizar toda variação pequena — abaixo de 1,5% é
+// o caso mais grave (indício de "Arla delete"/adulteração do sistema de
+// redução de emissões); acima de 8% sugere vazamento ou erro de leitura.
+const ARLA_PCT_MIN_ALERTA = 1.5
+const ARLA_PCT_MAX_ALERTA = 8
+
+/**
+ * Categoria normalizada do produto — pedido do usuário 2026-08-05: "ainda
+ * estou vendo mistura de abastecimento entre diesel e arla... SERVICO
+ * ABASTECIMENTO ARLA = ARLA 32 (GRUPO 30) e SERVICO ABASTECIMENTO DIESEL =
+ * OLEO DIESEL S10". A Officium grava o MESMO combustível com rótulos
+ * diferentes (achado real ao investigar: 'OLEO DIESEL S10'/'OLEO
+ * DIESEL'/'SERVICO ABASTECIMENTO DIESEL' são todos diesel; 'ARLA 32 (GRUPO
+ * 30)'/'ARLA 30 (GRUPO 29)'/'SERVICO ABASTECIMENTO ARLA' são todos Arla32).
+ * Usada para decidir se dois registros são "o mesmo tipo de combustível"
+ * (fusão de fracionado, ver abaixo) — nunca para decidir SE algo é diesel
+ * (isso continua sendo `DIESEL_MATCH` direto, já correto).
+ */
+function categoriaProduto(produto: string): string {
+  if (DIESEL_MATCH.test(produto)) return 'DIESEL'
+  if (ARLA_MATCH.test(produto)) return 'ARLA'
+  if (GASOLINA_MATCH.test(produto)) return 'GASOLINA'
+  if (ETANOL_MATCH.test(produto)) return 'ETANOL'
+  return produto.toUpperCase().trim() // lubrificantes/óleos raros: cada rótulo distinto continua a própria categoria
+}
 
 function num(v: unknown): number {
   const n = Number(v)
@@ -110,84 +207,183 @@ export function calcularConsumo(
   to: string,
   metaKmPorLitro = 2,
 ): ConsumoPlaca[] {
-  const porPlaca = new Map<string, { data: string; pedometer: number; litros: number; produto: string }[]>()
+  // `data` guarda a data/hora COMPLETA vinda da tabela (pedido do usuário
+  // 2026-08-03: "sempre usar data hora conforme dados da tabela") — só o
+  // `dia` (AAAA-MM-DD) é usado para comparações de período/fusão; a hora
+  // real fica disponível para exibir e para desempatar a ordenação.
+  const porPlaca = new Map<
+    string,
+    { data: string; dia: string; pedometer: number; litros: number; produto: string }[]
+  >()
   for (const r of rows) {
     const placa = String(r.PLACA ?? '').trim().toUpperCase()
     if (!placa || !placasConhecidas.has(placa)) continue
-    const data = String(r.date ?? '').slice(0, 10)
+    const data = String(r.date ?? '')
+    const dia = data.slice(0, 10)
     // Mantém histórico ANTERIOR ao período (referência do 1º intervalo);
     // só descarta o que é posterior ao fim do período selecionado.
-    if (!data || data > to) continue
+    if (!dia || dia > to) continue
     const pedometer = num(r.pedometer)
     if (pedometer <= 0) continue
     const list = porPlaca.get(placa) ?? []
-    list.push({ data, pedometer, litros: num(r.amount), produto: String(r.produto ?? '').trim() })
+    list.push({ data, dia, pedometer, litros: num(r.amount), produto: String(r.produto ?? '').trim() })
     porPlaca.set(placa, list)
   }
 
   const out: ConsumoPlaca[] = []
   for (const [placa, list] of porPlaca.entries()) {
+    // Ordenar por DATA/HORA completa (não por hodômetro) é essencial:
+    // hodômetro é o que pode vir corrompido (sensor com defeito, reset, etc.
+    // — caso real 2026-08-03, placa TBH2B96, hodômetro travado/retrocedido de
+    // 08/07 a 28/07). Ordenar por pedometer primeiro embaralhava a ordem
+    // cronológica real nesse cenário.
     const sorted = [...list].sort(
-      (a, b) => a.pedometer - b.pedometer || a.data.localeCompare(b.data),
+      (a, b) => a.data.localeCompare(b.data) || a.pedometer - b.pedometer,
     )
 
-    // Junta abastecimentos fracionados (mesmo hodômetro = mesma parada,
-    // complemento logo após o primeiro) num só ponto, somando os litros
-    // (total, para exibição) e separando os litros de DIESEL (para o
-    // cálculo) — e juntando os produtos distintos (ex.: Diesel + Arla32 na
-    // mesma parada).
+    // Junta abastecimentos fracionados num só ponto — mas só quando é
+    // GENUINAMENTE a mesma parada: mesmo hodômetro, mesmo dia E MESMA
+    // CATEGORIA de produto (pedido do usuário 2026-08-03: "não poderia ter
+    // arla e diesel no mesmo abastecimento, produto e bico são diferentes,
+    // são abastecimentos distintos"). Compara por CATEGORIA (`categoriaProduto`),
+    // não pela string bruta — achado real 2026-08-05: a Officium grava o
+    // MESMO combustível com rótulos diferentes conforme o sistema/período
+    // ("OLEO DIESEL S10" vs "SERVICO ABASTECIMENTO DIESEL"), e comparar a
+    // string bruta deixava a MESMA parada real virar 2 pontos separados —
+    // cada um dividindo o hodômetro entre si, gerando um alerta falso de
+    // "hodômetro não avançou" (delta=0) sem nenhum problema real. Cobre o
+    // caso de fusão válida: duas passadas na mesma bomba do MESMO
+    // combustível (ex.: completar o tanque de diesel em duas transações,
+    // ou o mesmo evento logado sob 2 rótulos). Guarda os itens originais em
+    // `itens` — pedido do usuário: "pode fundir [por] data mas abrir as
+    // opções", para o operador ver o abastecimento individual por trás da
+    // soma (inclusive o rótulo original de cada um).
     const merged: {
       data: string
+      dia: string
       pedometer: number
       litros: number
       litrosDiesel: number
+      litrosArla: number
       produto: string
       fracionado: boolean
+      itens: { data: string; litros: number; produto: string }[]
     }[] = []
     for (const r of sorted) {
       const litrosDiesel = DIESEL_MATCH.test(r.produto) ? r.litros : 0
+      const litrosArla = ARLA_MATCH.test(r.produto) ? r.litros : 0
       const last = merged[merged.length - 1]
-      if (last && last.pedometer === r.pedometer) {
+      if (
+        last &&
+        last.pedometer === r.pedometer &&
+        last.dia === r.dia &&
+        categoriaProduto(last.produto) === categoriaProduto(r.produto)
+      ) {
         last.litros += r.litros
         last.litrosDiesel += litrosDiesel
+        last.litrosArla += litrosArla
         last.fracionado = true
+        last.itens.push({ data: r.data, litros: r.litros, produto: r.produto })
         if (r.data > last.data) last.data = r.data
-        if (r.produto && !last.produto.split(' / ').includes(r.produto)) {
-          last.produto = last.produto ? `${last.produto} / ${r.produto}` : r.produto
-        }
       } else {
-        merged.push({ ...r, litrosDiesel, fracionado: false })
+        merged.push({
+          ...r,
+          litrosDiesel,
+          litrosArla,
+          fracionado: false,
+          itens: [{ data: r.data, litros: r.litros, produto: r.produto }],
+        })
       }
     }
 
     const detalhe: AbastecimentoDetalhe[] = []
     let kmRodado = 0
     let litrosConsiderados = 0
+    // Não anda junto com os intervalos de diesel (Arla não é abastecido a
+    // cada parada, então não tem "intervalo" próprio) — soma tudo que caiu
+    // dentro do período e divide pelo kmRodado do período no final.
+    let litrosArlaPeriodo = 0
+    // Acumuladores de TODO o histórico até `to` (não só o período) — base do
+    // fallback "última razão Arla/km conhecida" quando o período não tem km
+    // rodado calculável (mesma ideia de `ultimoValido` abaixo, para diesel).
+    let kmRodadoHistorico = 0
+    let litrosArlaHistorico = 0
+    // Base do fallback histórico de `arlaPctDiesel` — mesmo raciocínio de
+    // `kmRodadoHistorico`/`litrosArlaHistorico`, mas em litros de diesel.
+    let litrosDieselHistorico = 0
+    let ultimaDataComAbastecimento: string | null = null
     // Índice da última parada com diesel — âncora do intervalo de km/l (uma
     // parada só de Arla/lubrificante não conta, a distância até ela é
     // somada ao próximo abastecimento de diesel).
     let lastDieselIdx = -1
+    // Mesma ideia de lastDieselIdx, ancorando o intervalo do Arla em vez do
+    // diesel — pedido do usuário 2026-08-14 ("porque no arla não vem as
+    // médias?"): a aba Arla só mostrava o total do período, sem intervalo
+    // por linha.
+    let lastArlaIdx = -1
+    // Último intervalo VÁLIDO encontrado em todo o histórico até `to`,
+    // independente do período selecionado — usado como estimativa quando o
+    // período não tem nenhum intervalo válido próprio (pedido do usuário
+    // 2026-08-05, ver `kmPorLitroEstimado` na interface).
+    let ultimoValido: { data: string; kmPorLitro: number } | null = null
     for (let i = 0; i < merged.length; i++) {
       const atual = merged[i]
-      const noPeriodo = atual.data >= from && atual.data <= to
+      const noPeriodo = atual.dia >= from && atual.dia <= to
+      if (noPeriodo) litrosArlaPeriodo += atual.litrosArla
+      // Histórico completo (não só o período) — mesmo escopo de `ultimoValido`
+      // abaixo, base do fallback de Arla quando o período não tem km rodado.
+      litrosArlaHistorico += atual.litrosArla
+      litrosDieselHistorico += atual.litrosDiesel
+      if (atual.litros > 0) ultimaDataComAbastecimento = atual.data
       let kmDesdeAnterior: number | null = null
       let kmPorLitroIntervalo: number | null = null
+      // true = houve abastecimento de diesel anterior para comparar (intervalo
+      // "tentado"), mesmo que o hodômetro tenha vindo inválido — usado abaixo
+      // para não descartar silenciosamente hodômetro travado/retrocedido.
+      let intervaloTentado = false
+      let hodometroInvalido = false
       if (atual.litrosDiesel > 0 && lastDieselIdx >= 0) {
+        intervaloTentado = true
         const anteriorDiesel = merged[lastDieselIdx]
         const delta = atual.pedometer - anteriorDiesel.pedometer
         const valido = delta > 0 && delta <= KM_INTERVALO_MAX
         if (valido) {
           kmDesdeAnterior = delta
           kmPorLitroIntervalo = delta / atual.litrosDiesel
+          ultimoValido = { data: atual.data, kmPorLitro: kmPorLitroIntervalo }
+          kmRodadoHistorico += delta
           if (noPeriodo) {
             kmRodado += delta
             litrosConsiderados += atual.litrosDiesel
           }
+        } else {
+          hodometroInvalido = true
         }
       }
       if (atual.litrosDiesel > 0) lastDieselIdx = i
-      const alerta =
-        kmPorLitroIntervalo !== null && kmPorLitroIntervalo > metaKmPorLitro * 3
+
+      // Intervalo do Arla (L/km), ancorado no Arla anterior — mesmo
+      // raciocínio do diesel acima, só que sem alerta/anomalia própria (não
+      // existe meta de Arla pra comparar) e sem travar o hodômetro inválido
+      // do diesel (é um cálculo independente).
+      let kmDesdeArlaAnterior: number | null = null
+      let arlaPorKmIntervalo: number | null = null
+      if (atual.litrosArla > 0 && lastArlaIdx >= 0) {
+        const anteriorArla = merged[lastArlaIdx]
+        const deltaArla = atual.pedometer - anteriorArla.pedometer
+        if (deltaArla > 0 && deltaArla <= KM_INTERVALO_MAX) {
+          kmDesdeArlaAnterior = deltaArla
+          arlaPorKmIntervalo = atual.litrosArla / deltaArla
+        }
+      }
+      if (atual.litrosArla > 0) lastArlaIdx = i
+      // Hodômetro travado/retrocedido (delta <= 0) é o caso mais grave — indica
+      // sensor com defeito ou fraude, e sem isso o abastecimento simplesmente
+      // desaparecia do cálculo sem aviso nenhum (pedido do usuário 2026-08-03,
+      // caso real: placa TBH2B96, hodômetro parado em 121181 desde 08/07).
+      const alerta = hodometroInvalido
+        ? 'hodômetro não avançou ou retrocedeu desde o abastecimento de diesel anterior — sensor/telemetria pode estar com problema'
+        : kmPorLitroIntervalo !== null && kmPorLitroIntervalo > metaKmPorLitro * 3
           ? `consumo muito acima do normal (${fmtKmL(kmPorLitroIntervalo)} km/l) — provável abastecimento incompleto (tanque não encheu totalmente)`
           : kmPorLitroIntervalo !== null && kmPorLitroIntervalo < metaKmPorLitro * 0.15
             ? `consumo muito abaixo do normal (${fmtKmL(kmPorLitroIntervalo)} km/l) — conferir hodômetro ou abastecimento duplicado`
@@ -199,8 +395,11 @@ export function calcularConsumo(
         produto: atual.produto,
         kmDesdeAnterior,
         kmPorLitroIntervalo,
+        kmDesdeArlaAnterior,
+        arlaPorKmIntervalo,
         noPeriodo,
         fracionado: atual.fracionado,
+        itens: atual.fracionado ? atual.itens : undefined,
         alerta,
       })
     }
@@ -210,19 +409,87 @@ export function calcularConsumo(
     const produtos = [
       ...new Set(noPeriodoRows.flatMap((d) => d.produto.split(' / ')).map((p) => p.trim()).filter(Boolean)),
     ].sort()
-    const totalIntervalos = noPeriodoRows.filter((d) => d.kmPorLitroIntervalo !== null).length
+    // Conta tanto os intervalos com km/l calculado quanto os com hodômetro
+    // inválido (alerta sem km/l) — senão o hodômetro travado/retrocedido some
+    // do denominador e a % de anomalia fica artificialmente baixa.
+    const totalIntervalos = noPeriodoRows.filter((d) => d.kmPorLitroIntervalo !== null || d.alerta !== null).length
     const alertasCount = noPeriodoRows.filter((d) => d.alerta !== null).length
     const { score, nivel } = classificarAnormalidade(alertasCount, totalIntervalos)
+    // Sem intervalo válido dentro do período (ex.: sem abastecimento no mês
+    // nem no anterior, ou o único abastecimento do período veio com hodômetro
+    // inválido) — cai para o último km/l válido conhecido em todo o
+    // histórico da placa, em vez de deixar em branco.
+    const kmPorLitroPeriodo = litrosConsiderados > 0 ? kmRodado / litrosConsiderados : null
+    const kmPorLitro = kmPorLitroPeriodo ?? ultimoValido?.kmPorLitro ?? null
+    const kmPorLitroEstimado = kmPorLitroPeriodo === null && ultimoValido !== null
+    // Mesma lógica do km/l: sem km rodado calculável no período (kmRodado=0),
+    // cai pra razão litros-Arla/km de TODO o histórico da placa até `to`, em
+    // vez de mostrar "—"/zerado.
+    const arlaPorKmPeriodo = kmRodado > 0 ? litrosArlaPeriodo / kmRodado : null
+    const arlaPorKmHistorico = kmRodadoHistorico > 0 ? litrosArlaHistorico / kmRodadoHistorico : null
+    const arlaPorKm = arlaPorKmPeriodo ?? arlaPorKmHistorico
+    const arlaPorKmEstimado = arlaPorKmPeriodo === null && arlaPorKmHistorico !== null
+    // Indicador principal (pedido do usuário 2026-08-14): Arla como % do
+    // diesel consumido, não L/km — mesmo fallback histórico do km/l/arlaPorKm
+    // quando o período não tem diesel suficiente pra calcular.
+    const arlaPctDieselPeriodo = litrosConsiderados > 0 ? (litrosArlaPeriodo / litrosConsiderados) * 100 : null
+    const arlaPctDieselHistorico = litrosDieselHistorico > 0 ? (litrosArlaHistorico / litrosDieselHistorico) * 100 : null
+    const arlaPctDiesel = arlaPctDieselPeriodo ?? arlaPctDieselHistorico
+    const arlaPctDieselEstimado = arlaPctDieselPeriodo === null && arlaPctDieselHistorico !== null
+    const arlaAlerta =
+      arlaPctDiesel === null
+        ? null
+        : arlaPctDiesel < ARLA_PCT_MIN_ALERTA
+          ? `consumo de Arla muito abaixo do normal (${fmtKmL(arlaPctDiesel)}% do diesel, padrão de mercado é 3%-5%) — possível adulteração/remoção do sistema de redução de emissões, risco de multa ambiental e perda de garantia do motor`
+          : arlaPctDiesel > ARLA_PCT_MAX_ALERTA
+            ? `consumo de Arla muito acima do normal (${fmtKmL(arlaPctDiesel)}% do diesel, padrão de mercado é 3%-5%) — conferir vazamento ou erro de abastecimento/leitura`
+            : null
+
+    // Início do recorte de `detalhe` exibido: normalmente "período + 1
+    // registro anterior" já bastava de contexto — mas achado real 2026-08-14
+    // (usuário perguntou "não existe outro abastecimento de diesel antes
+    // deste?" ao ver um km/l calculado sem nenhum diesel anterior visível na
+    // aba Diesel): quando há abastecimento(s) de Arla ENTRE o último diesel
+    // e o início do período, "1 registro anterior" pega o Arla mais recente,
+    // não o diesel que de fato ancorou o cálculo do primeiro intervalo — o
+    // diesel usado no cálculo ficava fora do recorte exibido, embora o
+    // número mostrado estivesse certo (calculado sobre o histórico completo,
+    // nunca sobre este recorte). Corrigido: o recorte sempre inclui pelo
+    // menos até o último abastecimento de DIESEL anterior ao período.
+    // Mesmo raciocínio, espelhado pro Arla (aba Arla precisa do mesmo
+    // contexto — pedido do usuário 2026-08-14 sobre as médias por linha).
+    const primeiroDoPeriodo = detalhe.findIndex((d) => d.noPeriodo)
+    const limiteAntesDoPeriodo = primeiroDoPeriodo === -1 ? detalhe.length : primeiroDoPeriodo
+    let ultimoDieselAntes = -1
+    let ultimoArlaAntes = -1
+    for (let i = limiteAntesDoPeriodo - 1; i >= 0; i--) {
+      if (ultimoDieselAntes === -1 && DIESEL_MATCH.test(detalhe[i].produto)) ultimoDieselAntes = i
+      if (ultimoArlaAntes === -1 && ARLA_MATCH.test(detalhe[i].produto)) ultimoArlaAntes = i
+      if (ultimoDieselAntes !== -1 && ultimoArlaAntes !== -1) break
+    }
+    const candidatos = [limiteAntesDoPeriodo - 1, ultimoDieselAntes, ultimoArlaAntes].filter((i) => i !== -1)
+    const inicioDetalhe = Math.max(0, candidatos.length > 0 ? Math.min(...candidatos) : limiteAntesDoPeriodo - 1)
+
     out.push({
       placa,
       litrosTotal: noPeriodoRows.reduce((s, d) => s + d.litros, 0),
       kmRodado,
       litrosConsiderados,
-      kmPorLitro: litrosConsiderados > 0 ? kmRodado / litrosConsiderados : null,
+      kmPorLitro,
+      kmPorLitroEstimado,
+      kmPorLitroReferenciaEm: kmPorLitroEstimado ? (ultimoValido?.data ?? null) : null,
+      litrosArla: litrosArlaPeriodo,
+      arlaPorKm,
+      arlaPorKmEstimado,
+      arlaPorKmReferenciaEm: arlaPorKmEstimado ? ultimaDataComAbastecimento : null,
+      arlaPctDiesel,
+      arlaPctDieselEstimado,
+      arlaAlerta,
       abastecimentos: noPeriodoRows.length,
       produtos: produtos.join(' / '),
-      // Mostra o período + 1 registro anterior, só para dar contexto ao primeiro intervalo
-      detalhe: detalhe.slice(Math.max(0, detalhe.findIndex((d) => d.noPeriodo) - 1)),
+      // Mostra o período + contexto anterior (ver inicioDetalhe acima) —
+      // sempre até o último diesel anterior, não só "1 registro anterior".
+      detalhe: detalhe.slice(inicioDetalhe),
       temAlerta: alertasCount > 0,
       alertasCount,
       totalIntervalos,
@@ -292,10 +559,14 @@ export function agruparConsumoPorMotorista(
     const timeline = timelinePorPlaca.get(c.placa)
     if (!timeline || timeline.length === 0) continue
     for (const d of c.detalhe) {
-      // só intervalos de diesel dentro do período contam (mesmo critério do
-      // total por placa) — paradas só de Arla/lubrificante (kmPorLitroIntervalo
-      // null) não têm o que atribuir.
-      if (!d.noPeriodo || d.kmDesdeAnterior === null || d.kmPorLitroIntervalo === null) continue
+      if (!d.noPeriodo) continue
+      // Paradas só de Arla/lubrificante (sem diesel, sem intervalo tentado)
+      // não têm o que atribuir — mas hodômetro inválido (alerta setado, sem
+      // km/l calculável) ainda soma no denominador de anomalia do motorista,
+      // mesmo sem contribuir km/litros (não dá pra saber quanto ele rodou
+      // com um hodômetro travado/retrocedido).
+      const intervaloTentado = d.kmDesdeAnterior !== null || d.alerta !== null
+      if (!intervaloTentado) continue
       // último registro da timeline com data ≤ abastecimento
       let motorista: string | null = null
       for (const t of timeline) {
@@ -303,12 +574,14 @@ export function agruparConsumoPorMotorista(
         else break
       }
       if (!motorista) continue // abastecimento é anterior à 1ª nota conhecida da placa
-      const litrosDiesel = d.kmDesdeAnterior / d.kmPorLitroIntervalo
       const entry =
         acc.get(motorista) ?? { kmRodado: 0, litrosConsiderados: 0, abastecimentos: 0, alertasCount: 0, totalIntervalos: 0 }
-      entry.kmRodado += d.kmDesdeAnterior
-      entry.litrosConsiderados += litrosDiesel
-      entry.abastecimentos += 1
+      if (d.kmDesdeAnterior !== null && d.kmPorLitroIntervalo !== null) {
+        const litrosDiesel = d.kmDesdeAnterior / d.kmPorLitroIntervalo
+        entry.kmRodado += d.kmDesdeAnterior
+        entry.litrosConsiderados += litrosDiesel
+        entry.abastecimentos += 1
+      }
       entry.totalIntervalos += 1
       if (d.alerta) entry.alertasCount += 1
       acc.set(motorista, entry)

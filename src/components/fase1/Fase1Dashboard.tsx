@@ -2,8 +2,12 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { MonthlyPerformanceChart, FreightPieChart, TripsBarChart, type NameValue } from './Charts'
 import { calcularConsumo, agruparConsumoPorMotorista, type ConsumoPlaca } from '@/lib/fase1/fuel'
+import { DateRangeInputs, fmtDateBR } from '@/components/shared/DateRangeInputs'
+import { CriticaModeloTab } from './CriticaModeloTab'
+import { Fase1Estrategico } from './Fase1Estrategico'
 
 type Trip = Record<string, unknown>
 
@@ -28,6 +32,19 @@ interface ApiData {
     metaKmPorComposicao: Record<string, number>
     /** Custo já prorateado para o período selecionado (soma por mês, cada um com seu parâmetro CUSTO_MES_<AAAAMM>) */
     custoPeriodo: number
+    /** Detalhe mês a mês do custo do período (pedido do usuário 2026-08-13: mostrar o cálculo de acordo com o filtro, proporcional aos dias quando o mês fechado só entra parcialmente) */
+    custoPorMes: {
+      ym: string
+      /** valor cadastrado em CUSTO_MES_<ym> (ou o lançado/ritmo do mês corrente, antes da proporção de dias) */
+      valorCadastrado: number
+      diasNoPeriodo: number
+      diasDoMes: number
+      isMesAtual: boolean
+      /** parcela deste mês dentro de custoPeriodo */
+      contribuicao: number
+    }[]
+    /** TODOS os CUSTO_MES_<AAAAMM> cadastrados (não só os do período/filtro selecionado) — usado na aba estratégica por ano */
+    custoMesRegistrado: Record<string, number>
     /** Meta de consumo da frota (km/l), Cadastros → Parâmetros META_CONSUMO_KM_L — padrão 2 */
     metaConsumoKmL: number
     /** Transparência da projeção do mês corrente ("ver cálculo" do custo — pedido do usuário 2026-07-30) */
@@ -68,6 +85,7 @@ interface ApiData {
  */
 function CalculoCustoDetalhe({
   custoMesAtual,
+  custoPorMes,
   custoPeriodo,
   denominadorLabel,
   denominadorValor,
@@ -75,49 +93,80 @@ function CalculoCustoDetalhe({
   resultadoValor,
 }: {
   custoMesAtual: ApiData['params']['custoMesAtual']
+  custoPorMes: ApiData['params']['custoPorMes']
   custoPeriodo: number
   denominadorLabel: string
   denominadorValor: number
   resultadoLabel: string
   resultadoValor: number
 }) {
-  const ymFmt = `${custoMesAtual.ym.slice(4, 6)}/${custoMesAtual.ym.slice(0, 4)}`
+  // Detalhe mês a mês do período filtrado (pedido do usuário 2026-08-13: "o
+  // detalhe dos cálculos precisa mostrar de acordo com o filtro... se for um
+  // mês fechado com data parcial, pegar proporcional aos dias") — cada mês
+  // do período aparece com seu próprio valor cadastrado e a proporção de
+  // dias realmente usada; só o mês corrente (quando está dentro do período)
+  // ganha a explicação extra de lançado/projeção, que não se aplica a mês
+  // fechado nenhum.
   return (
     <details className="mt-2">
       <summary className="cursor-pointer text-xs text-emerald-700 hover:underline">Ver cálculo</summary>
       <div className="mt-2 space-y-2 rounded-md bg-slate-50 p-2 text-[11px] leading-relaxed text-slate-600">
+        {custoPorMes.map((m) => {
+          const ymFmt = `${m.ym.slice(4, 6)}/${m.ym.slice(0, 4)}`
+          if (m.isMesAtual) {
+            return (
+              <div key={m.ym} className="space-y-1 border-b border-slate-200 pb-2 last:border-0 last:pb-0">
+                <p>
+                  <strong>{ymFmt} (mês corrente):</strong> lançado até agora R${' '}
+                  {fmt(custoMesAtual.lancado, 2)} ({fmt(custoMesAtual.custoDiaAtual, 2)}/dia em{' '}
+                  {custoMesAtual.diasDecorridos} dia(s)).
+                </p>
+                {custoMesAtual.mediaCustoDiaHistorico === null ? (
+                  <p>Sem mês anterior lançado para comparar — usando o valor lançado direto, sem projeção.</p>
+                ) : (
+                  <p>
+                    Média histórica: R$ {fmt(custoMesAtual.mediaCustoDiaHistorico, 2)}/dia (
+                    {custoMesAtual.historico
+                      .map((h) => `${h.ym.slice(4, 6)}/${h.ym.slice(0, 4)}: R$ ${fmt(h.valor, 2)}`)
+                      .join(', ')}
+                    ) —{' '}
+                    {custoMesAtual.bateComHistorico === false
+                      ? 'lançado está abaixo da média (contabilidade provavelmente atrasada) → usa a média histórica como taxa diária'
+                      : 'lançado bate com a média → usa o próprio ritmo lançado como taxa diária'}
+                    : R$ {fmt(custoMesAtual.custoDiaBase, 2)}/dia.
+                  </p>
+                )}
+                <p>
+                  <strong>Contribuição deste mês:</strong> R$ {fmt(custoMesAtual.custoDiaBase, 2)}/dia ×{' '}
+                  {m.diasNoPeriodo} dia(s) do período (já decorridos) = R$ {fmt(m.contribuicao, 2)} — mesma janela de
+                  tempo do KM/toneladas já realizados (nunca o mês inteiro, senão o R$/km ficaria inflado).
+                </p>
+                <p className="text-slate-400">
+                  Só para referência, sem entrar na conta: no ritmo atual, o mês deve fechar por volta de R${' '}
+                  {fmt(custoMesAtual.projetadoFechamento, 2)}.
+                </p>
+              </div>
+            )
+          }
+          const parcial = m.diasNoPeriodo < m.diasDoMes
+          return (
+            <p key={m.ym}>
+              <strong>{ymFmt}:</strong> R$ {fmt(m.valorCadastrado, 2)} cadastrado em Parâmetros
+              {parcial ? (
+                <>
+                  {' '}
+                  × ({m.diasNoPeriodo}/{m.diasDoMes} dias do período dentro do mês) = R$ {fmt(m.contribuicao, 2)}
+                </>
+              ) : (
+                <> (mês inteiro dentro do período) = R$ {fmt(m.contribuicao, 2)}</>
+              )}
+              .
+            </p>
+          )
+        })}
         <p>
-          <strong>Custo do mês corrente ({ymFmt}):</strong> lançado até agora R${' '}
-          {fmt(custoMesAtual.lancado, 2)} ({fmt(custoMesAtual.custoDiaAtual, 2)}/dia em {custoMesAtual.diasDecorridos}{' '}
-          dia(s)).
-        </p>
-        {custoMesAtual.mediaCustoDiaHistorico === null ? (
-          <p>Sem mês anterior lançado para comparar — usando o valor lançado direto, sem projeção.</p>
-        ) : (
-          <p>
-            Média histórica: R$ {fmt(custoMesAtual.mediaCustoDiaHistorico, 2)}/dia (
-            {custoMesAtual.historico.map((m) => `${m.ym.slice(4, 6)}/${m.ym.slice(0, 4)}: R$ ${fmt(m.valor, 2)}`).join(', ')}
-            ) —{' '}
-            {custoMesAtual.bateComHistorico === false
-              ? 'lançado está abaixo da média (contabilidade provavelmente atrasada) → usa a média histórica como taxa diária'
-              : 'lançado bate com a média → usa o próprio ritmo lançado como taxa diária'}
-            : R$ {fmt(custoMesAtual.custoDiaBase, 2)}/dia.
-          </p>
-        )}
-        <p>
-          <strong>Custo até hoje (usado no cálculo abaixo):</strong> R$ {fmt(custoMesAtual.custoDiaBase, 2)}/dia ×{' '}
-          {custoMesAtual.diasDecorridos} dia(s) já decorridos = R$ {fmt(custoMesAtual.ateHoje, 2)} — mesma janela de
-          tempo do KM/toneladas já realizados (nunca o mês inteiro, senão o R$/km ficaria inflado dividindo um custo
-          de mês fechado pelo KM de só alguns dias).
-        </p>
-        <p className="text-slate-400">
-          Só para referência, sem entrar na conta: no ritmo atual, o mês deve fechar por volta de R$ {fmt(custoMesAtual.custoDiaBase, 2)}/dia ×{' '}
-          {custoMesAtual.diasDoMes} dias = R$ {fmt(custoMesAtual.projetadoFechamento, 2)}.
-        </p>
-        <p>
-          <strong>Custo do período selecionado:</strong> R$ {fmt(custoPeriodo, 2)} (soma dos meses do período; o mês
-          corrente entra pelo “custo até hoje” acima, meses fechados entram pelo valor lançado — cada um prorateado
-          pelos dias do mês dentro do período).
+          <strong>Custo do período selecionado:</strong> R$ {fmt(custoPeriodo, 2)} (soma das contribuições de cada
+          mês acima).
         </p>
         <p>
           <strong>
@@ -168,7 +217,7 @@ const DIM_LABELS: Record<DimKey, string> = {
 // valer para as duas — a lógica abaixo é parametrizada por groupField
 // exatamente para isso. "board" é o acompanhamento simples (ícones por
 // caminhão) — não segue essa regra de espelhamento, tem estrutura própria.
-type Aba = 'placa' | 'motorista' | 'board' | 'atrasados' | 'combustivel'
+type Aba = 'placa' | 'motorista' | 'board' | 'atrasados' | 'combustivel' | 'critica' | 'estrategico'
 
 // Ícone por classificação de produto no acompanhamento simples
 function produtoIcone(tipo: string): string {
@@ -213,123 +262,16 @@ function fmtDate(iso: string): string {
   return `${d}/${m}/${y}`
 }
 
-// Máscara dd/mm/aaaa para o filtro de período (padrão do painel) — o input
-// nativo type="date" segue o locale do navegador/SO, que nem sempre é pt-BR.
-function formatBRInput(raw: string): string {
-  const digits = raw.replace(/\D/g, '').slice(0, 8)
-  const parts = [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4, 8)].filter(Boolean)
-  return parts.join('/')
-}
-
-function parseBRToIso(br: string): string | null {
-  const m = br.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
-  if (!m) return null
-  const [, d, mo, y] = m
-  return `${y}-${mo}-${d}`
-}
-
-const DIAS_SEMANA = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S']
-
-// Calendário pequeno em popover — alternativa a digitar, sem usar o input
-// nativo type="date" (que segue o locale do navegador, não sempre pt-BR;
-// ver formatBRInput acima). Clique num dia seleciona e fecha.
-function MiniCalendarButton({
-  valueIso,
-  onSelect,
-}: {
-  valueIso: string
-  onSelect: (iso: string) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const [view, setView] = useState(() => {
-    const d = valueIso ? new Date(`${valueIso}T00:00:00`) : new Date()
-    return { y: d.getFullYear(), m: d.getMonth() }
-  })
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    function onClickOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onClickOutside)
-    return () => document.removeEventListener('mousedown', onClickOutside)
-  }, [open])
-
-  function abrir() {
-    const d = valueIso ? new Date(`${valueIso}T00:00:00`) : new Date()
-    setView({ y: d.getFullYear(), m: d.getMonth() })
-    setOpen(true)
-  }
-
-  const daysInMonth = new Date(view.y, view.m + 1, 0).getDate()
-  const firstWeekday = new Date(view.y, view.m, 1).getDay()
-  const monthLabel = new Date(view.y, view.m, 1).toLocaleDateString('pt-BR', {
-    month: 'long',
-    year: 'numeric',
-  })
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        type="button"
-        onClick={() => (open ? setOpen(false) : abrir())}
-        title="Escolher data no calendário"
-        className="mt-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm hover:bg-slate-100"
-      >
-        📅
-      </button>
-      {open && (
-        <div className="absolute z-20 mt-1 w-64 rounded-md border border-slate-200 bg-white p-2 shadow-lg">
-          <div className="flex items-center justify-between px-1 pb-1">
-            <button
-              type="button"
-              onClick={() => setView((v) => (v.m === 0 ? { y: v.y - 1, m: 11 } : { y: v.y, m: v.m - 1 }))}
-              className="rounded px-2 py-0.5 text-slate-600 hover:bg-slate-100"
-            >
-              ‹
-            </button>
-            <span className="text-sm font-medium capitalize">{monthLabel}</span>
-            <button
-              type="button"
-              onClick={() => setView((v) => (v.m === 11 ? { y: v.y + 1, m: 0 } : { y: v.y, m: v.m + 1 }))}
-              className="rounded px-2 py-0.5 text-slate-600 hover:bg-slate-100"
-            >
-              ›
-            </button>
-          </div>
-          <div className="grid grid-cols-7 gap-0.5 text-center text-[11px] text-slate-400">
-            {DIAS_SEMANA.map((d, i) => (
-              <span key={i}>{d}</span>
-            ))}
-          </div>
-          <div className="grid grid-cols-7 gap-0.5">
-            {Array.from({ length: firstWeekday }).map((_, i) => (
-              <span key={`vazio-${i}`} />
-            ))}
-            {Array.from({ length: daysInMonth }).map((_, i) => {
-              const day = i + 1
-              const iso = `${view.y}-${String(view.m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-              const isSelected = iso === valueIso
-              return (
-                <button
-                  key={day}
-                  type="button"
-                  onClick={() => {
-                    onSelect(iso)
-                    setOpen(false)
-                  }}
-                  className={`rounded py-1 text-xs hover:bg-emerald-100 ${isSelected ? 'bg-emerald-700 text-white hover:bg-emerald-700' : 'text-slate-700'}`}
-                >
-                  {day}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  )
+// Data + hora (não só a data) — pedido do usuário 2026-08-03: "sempre usar
+// data hora conforme dados da tabela". `iso` sem "T" (só data, ex.: viagens)
+// mostra só a data; com hora (ex.: abastecimento), mostra hh:mm também.
+function fmtDateHora(iso: string): string {
+  if (!iso.includes('T')) return fmtDate(iso)
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return fmtDate(iso)
+  const hh = String(d.getUTCHours()).padStart(2, '0')
+  const mm = String(d.getUTCMinutes()).padStart(2, '0')
+  return `${fmtDate(iso)} ${hh}:${mm}`
 }
 
 function countBy(rows: Trip[], field: string): NameValue[] {
@@ -659,11 +601,13 @@ function useAcknowledgeable(key: string, signature: string | null): [boolean, ()
 export function Fase1Dashboard() {
   const [from, setFrom] = useState(monthStart())
   const [to, setTo] = useState(todayStr())
-  const [fromText, setFromText] = useState(fmtDate(monthStart()))
-  const [toText, setToText] = useState(fmtDate(todayStr()))
   const [data, setData] = useState<ApiData | null>(null)
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS)
   const [aba, setAba] = useState<Aba>('placa')
+  // Aba Combustível: Diesel/Arla separados (pedido do usuário 2026-08-14:
+  // "crie duas abas no mesmo local e detalhamento separando DIESEL e ARLA") —
+  // mesma tabela de consumoPlacas, só troca as colunas exibidas.
+  const [combustivelSubTab, setCombustivelSubTab] = useState<'diesel' | 'arla'>('diesel')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [expandedCompliance, setExpandedCompliance] = useState<Set<string>>(new Set())
   // Modal de detalhamento completo da placa/motorista — compartilhado entre a
@@ -763,6 +707,29 @@ export function Fase1Dashboard() {
     }
     return res.ok
   }, [])
+
+  // Botão rápido iniciar/parar manutenção na lista de veículos (pedido do
+  // usuário 2026-08-14) — reaproveita a tela de Cadastros → Manutenção por
+  // trás (mesmo model), só sem precisar navegar até lá. `load()` recarrega
+  // pra badge/dias refletirem na hora.
+  const [manutencaoErro, setManutencaoErro] = useState<string | null>(null)
+  const toggleManutencao = useCallback(
+    async (placa: string) => {
+      setManutencaoErro(null)
+      const res = await fetch('/api/fase1/manutencao/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ placa }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        setManutencaoErro(`${placa}: ${body.error ?? 'falha ao atualizar manutenção'}`)
+        return
+      }
+      await load()
+    },
+    [load],
+  )
 
   const pendingLocationsSig = pendingLocations.length
     ? JSON.stringify(pendingLocations.map((p) => `${p.coligada}/${p.filial}`).sort())
@@ -1053,6 +1020,10 @@ export function Fase1Dashboard() {
       ? (kmTotal / data.params.diasDecorridos) * data.params.diasDoMes
       : 0
     const kmProjetadoPorCaminhao = placaGroups.length ? kmProjetado / placaGroups.length : 0
+    // Mesmo raciocínio do kmProjetado acima, para peso — usado no custo
+    // R$/tonelada ESTIMADO (pedido do usuário 2026-08-13: "para o mês atual
+    // não fechado precisa trazer o custo KM ou T do estimado").
+    const pesoProjetado = data ? (pesoT / data.params.diasDecorridos) * data.params.diasDoMes : 0
     // Previsão de nº de viagens no fechamento, mesmo raciocínio do KM
     const viagensProjetadas = data
       ? (filteredTrips.length / data.params.diasDecorridos) * data.params.diasDoMes
@@ -1066,7 +1037,13 @@ export function Fase1Dashboard() {
     // (valor de referência cadastrado por rota × km/tonelada/mdc/m³,
     // conforme a unidade de cada rota) — só para viagens com rota
     // precificada em Cadastros → Preços de frete (pedido do usuário
-    // 2026-07-29).
+    // 2026-07-29). Sempre em tempo real (`filteredTrips`, sem corte de dia
+    // anterior) — correção do usuário 2026-08-14: o corte D-1/18h ("dados de
+    // NF só fecham às 18h") é um conceito específico da Fase 3 (venda de
+    // madeira tratada); em Transporte Rodoviário o único comparativo que usa
+    // D-1 é o gráfico "Performance vs meses anteriores" (KM médio por
+    // placa), não Receita/Margem. Uma sessão anterior aplicou esse corte
+    // aqui por engano, revertido nesta correção.
     const comReferencia = filteredTrips.filter((t) => t.RECEITA_ESPERADA !== null)
     const receitaEsperadaTotal = comReferencia.reduce((s, t) => s + (Number(t.RECEITA_ESPERADA) || 0), 0)
     const kmComReferencia = comReferencia.reduce((s, t) => s + (Number(t.KM_RODADO) || 0), 0)
@@ -1076,6 +1053,18 @@ export function Fase1Dashboard() {
     const valorPorTonelada = pesoComReferencia > 0 ? receitaEsperadaTotal / pesoComReferencia : 0
     const custoPorKm = kmTotal > 0 ? custoDoPeriodo / kmTotal : 0
     const custoPorTonelada = pesoT > 0 ? custoDoPeriodo / pesoT : 0
+    // Custo ESTIMADO por km/tonelada — pedido do usuário 2026-08-13: "para o
+    // mês atual não fechado precisa trazer o custo KM ou T do estimado".
+    // custoPorKm/custoPorTonelada acima usam custoDoPeriodo (só o já
+    // decorrido); aqui a projeção de FECHAMENTO do custo (custoMesAtual.
+    // projetadoFechamento) é dividida pelo KM/peso também projetados no
+    // mesmo ritmo (kmProjetado/pesoProjetado) — as duas pontas da conta
+    // projetadas juntas, não uma projetada contra a outra realizada.
+    const mesAberto = data ? data.params.custoMesAtual.diasDecorridos < data.params.custoMesAtual.diasDoMes : false
+    const custoPorKmEstimado =
+      mesAberto && data && kmProjetado > 0 ? data.params.custoMesAtual.projetadoFechamento / kmProjetado : null
+    const custoPorToneladaEstimado =
+      mesAberto && data && pesoProjetado > 0 ? data.params.custoMesAtual.projetadoFechamento / pesoProjetado : null
 
     return {
       viagens: filteredTrips.length,
@@ -1085,11 +1074,15 @@ export function Fase1Dashboard() {
       ocupacaoFrota,
       kmProjetado,
       kmProjetadoPorCaminhao,
+      pesoProjetado,
       viagensProjetadas,
       valorPorKm,
       valorPorTonelada,
       custoPorKm,
       custoPorTonelada,
+      mesAberto,
+      custoPorKmEstimado,
+      custoPorToneladaEstimado,
       // Margem = receita esperada (rota) − custo, no mesmo período — mostra
       // se o mês está acima ou abaixo do custo (pedido do usuário).
       margemPorKm: custoDoPeriodo > 0 && kmComReferencia > 0 ? valorPorKm - custoPorKm : null,
@@ -1188,6 +1181,33 @@ export function Fase1Dashboard() {
     }
     return map
   }, [data])
+
+  // Abre o modal de detalhamento direto ao chegar via link externo (pedido
+  // do usuário 2026-08-12: botão "ver viagem" no balão do mapa de
+  // Rastreamento) — /dashboard/fase1?abrirDetalhe=PLACA. Mesma lógica do
+  // clique no card de Acompanhamento (linha ~1725), só que disparada pela
+  // URL em vez de um clique. Limpa o parâmetro depois de abrir, para um F5
+  // não reabrir o modal sozinho.
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  useEffect(() => {
+    const placaAlvo = searchParams.get('abrirDetalhe')
+    if (!placaAlvo || loading) return
+    const tr = placaGroupsFull.find((t) => t.key === placaAlvo)
+    if (tr) {
+      setDetalheModal({
+        truck: tr,
+        otherFieldLabel: 'Motorista',
+        otherFieldKey: 'MOTORISTA',
+        ausencia: manutencaoPorPlaca.get(tr.key),
+        ausenciaLabel: 'manutenção',
+        justificativa: justificativas.get(tr.ultimaViagemKey),
+        consumo: consumoPorPlaca.get(tr.key),
+      })
+    }
+    router.replace('/dashboard/fase1', { scroll: false })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, placaGroupsFull, searchParams])
 
   const feriasPorMotorista = useMemo(() => {
     const map = new Map<string, { dias: number; aberta: boolean }>()
@@ -1429,54 +1449,7 @@ export function Fase1Dashboard() {
           </p>
         </div>
         <div className="flex items-end gap-2">
-          <div>
-            <label className="block text-xs font-medium text-slate-600">De</label>
-            <input
-              type="text"
-              inputMode="numeric"
-              value={fromText}
-              onChange={(e) => {
-                const formatted = formatBRInput(e.target.value)
-                setFromText(formatted)
-                const iso = parseBRToIso(formatted)
-                if (iso) setFrom(iso)
-              }}
-              placeholder="dd/mm/aaaa"
-              maxLength={10}
-              className="mt-1 w-28 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-            />
-          </div>
-          <MiniCalendarButton
-            valueIso={from}
-            onSelect={(iso) => {
-              setFrom(iso)
-              setFromText(fmtDate(iso))
-            }}
-          />
-          <div>
-            <label className="block text-xs font-medium text-slate-600">Até</label>
-            <input
-              type="text"
-              inputMode="numeric"
-              value={toText}
-              onChange={(e) => {
-                const formatted = formatBRInput(e.target.value)
-                setToText(formatted)
-                const iso = parseBRToIso(formatted)
-                if (iso) setTo(iso)
-              }}
-              placeholder="dd/mm/aaaa"
-              maxLength={10}
-              className="mt-1 w-28 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-            />
-          </div>
-          <MiniCalendarButton
-            valueIso={to}
-            onSelect={(iso) => {
-              setTo(iso)
-              setToText(fmtDate(iso))
-            }}
-          />
+          <DateRangeInputs from={from} to={to} onFromChange={setFrom} onToChange={setTo} />
           <button
             onClick={load}
             disabled={loading}
@@ -1577,6 +1550,30 @@ export function Fase1Dashboard() {
           </p>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-sm text-slate-500">Custo Total (integração)</p>
+          <p className="mt-1 text-2xl font-semibold text-slate-700">R$ {fmt(data.params.custoPeriodo, 2)}</p>
+          <p className="text-[11px] text-slate-400">
+            {data.params.custoPeriodo === 0
+              ? `preencha CUSTO_MES_${to.slice(0, 7).replace('-', '')} em Parâmetros`
+              : 'soma do custo cadastrado (Controladoria), proporcional aos dias de cada mês dentro do período filtrado'}
+          </p>
+          {kpis.mesAberto && (
+            <div className="mt-2 space-y-0.5 border-t border-slate-100 pt-2 text-[11px] text-slate-500">
+              <p>
+                Mês {data.params.custoMesAtual.ym} em aberto ({data.params.custoMesAtual.diasDecorridos}/
+                {data.params.custoMesAtual.diasDoMes} dias)
+              </p>
+              <p>
+                Lançado até agora: R$ {fmt(data.params.custoMesAtual.lancado, 2)} · ritmo R${' '}
+                {fmt(data.params.custoMesAtual.custoDiaBase, 2)}/dia
+              </p>
+              <p className="font-medium text-slate-600">
+                Projeção de fechamento do mês: R$ {fmt(data.params.custoMesAtual.projetadoFechamento, 2)}
+              </p>
+            </div>
+          )}
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
           <p className="text-sm text-slate-500">Custo R$/km</p>
           <p className="mt-1 text-2xl font-semibold text-slate-700">
             {data.params.custoPeriodo > 0 ? fmt(kpis.custoPorKm, 2) : '—'}
@@ -1586,8 +1583,14 @@ export function Fase1Dashboard() {
               preencha CUSTO_MES_{to.slice(0, 7).replace('-', '')} em Parâmetros
             </p>
           )}
+          {kpis.custoPorKmEstimado !== null && (
+            <p className="mt-1 text-xs font-medium text-amber-700">
+              Estimado (mês fechando no ritmo atual): R$ {fmt(kpis.custoPorKmEstimado, 2)}/km
+            </p>
+          )}
           <CalculoCustoDetalhe
             custoMesAtual={data.params.custoMesAtual}
+            custoPorMes={data.params.custoPorMes}
             custoPeriodo={data.params.custoPeriodo}
             denominadorLabel="km rodado"
             denominadorValor={kpis.kmTotal}
@@ -1605,8 +1608,14 @@ export function Fase1Dashboard() {
               preencha CUSTO_MES_{to.slice(0, 7).replace('-', '')} em Parâmetros
             </p>
           )}
+          {kpis.custoPorToneladaEstimado !== null && (
+            <p className="mt-1 text-xs font-medium text-amber-700">
+              Estimado (mês fechando no ritmo atual): R$ {fmt(kpis.custoPorToneladaEstimado, 2)}/t
+            </p>
+          )}
           <CalculoCustoDetalhe
             custoMesAtual={data.params.custoMesAtual}
+            custoPorMes={data.params.custoPorMes}
             custoPeriodo={data.params.custoPeriodo}
             denominadorLabel="toneladas transportadas"
             denominadorValor={kpis.pesoT}
@@ -1823,9 +1832,20 @@ export function Fase1Dashboard() {
       </div>
 
       {/* Abas: Por Placa / Por Motorista (espelhadas) + Acompanhamento e
-          Atrasados justificados (estrutura própria, não espelhada) */}
+          Atrasados justificados (estrutura própria, não espelhada).
+          "Painel estratégico" movido para logo após a principal (pedido do
+          usuário 2026-08-13: "trazer a aba do estratégico para o topo assim
+          como é na madeira tratada" — mesma posição de destaque que tem em
+          Fase3, logo depois da aba de análise por período; as demais abas
+          seguem depois, sem mudar qual carrega por padrão). */}
+      {manutencaoErro && (
+        <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800">
+          {manutencaoErro}
+        </div>
+      )}
+
       <div id="secao-tabela" className="flex flex-wrap gap-2 border-b border-slate-200">
-        {(['placa', 'motorista', 'board', 'atrasados', 'combustivel'] as Aba[]).map((a) => (
+        {(['placa', 'estrategico', 'motorista', 'board', 'atrasados', 'combustivel', 'critica'] as Aba[]).map((a) => (
           <button
             key={a}
             onClick={() => setAba(a)}
@@ -1839,7 +1859,11 @@ export function Fase1Dashboard() {
                   ? 'Acompanhamento'
                   : a === 'atrasados'
                     ? 'Atrasados justificados'
-                    : 'Combustível'}
+                    : a === 'combustivel'
+                      ? 'Combustível'
+                      : a === 'critica'
+                        ? 'Crítica ao modelo'
+                        : 'Painel estratégico (ano)'}
           </button>
         ))}
       </div>
@@ -1866,8 +1890,25 @@ export function Fase1Dashboard() {
               return (
                 <button
                   key={tr.key}
-                  onClick={(e) => toggleFilter('placa', tr.key, e.ctrlKey)}
-                  title={`${tr.key} · ${st.label} · ${destino}${consumoTr?.kmPorLitro != null ? ` · ${fmt(consumoTr.kmPorLitro, 2)} km/l` : ''}`}
+                  onClick={(e) => {
+                    // Clique normal abre o detalhamento da viagem atual (pedido do
+                    // usuário 2026-08-03); Ctrl+clique mantém o filtro cruzado, já
+                    // usado no resto do painel para comparar com os KPIs do topo.
+                    if (e.ctrlKey) {
+                      toggleFilter('placa', tr.key, true)
+                      return
+                    }
+                    setDetalheModal({
+                      truck: tr,
+                      otherFieldLabel: 'Motorista',
+                      otherFieldKey: 'MOTORISTA',
+                      ausencia: manutencaoPorPlaca.get(tr.key),
+                      ausenciaLabel: 'manutenção',
+                      justificativa: justificativas.get(tr.ultimaViagemKey),
+                      consumo: consumoPorPlaca.get(tr.key),
+                    })
+                  }}
+                  title={`${tr.key} · ${st.label} · ${destino}${consumoTr?.kmPorLitro != null ? ` · ${fmt(consumoTr.kmPorLitro, 2)} km/l` : ''} · clique para ver a viagem atual, Ctrl+clique para filtrar`}
                   className={`rounded-xl border p-3 text-left ${st.cls} ${anySelected && !isSelected ? 'opacity-30' : ''} ${isSelected ? 'ring-2 ring-emerald-600' : ''}`}
                 >
                   <div className="flex items-center justify-between">
@@ -1958,111 +1999,225 @@ export function Fase1Dashboard() {
           </table>
         </div>
       ) : aba === 'combustivel' ? (
-        /* Combustível: visão dedicada de km/l por placa (hodômetro Officium)
-           — pedido do usuário 2026-07-29, além do card/coluna no resumo */
+        /* Combustível: visão dedicada de consumo por placa (hodômetro
+           Officium) — pedido do usuário 2026-07-29, além do card/coluna no
+           resumo. Diesel e Arla em sub-abas separadas (pedido do usuário
+           2026-08-14: "crie duas abas no mesmo local e detalhamento
+           separando DIESEL e ARLA") — mesma fonte de dados (consumoPlacas),
+           cada aba só troca as colunas mostradas pro que faz sentido pra
+           aquele combustível. Arla tem seu próprio alerta (pedido do usuário
+           2026-08-14: medir como % do diesel consumido, não km/l nem L/km —
+           padrão de mercado 3%-5%; muito abaixo disso é indício de
+           adulteração/remoção do sistema de redução de emissões). */
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
             <div>
               <span className="font-medium">Consumo de combustível ({consumoPlacas.length})</span>
               <span className="ml-2 text-sm text-slate-500">
-                km/l pelo hodômetro (Officium) — meta {fmt(data.params.metaConsumoKmL, 2)} km/l · clique na
-                placa em “Por Placa” para o detalhe completo
+                {combustivelSubTab === 'diesel'
+                  ? `km/l pelo hodômetro (Officium) — meta ${fmt(data.params.metaConsumoKmL, 2)} km/l`
+                  : 'Arla32 (% do Diesel consumido) — padrão de mercado 3%-5%'}{' '}
+                · clique na placa em “Por Placa” para o detalhe completo
               </span>
             </div>
-            <span
-              className={`rounded-full px-3 py-1 text-sm font-medium ${consumoFrota.abaixoDaMeta > 0 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-800'}`}
-            >
-              {consumoFrota.abaixoDaMeta} placa(s) abaixo da meta
-            </span>
+            {combustivelSubTab === 'diesel' && (
+              <span
+                className={`rounded-full px-3 py-1 text-sm font-medium ${consumoFrota.abaixoDaMeta > 0 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-800'}`}
+              >
+                {consumoFrota.abaixoDaMeta} placa(s) abaixo da meta
+              </span>
+            )}
           </div>
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-left text-slate-600">
-              <tr>
-                <th className="px-3 py-2"></th>
-                <th className="px-3 py-2">Placa</th>
-                <th className="px-3 py-2">Produto</th>
-                <th className="px-3 py-2 text-right">Abastecimentos</th>
-                <th className="px-3 py-2 text-right">Litros</th>
-                <th className="px-3 py-2 text-right">KM (hodômetro)</th>
-                <th className="px-3 py-2 text-right">km/l</th>
-                <th className="px-3 py-2">Situação</th>
-                <th
-                  className="px-3 py-2 text-right"
-                  title="% dos abastecimentos do período com consumo fora do padrão — crítico = 3+ ocorrências ou metade+ dos abastecimentos (padrão recorrente, possível sensor quebrado ou fraude)"
-                >
-                  Anormalidade
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {consumoPlacas.map((c) => (
-                <tr
-                  key={c.placa}
-                  onClick={(e) => {
-                    const truckMatch = placaGroupsFull.find((g) => g.key === c.placa)
-                    if (truckMatch) {
-                      setDetalheModal({
-                        truck: truckMatch,
-                        otherFieldLabel: 'Motorista',
-                        otherFieldKey: 'MOTORISTA',
-                        ausencia: manutencaoPorPlaca.get(c.placa),
-                        ausenciaLabel: 'manutenção',
-                        justificativa: justificativas.get(truckMatch.ultimaViagemKey),
-                        consumo: c,
-                      })
-                    } else {
-                      toggleFilter('placa', c.placa, e.ctrlKey)
-                    }
-                  }}
-                  className="cursor-pointer border-t border-slate-100 hover:bg-slate-50"
-                  title="Ver detalhamento completo"
-                >
-                  <td className="px-3 py-2">{c.temAlerta && '⚠️'}</td>
-                  <td className="px-3 py-2 font-mono font-medium">{c.placa}</td>
-                  <td className="px-3 py-2 text-xs text-slate-600">{c.produtos || '—'}</td>
-                  <td className="px-3 py-2 text-right">{c.abastecimentos}</td>
-                  <td className="px-3 py-2 text-right">{fmt(c.litrosTotal, 1)}</td>
-                  <td className="px-3 py-2 text-right">{fmt(c.kmRodado)}</td>
-                  <td className="px-3 py-2 text-right">
-                    {c.kmPorLitro === null ? '—' : fmt(c.kmPorLitro, 2)}
-                  </td>
-                  <td className="px-3 py-2">
-                    {c.kmPorLitro === null ? (
-                      <span className="text-slate-400">sem dados</span>
-                    ) : c.kmPorLitro >= data.params.metaConsumoKmL ? (
-                      <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
-                        dentro da meta
-                      </span>
-                    ) : (
-                      <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-                        abaixo da meta
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    {c.alertasCount === 0 ? (
-                      <span className="text-slate-400">—</span>
-                    ) : (
-                      <span
-                        className={`rounded px-2 py-0.5 text-xs font-medium ${c.nivelAnormalidade === 'critico' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'}`}
-                        title={`${c.alertasCount} de ${c.totalIntervalos} abastecimento(s) com alerta`}
-                      >
-                        {c.scoreAnormalidade}% {c.nivelAnormalidade === 'critico' ? 'crítico' : 'atenção'}
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {consumoPlacas.length === 0 && (
+          <div className="flex gap-1 border-b border-slate-100 px-4 pt-2">
+            {(['diesel', 'arla'] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setCombustivelSubTab(t)}
+                className={`-mb-px rounded-t-md border border-b-0 px-3 py-1.5 text-sm font-medium transition-colors ${
+                  combustivelSubTab === t
+                    ? 'border-slate-200 bg-emerald-700 text-white'
+                    : 'border-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-700'
+                }`}
+              >
+                {t === 'diesel' ? 'Diesel' : 'Arla32'}
+              </button>
+            ))}
+          </div>
+          {combustivelSubTab === 'diesel' ? (
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-left text-slate-600">
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-sm text-slate-500">
-                    Nenhum abastecimento encontrado para a frota própria no período.
-                  </td>
+                  <th className="px-3 py-2"></th>
+                  <th className="px-3 py-2">Placa</th>
+                  <th className="px-3 py-2">Produto</th>
+                  <th className="px-3 py-2 text-right">Abastecimentos</th>
+                  <th className="px-3 py-2 text-right">Litros diesel</th>
+                  <th className="px-3 py-2 text-right">KM (hodômetro)</th>
+                  <th className="px-3 py-2 text-right">km/l</th>
+                  <th className="px-3 py-2">Situação</th>
+                  <th
+                    className="px-3 py-2 text-right"
+                    title="% dos abastecimentos do período com consumo fora do padrão — crítico = 3+ ocorrências ou metade+ dos abastecimentos (padrão recorrente, possível sensor quebrado ou fraude)"
+                  >
+                    Anormalidade
+                  </th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {consumoPlacas.map((c) => (
+                  <tr
+                    key={c.placa}
+                    onClick={(e) => {
+                      const truckMatch = placaGroupsFull.find((g) => g.key === c.placa)
+                      if (truckMatch) {
+                        setDetalheModal({
+                          truck: truckMatch,
+                          otherFieldLabel: 'Motorista',
+                          otherFieldKey: 'MOTORISTA',
+                          ausencia: manutencaoPorPlaca.get(c.placa),
+                          ausenciaLabel: 'manutenção',
+                          justificativa: justificativas.get(truckMatch.ultimaViagemKey),
+                          consumo: c,
+                        })
+                      } else {
+                        toggleFilter('placa', c.placa, e.ctrlKey)
+                      }
+                    }}
+                    className="cursor-pointer border-t border-slate-100 hover:bg-slate-50"
+                    title="Ver detalhamento completo"
+                  >
+                    <td className="px-3 py-2">{c.temAlerta && '⚠️'}</td>
+                    <td className="px-3 py-2 font-mono font-medium">{c.placa}</td>
+                    <td className="px-3 py-2 text-xs text-slate-600">{c.produtos || '—'}</td>
+                    <td className="px-3 py-2 text-right">{c.abastecimentos}</td>
+                    <td className="px-3 py-2 text-right">{fmt(c.litrosConsiderados, 1)}</td>
+                    <td className="px-3 py-2 text-right">{fmt(c.kmRodado)}</td>
+                    <td className="px-3 py-2 text-right">
+                      {c.kmPorLitro === null ? '—' : fmt(c.kmPorLitro, 2)}
+                    </td>
+                    <td className="px-3 py-2">
+                      {c.kmPorLitro === null ? (
+                        <span className="text-slate-400">sem dados</span>
+                      ) : c.kmPorLitro >= data.params.metaConsumoKmL ? (
+                        <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
+                          dentro da meta
+                        </span>
+                      ) : (
+                        <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                          abaixo da meta
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {c.alertasCount === 0 ? (
+                        <span className="text-slate-400">—</span>
+                      ) : (
+                        <span
+                          className={`rounded px-2 py-0.5 text-xs font-medium ${c.nivelAnormalidade === 'critico' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'}`}
+                          title={`${c.alertasCount} de ${c.totalIntervalos} abastecimento(s) com alerta`}
+                        >
+                          {c.scoreAnormalidade}% {c.nivelAnormalidade === 'critico' ? 'crítico' : 'atenção'}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {consumoPlacas.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="px-4 py-8 text-center text-sm text-slate-500">
+                      Nenhum abastecimento encontrado para a frota própria no período.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-left text-slate-600">
+                <tr>
+                  <th className="px-3 py-2">Placa</th>
+                  <th className="px-3 py-2 text-right">Litros de Arla</th>
+                  <th
+                    className="px-3 py-2 text-right"
+                    title="Litros de Arla32 no período ÷ litros de Diesel no período × 100 — padrão de mercado é 3% a 5%"
+                  >
+                    Arla (% do Diesel)
+                  </th>
+                  <th className="px-3 py-2 text-right" title="Litros de Arla32 no período ÷ km rodado (hodômetro) — dado de referência">
+                    L/km (ref.)
+                  </th>
+                  <th className="px-3 py-2">Origem</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...consumoPlacas]
+                  .filter((c) => c.litrosArla > 0 || c.arlaPctDiesel !== null)
+                  .sort((a, b) => {
+                    const aAlerta = a.arlaAlerta !== null ? 1 : 0
+                    const bAlerta = b.arlaAlerta !== null ? 1 : 0
+                    if (aAlerta !== bAlerta) return bAlerta - aAlerta
+                    return b.litrosArla - a.litrosArla
+                  })
+                  .map((c) => (
+                    <tr
+                      key={c.placa}
+                      onClick={(e) => {
+                        const truckMatch = placaGroupsFull.find((g) => g.key === c.placa)
+                        if (truckMatch) {
+                          setDetalheModal({
+                            truck: truckMatch,
+                            otherFieldLabel: 'Motorista',
+                            otherFieldKey: 'MOTORISTA',
+                            ausencia: manutencaoPorPlaca.get(c.placa),
+                            ausenciaLabel: 'manutenção',
+                            justificativa: justificativas.get(truckMatch.ultimaViagemKey),
+                            consumo: c,
+                          })
+                        } else {
+                          toggleFilter('placa', c.placa, e.ctrlKey)
+                        }
+                      }}
+                      className={`cursor-pointer border-t border-slate-100 hover:bg-slate-50 ${c.arlaAlerta ? 'bg-red-50' : ''}`}
+                      title={c.arlaAlerta ?? 'Ver detalhamento completo'}
+                    >
+                      <td className="px-3 py-2 font-mono font-medium">{c.placa}</td>
+                      <td className="px-3 py-2 text-right">{fmt(c.litrosArla, 1)}</td>
+                      <td className={`px-3 py-2 text-right ${c.arlaAlerta ? 'font-semibold text-red-700' : ''}`}>
+                        {c.arlaPctDiesel === null ? '—' : `${fmt(c.arlaPctDiesel, 1)}%`}
+                        {c.arlaAlerta && ' ⚠️'}
+                      </td>
+                      <td className="px-3 py-2 text-right text-slate-500">
+                        {c.arlaPorKm === null ? '—' : fmt(c.arlaPorKm, 3)}
+                      </td>
+                      <td className="px-3 py-2 text-xs">
+                        {c.arlaPctDieselEstimado ? (
+                          <span
+                            className="rounded bg-amber-100 px-2 py-0.5 text-amber-800"
+                            title={c.arlaPorKmReferenciaEm ? `Sem diesel no período — ref. ${fmtDateBR(c.arlaPorKmReferenciaEm.slice(0, 10))}` : 'Sem diesel no período'}
+                          >
+                            estimado (histórico)
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">período</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                {consumoPlacas.filter((c) => c.litrosArla > 0 || c.arlaPctDiesel !== null).length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-500">
+                      Nenhum abastecimento de Arla32 encontrado para a frota própria no período.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
         </div>
+      ) : aba === 'critica' ? (
+        <CriticaModeloTab />
+      ) : aba === 'estrategico' ? (
+        <Fase1Estrategico trips={data?.trips ?? []} custoMesRegistrado={data?.params.custoMesRegistrado ?? {}} />
       ) : (
         <>
       {/* Tabela principal: agrupada por placa ou motorista, conforme a aba */}
@@ -2171,6 +2326,7 @@ export function Fase1Dashboard() {
                     })
                   }
                   onSelect={(additive) => toggleFilter(activeDim, tr.key, additive)}
+                  onToggleManutencao={aba === 'placa' ? () => toggleManutencao(tr.key) : undefined}
                 />
               )
             })}
@@ -2348,18 +2504,23 @@ export function Fase1Dashboard() {
         )}
       </div>
 
-      {/* Inconsistência de composição: 2+ notas na mesma viagem (só RodoTrem
-          puxa 2 semirreboques) mas a placa está cadastrada com outra
-          composição — pode ser RodoTrem fora do cadastro, ou 2 viagens
-          físicas distintas que o agrupamento por dia/placa juntou por engano. */}
+      {/* Inconsistência de composição: três motivos possíveis, ver
+          src/lib/fase1/composition.ts (applyCompositionOverrides) para a
+          lógica exata. O texto abaixo e a coluna "Motivo" da tabela
+          precisam continuar batendo com essas três condições — usuário
+          reportou 2026-08-05 que não conseguia identificar o motivo de cada
+          linha porque o texto só descrevia as duas primeiras condições (a
+           terceira foi adicionada depois, em 2026-08-03, e o texto não foi
+          atualizado). */}
       <div id="secao-inconsistencias" className="rounded-xl border border-slate-200 bg-white p-4">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="font-medium">
             Inconsistências de composição
             <span className="ml-2 text-sm font-normal text-slate-500">
               3+ notas fiscais no mesmo dia (nem RodoTrem justifica, só tem 2 reboques) OU 2
-              notas numa placa que não é cadastrada como RodoTrem — confira se é RodoTrem fora
-              do cadastro ou viagens distintas que caíram no mesmo agrupamento
+              notas numa placa que não é cadastrada como RodoTrem OU 1 nota só numa placa
+              cadastrada como RodoTrem (que deveria sempre emitir 2) — confira o motivo de cada
+              linha na coluna "Motivo"
             </span>
           </h2>
           <span
@@ -2380,6 +2541,7 @@ export function Fase1Dashboard() {
                   <th className="px-2 py-1">Composição cadastrada</th>
                   <th className="px-2 py-1">Nota(s) fiscal(is)</th>
                   <th className="px-2 py-1 text-right">Peso líq. (t)</th>
+                  <th className="px-2 py-1">Motivo</th>
                 </tr>
               </thead>
               <tbody>
@@ -2387,6 +2549,17 @@ export function Fase1Dashboard() {
                   const key = `inc:${t.DATASAIDA}|${t.PLACA}|${t.NOMEFANTASIA}|${i}`
                   const isOpen = expandedCompliance.has(key)
                   const notas = Array.isArray(t.NOTAS) ? (t.NOTAS as Trip[]) : []
+                  // Mesmas três condições de `applyCompositionOverrides`
+                  // (src/lib/fase1/composition.ts) — precisa ficar em sincronia
+                  // com a lógica de lá se as regras mudarem.
+                  const numMovimentos = Number(t.MOVIMENTOS ?? 1)
+                  const cadastrada = t.COMPOSICAO_CADASTRADA ? String(t.COMPOSICAO_CADASTRADA) : null
+                  const motivo =
+                    numMovimentos >= 3
+                      ? `${numMovimentos} notas no mesmo agrupamento (RodoTrem só tem 2 reboques)`
+                      : numMovimentos >= 2
+                        ? `2 notas, mas cadastro diz "${cadastrada}" (não RodoTrem)`
+                        : `1 nota só, mas cadastro diz RodoTrem (deveria ter 2)`
                   return (
                     <Fragment key={key}>
                       <tr className="border-t border-slate-100">
@@ -2412,11 +2585,12 @@ export function Fase1Dashboard() {
                         <td className="px-2 py-1">{String(t.COMPOSICAO_CADASTRADA ?? '—')}</td>
                         <td className="px-2 py-1 font-mono text-xs">{String(t.NUMEROMOV ?? '—')}</td>
                         <td className="px-2 py-1 text-right">{fmt(Number(t.PESOLIQUIDO ?? 0) / 1000, 1)}</td>
+                        <td className="px-2 py-1 text-xs text-slate-600">{motivo}</td>
                       </tr>
                       {isOpen && (
                         <tr className="border-t border-slate-100 bg-slate-50">
                           <td></td>
-                          <td colSpan={6} className="px-2 py-2">
+                          <td colSpan={7} className="px-2 py-2">
                             <table className="w-full text-xs">
                               <thead className="text-left text-slate-500">
                                 <tr>
@@ -2478,6 +2652,7 @@ function FragmentRow({
   anySelected,
   onToggleExpand,
   onSelect,
+  onToggleManutencao,
 }: {
   truck: TruckSummary
   /** Coluna alternativa no detalhe expandido: "Motorista" (aba Por Placa) ou "Placa" (aba Por Motorista) */
@@ -2499,6 +2674,8 @@ function FragmentRow({
   anySelected: boolean
   onToggleExpand: () => void
   onSelect: (additive: boolean) => void
+  /** Botão rápido iniciar/parar manutenção (pedido do usuário 2026-08-14) — só na aba Por Placa, ausente na aba Por Motorista */
+  onToggleManutencao?: () => void
 }) {
   const st = STATUS_STYLE[truck.status]
   const [justificando, setJustificando] = useState(false)
@@ -2593,6 +2770,26 @@ function FragmentRow({
               {ausenciaLabel === 'manutenção' ? '🔧' : '🏖'} {fmt(ausencia.dias)}d {ausenciaLabel}
               {ausencia.aberta ? ' (em aberto)' : ''}
             </span>
+          )}
+          {onToggleManutencao && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onToggleManutencao()
+              }}
+              title={
+                ausencia?.aberta
+                  ? 'Retirar esta placa da manutenção (fecha hoje)'
+                  : 'Colocar esta placa em manutenção a partir de hoje'
+              }
+              className={`ml-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                ausencia?.aberta
+                  ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              {ausencia?.aberta ? '✓ retirar manutenção' : '🔧 iniciar manutenção'}
+            </button>
           )}
           <span className="block text-[11px] text-slate-500">
             {atrasado
@@ -2760,6 +2957,23 @@ function PlacaDetailModal({
   onClose: () => void
 }) {
   const st = STATUS_STYLE[truck.status]
+  // Linhas de abastecimento "fracionado" (soma de 2+ no mesmo hodômetro/dia)
+  // que o usuário expandiu para ver os itens individuais por trás da soma —
+  // pedido do usuário 2026-08-03: "pode fundir [por] data mas abrir as opções".
+  const [linhasExpandidas, setLinhasExpandidas] = useState<Set<number>>(new Set())
+  function toggleExpandirAbastecimento(i: number) {
+    setLinhasExpandidas((prev) => {
+      const next = new Set(prev)
+      if (next.has(i)) next.delete(i)
+      else next.add(i)
+      return next
+    })
+  }
+  // Detalhamento Diesel/Arla separado (pedido do usuário 2026-08-14) — Arla
+  // é qualquer produto com "ARLA" no nome; o resto (majoritariamente diesel,
+  // raramente gasolina/lubrificante) cai na aba Diesel.
+  const [detalheSubTab, setDetalheSubTab] = useState<'diesel' | 'arla'>('diesel')
+  const detalheFiltrado = consumo?.detalhe.filter((a) => (detalheSubTab === 'arla' ? /ARLA/i.test(a.produto) : !/ARLA/i.test(a.produto))) ?? []
   if (typeof document === 'undefined') return null
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
@@ -2829,6 +3043,14 @@ function PlacaDetailModal({
               )}
             </p>
             <p className="text-lg font-semibold">{consumo?.kmPorLitro != null ? fmt(consumo.kmPorLitro, 2) : '—'}</p>
+            {consumo?.kmPorLitroEstimado && (
+              <p
+                className="mt-0.5 text-xs font-medium text-amber-700"
+                title="Sem abastecimento de diesel válido no mês nem no anterior — mostrando o último km/l válido conhecido no histórico da placa"
+              >
+                estimado{consumo.kmPorLitroReferenciaEm ? ` — ref. ${fmtDateBR(consumo.kmPorLitroReferenciaEm.slice(0, 10))}` : ''}
+              </p>
+            )}
             {consumo && consumo.alertasCount > 0 && (
               <p
                 className={`mt-0.5 text-xs font-medium ${consumo.nivelAnormalidade === 'critico' ? 'text-red-700' : 'text-amber-700'}`}
@@ -2839,67 +3061,132 @@ function PlacaDetailModal({
               </p>
             )}
           </div>
+          <div className="rounded-lg border border-slate-200 p-3">
+            <p className="text-xs text-slate-500">Arla32 (% do Diesel)</p>
+            <p className={`text-lg font-semibold ${consumo?.arlaAlerta ? 'text-red-700' : ''}`}>
+              {consumo?.arlaPctDiesel != null ? `${fmt(consumo.arlaPctDiesel, 1)}%` : '—'}
+              {consumo?.arlaAlerta && ' ⚠️'}
+            </p>
+            {consumo && consumo.litrosArla > 0 && (
+              <p className="mt-0.5 text-xs text-slate-500">
+                {fmt(consumo.litrosArla, 1)} L no período · padrão de mercado: 3%-5%
+              </p>
+            )}
+            {consumo?.arlaAlerta && <p className="mt-0.5 text-xs text-red-700">{consumo.arlaAlerta}</p>}
+          </div>
         </div>
 
         {consumo && consumo.detalhe.length > 0 && (
           <div className="mt-6">
-            <h3 className="font-medium">
-              Abastecimentos
-              <span className="ml-2 text-sm font-normal text-slate-500">
-                hodômetro (Officium) — km/l do intervalo desde o abastecimento anterior
-              </span>
-            </h3>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h3 className="font-medium">
+                Abastecimentos
+                <span className="ml-2 text-sm font-normal text-slate-500">
+                  hodômetro (Officium) — km/l do intervalo desde o abastecimento anterior
+                </span>
+              </h3>
+              {/* Diesel/Arla separados (pedido do usuário 2026-08-14) */}
+              <div className="flex gap-1">
+                {(['diesel', 'arla'] as const).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setDetalheSubTab(t)}
+                    className={`rounded-full px-3 py-1 text-xs font-medium ${
+                      detalheSubTab === t ? 'bg-emerald-700 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    {t === 'diesel' ? 'Diesel' : 'Arla32'}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="mt-2 overflow-x-auto">
               <table className="w-full text-xs">
                 <thead className="text-left text-slate-500">
                   <tr>
                     <th className="px-2 py-1"></th>
-                    <th className="px-2 py-1">Data</th>
+                    <th className="px-2 py-1">Data/hora</th>
                     <th className="px-2 py-1">Produto</th>
                     <th className="px-2 py-1 text-right">Litros</th>
                     <th className="px-2 py-1 text-right">Hodômetro</th>
-                    <th className="px-2 py-1 text-right">KM desde anterior</th>
-                    <th className="px-2 py-1 text-right">km/l do intervalo</th>
+                    <th className="px-2 py-1 text-right">KM desde {detalheSubTab === 'diesel' ? 'o diesel' : 'o Arla'} anterior</th>
+                    <th className="px-2 py-1 text-right">{detalheSubTab === 'diesel' ? 'km/l' : 'Arla (L/km)'} do intervalo</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {consumo.detalhe.map((a, i) => (
+                  {detalheFiltrado.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="px-2 py-4 text-center text-slate-400">
+                        Nenhum abastecimento de {detalheSubTab === 'diesel' ? 'diesel' : 'Arla32'} no histórico exibido.
+                      </td>
+                    </tr>
+                  )}
+                  {detalheFiltrado.map((a, i) => (
+                    <Fragment key={i}>
                     <tr
-                      key={i}
                       className={`border-t border-slate-200 ${a.noPeriodo ? '' : 'text-slate-400'} ${a.alerta ? 'bg-amber-50' : ''}`}
                       title={a.alerta ?? (a.noPeriodo ? undefined : 'Abastecimento anterior ao período — só serve de referência para o cálculo do primeiro intervalo')}
                     >
                       <td className="px-2 py-1">{a.alerta && '⚠️'}</td>
                       <td className="px-2 py-1 whitespace-nowrap">
-                        {fmtDate(a.data)}
+                        {fmtDateHora(a.data)}
                         {!a.noPeriodo && <span className="ml-1 text-[10px]">(referência)</span>}
                       </td>
                       <td className="px-2 py-1">{a.produto || '—'}</td>
                       <td className="px-2 py-1 text-right">
                         {fmt(a.litros, 1)}
                         {a.fracionado && (
-                          <span
-                            className="ml-1 rounded bg-slate-200 px-1 text-[10px] text-slate-600"
-                            title="Soma de 2+ abastecimentos no mesmo hodômetro (complemento na mesma parada)"
+                          <button
+                            onClick={() => toggleExpandirAbastecimento(i)}
+                            className="ml-1 rounded bg-slate-200 px-1 text-[10px] text-slate-600 hover:bg-slate-300"
+                            title="Soma de 2+ abastecimentos no mesmo hodômetro e mesmo dia — clique para ver cada um"
                           >
-                            fracionado
-                          </span>
+                            fracionado ({a.itens?.length ?? 2}) {linhasExpandidas.has(i) ? '▾' : '▸'}
+                          </button>
                         )}
                       </td>
                       <td className="px-2 py-1 text-right">{fmt(a.hodometro)}</td>
-                      <td className="px-2 py-1 text-right">
-                        {a.kmDesdeAnterior === null ? '—' : fmt(a.kmDesdeAnterior)}
-                      </td>
-                      <td className="px-2 py-1 text-right">
-                        {a.kmPorLitroIntervalo === null ? (
-                          '—'
-                        ) : (
-                          <span className={a.alerta ? 'font-medium text-amber-700' : ''}>
-                            {fmt(a.kmPorLitroIntervalo, 2)}
-                          </span>
-                        )}
-                      </td>
+                      {detalheSubTab === 'diesel' ? (
+                        <>
+                          <td className="px-2 py-1 text-right">
+                            {a.kmDesdeAnterior === null ? '—' : fmt(a.kmDesdeAnterior)}
+                          </td>
+                          <td className="px-2 py-1 text-right">
+                            {a.kmPorLitroIntervalo === null ? (
+                              '—'
+                            ) : (
+                              <span className={a.alerta ? 'font-medium text-amber-700' : ''}>
+                                {fmt(a.kmPorLitroIntervalo, 2)}
+                              </span>
+                            )}
+                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <td className="px-2 py-1 text-right">
+                            {a.kmDesdeArlaAnterior === null ? '—' : fmt(a.kmDesdeArlaAnterior)}
+                          </td>
+                          <td className="px-2 py-1 text-right">
+                            {a.arlaPorKmIntervalo === null ? '—' : `${fmt(a.arlaPorKmIntervalo, 3)} L/km`}
+                          </td>
+                        </>
+                      )}
                     </tr>
+                    {a.fracionado && linhasExpandidas.has(i) && a.itens && (
+                      <tr className="border-t border-dashed border-slate-200 bg-slate-50">
+                        <td></td>
+                        <td colSpan={6} className="px-2 py-1">
+                          <ul className="space-y-0.5 text-[11px] text-slate-600">
+                            {a.itens.map((item, j) => (
+                              <li key={j}>
+                                {fmtDateHora(item.data)} — {item.produto || '—'} — {fmt(item.litros, 1)} L
+                              </li>
+                            ))}
+                          </ul>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   ))}
                 </tbody>
                 <tfoot>
@@ -2907,11 +3194,19 @@ function PlacaDetailModal({
                     <td className="px-2 py-1"></td>
                     <td className="px-2 py-1">Total do período</td>
                     <td className="px-2 py-1"></td>
-                    <td className="px-2 py-1 text-right">{fmt(consumo.litrosTotal, 1)}</td>
-                    <td className="px-2 py-1"></td>
-                    <td className="px-2 py-1 text-right">{fmt(consumo.kmRodado)}</td>
                     <td className="px-2 py-1 text-right">
-                      {consumo.kmPorLitro === null ? '—' : fmt(consumo.kmPorLitro, 2)}
+                      {fmt(detalheSubTab === 'diesel' ? consumo.litrosConsiderados : consumo.litrosArla, 1)}
+                    </td>
+                    <td className="px-2 py-1"></td>
+                    <td className="px-2 py-1 text-right">{detalheSubTab === 'diesel' ? fmt(consumo.kmRodado) : '—'}</td>
+                    <td className="px-2 py-1 text-right">
+                      {detalheSubTab === 'diesel'
+                        ? consumo.kmPorLitro === null
+                          ? '—'
+                          : fmt(consumo.kmPorLitro, 2)
+                        : consumo.arlaPctDiesel === null
+                          ? '—'
+                          : `${fmt(consumo.arlaPctDiesel, 1)}% do diesel`}
                     </td>
                   </tr>
                 </tfoot>

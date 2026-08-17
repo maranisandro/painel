@@ -24,26 +24,30 @@ model User {
   role               UserRole           @default(VIEWER)
   active             Boolean            @default(true)
   // Força troca de senha no próximo login (usado no admin inicial do seed)
-  mustChangePassword Boolean            @default(false)
+  mustChangePassword Boolean            @default(false) @map("must_change_password")
   // Incrementado quando uma redefinição administrativa deve invalidar JWTs antigos.
-  sessionVersion     Int                @default(0)
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
+  sessionVersion     Int                @default(0) @map("session_version")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
   moduleAccesses     UserModuleAccess[]
+  adminAccesses      UserAdminAccess[]
+
+  @@map("users")
 }
 
 model AuditLog {
   id        String   @id @default(uuid())
-  userId    String?
-  userName  String?
+  userId    String?  @map("user_id")
+  userName  String?  @map("user_name")
   action    String
   entity    String
-  entityId  String?
+  entityId  String?  @map("entity_id")
   details   Json?
-  createdAt DateTime @default(now())
+  createdAt DateTime @default(now()) @map("created_at")
 
   @@index([entity, entityId])
   @@index([createdAt])
+  @@map("audit_logs")
 }
 
 // ============================================================
@@ -63,13 +67,15 @@ model DataSource {
   // Prefixo das variáveis de ambiente com as credenciais desta fonte.
   // Ex.: "ORACLE_DBPRD" -> ORACLE_DBPRD_USER / _PASSWORD / _CONNECT_STRING
   // Credenciais NUNCA são gravadas no banco.
-  envPrefix String
+  envPrefix String         @map("env_prefix")
   // Configurações não sensíveis (ex.: baseUrl de webservice, timeout, schema)
   config    Json?
   active    Boolean        @default(true)
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  createdAt DateTime       @default(now()) @map("created_at")
+  updatedAt DateTime       @updatedAt @map("updated_at")
   datasets  Dataset[]
+
+  @@map("data_sources")
 }
 
 // ============================================================
@@ -84,7 +90,7 @@ enum IncrementalFieldType {
 
 model Dataset {
   id               String                @id @default(uuid())
-  dataSourceId     String
+  dataSourceId     String                @map("data_source_id")
   dataSource       DataSource            @relation(fields: [dataSourceId], references: [id])
   code             String                @unique // ex.: "fase1_vendas_transporte"
   name             String
@@ -92,19 +98,21 @@ model Dataset {
   // SQL da consulta (Oracle/MySQL) ou caminho/corpo da chamada (webservice)
   query            String
   // Campos que formam a chave lógica de cada linha, para upsert no cache (CSV)
-  primaryKeyFields String
+  primaryKeyFields String                @map("primary_key_fields")
   // Campo de recuperação incremental (marca d'água). Null = sempre carga completa.
-  incrementalField String?
-  incrementalType  IncrementalFieldType?
+  incrementalField String?               @map("incremental_field")
+  incrementalType  IncrementalFieldType? @map("incremental_type")
   // Última marca d'água sincronizada (texto; interpretado conforme incrementalType)
   watermark        String?
   active           Boolean               @default(true)
-  createdAt        DateTime              @default(now())
-  updatedAt        DateTime              @updatedAt
+  createdAt        DateTime              @default(now()) @map("created_at")
+  updatedAt        DateTime              @updatedAt @map("updated_at")
   rows             DatasetRow[]
   schedule         SyncSchedule?
   syncRuns         SyncRun[]
   computedColumns  ComputedColumn[]
+
+  @@map("datasets")
 }
 
 // Cache local: uma linha da consulta externa, com os valores originais
@@ -112,27 +120,30 @@ model Dataset {
 // alteram `data`.
 model DatasetRow {
   id        String   @id @default(uuid())
-  datasetId String
+  datasetId String   @map("dataset_id")
   dataset   Dataset  @relation(fields: [datasetId], references: [id], onDelete: Cascade)
   // Valor concatenado dos primaryKeyFields
   pk        String
   data      Json
-  syncedAt  DateTime @default(now())
+  syncedAt  DateTime @default(now()) @map("synced_at")
 
   @@unique([datasetId, pk])
   @@index([datasetId, syncedAt])
+  @@map("dataset_rows")
 }
 
 model SyncSchedule {
   id              String    @id @default(uuid())
-  datasetId       String    @unique
+  datasetId       String    @unique @map("dataset_id")
   dataset         Dataset   @relation(fields: [datasetId], references: [id], onDelete: Cascade)
   // Intervalo em minutos entre sincronizações
-  intervalMinutes Int
+  intervalMinutes Int       @map("interval_minutes")
   enabled         Boolean   @default(true)
-  lastRunAt       DateTime?
-  nextRunAt       DateTime?
-  updatedAt       DateTime  @updatedAt
+  lastRunAt       DateTime? @map("last_run_at")
+  nextRunAt       DateTime? @map("next_run_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@map("sync_schedules")
 }
 
 enum SyncStatus {
@@ -143,17 +154,18 @@ enum SyncStatus {
 
 model SyncRun {
   id              String     @id @default(uuid())
-  datasetId       String
+  datasetId       String     @map("dataset_id")
   dataset         Dataset    @relation(fields: [datasetId], references: [id], onDelete: Cascade)
   status          SyncStatus @default(RUNNING)
-  startedAt       DateTime   @default(now())
-  finishedAt      DateTime?
-  rowsUpserted    Int?
-  watermarkBefore String?
-  watermarkAfter  String?
+  startedAt       DateTime   @default(now()) @map("started_at")
+  finishedAt      DateTime?  @map("finished_at")
+  rowsUpserted    Int?       @map("rows_upserted")
+  watermarkBefore String?    @map("watermark_before")
+  watermarkAfter  String?    @map("watermark_after")
   error           String?
 
   @@index([datasetId, startedAt])
+  @@map("sync_runs")
 }
 
 // ============================================================
@@ -167,7 +179,7 @@ enum ComputedColumnType {
 
 model ComputedColumn {
   id        String             @id @default(uuid())
-  datasetId String
+  datasetId String             @map("dataset_id")
   dataset   Dataset            @relation(fields: [datasetId], references: [id], onDelete: Cascade)
   name      String // nome da coluna resultante, ex.: "TipoProduto"
   type      ComputedColumnType @default(CONDITIONAL)
@@ -177,10 +189,11 @@ model ComputedColumn {
   // Formato (LOOKUP): { table: "Route", matchOn: [...], return: "distanceKm" }
   rules     Json
   active    Boolean            @default(true)
-  createdAt DateTime           @default(now())
-  updatedAt DateTime           @updatedAt
+  createdAt DateTime           @default(now()) @map("created_at")
+  updatedAt DateTime           @updatedAt @map("updated_at")
 
   @@unique([datasetId, name])
+  @@map("computed_columns")
 }
 
 // Parâmetros nomeados com valor e/ou fórmula. Ex.:
@@ -193,10 +206,12 @@ model Parameter {
   code        String   @unique
   name        String
   description String?
-  valueNumber Decimal?
-  valueText   String?
+  valueNumber Decimal? @map("value_number")
+  valueText   String?  @map("value_text")
   formula     String?
-  updatedAt   DateTime @updatedAt
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("parameters")
 }
 
 // ============================================================
@@ -211,31 +226,73 @@ model Module {
   active       Boolean            @default(false)
   panels       Panel[]
   userAccesses UserModuleAccess[]
+
+  @@map("modules")
 }
 
 // Escopo por fase/negócio. ADMIN tem acesso global; EDITOR/VIEWER precisam
 // de um vínculo para enxergar o módulo. O papel define se o acesso é de
 // edição ou somente leitura.
 model UserModuleAccess {
-  userId    String
-  moduleId  String
+  userId    String   @map("user_id")
+  moduleId  String   @map("module_id")
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   module    Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
+  createdAt DateTime @default(now()) @map("created_at")
 
   @@id([userId, moduleId])
   @@index([moduleId])
+  @@map("user_module_accesses")
 }
 
 model Panel {
   id       String @id @default(uuid())
-  moduleId String
+  moduleId String @map("module_id")
   module   Module @relation(fields: [moduleId], references: [id])
   code     String @unique
   name     String
   // Configuração livre do painel (layout, dataset(s), filtros, tipo de visual)
   config   Json?
   position Int    @default(0)
+
+  @@map("panels")
+}
+
+// ============================================================
+// Acesso granular às telas de Cadastro (Locais, Rotas, Parâmetros...)
+// ============================================================
+
+// Pedido do usuário 2026-08-14: "os perfis possa ter acesso a alguns
+// cadastro" — antes disso, TODOS os cadastros da Fase 1 compartilhavam um
+// único gate (admin OU editor do módulo fase1 inteiro, ver requireEditor()
+// em src/lib/api-helpers.ts). Um "recurso" aqui é uma tela de Cadastro
+// (Locais, Rotas, Parâmetros, Composições, Produtos, Preços de frete,
+// Manutenção, Férias, Tickets de viagem) — mesmo padrão de Module/
+// UserModuleAccess, só que por tela em vez de por fase/negócio inteira.
+model AdminResource {
+  id           String            @id @default(uuid())
+  code         String            @unique // ex.: "locais", "rotas", "parametros"...
+  name         String
+  position     Int               @default(0)
+  userAccesses UserAdminAccess[]
+
+  @@map("admin_resources")
+}
+
+// ADMIN tem acesso global; EDITOR/VIEWER precisam de vínculo aqui pra ver a
+// tela. Mesma regra de UserModuleAccess: o papel GLOBAL do usuário
+// (EDITOR/VIEWER) decide se o acesso concedido é de edição ou só leitura —
+// não há um "papel por recurso" separado.
+model UserAdminAccess {
+  userId     String        @map("user_id")
+  resourceId String        @map("resource_id")
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resource   AdminResource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  createdAt  DateTime      @default(now()) @map("created_at")
+
+  @@id([userId, resourceId])
+  @@index([resourceId])
+  @@map("user_admin_accesses")
 }
 
 // ============================================================
@@ -245,25 +302,40 @@ model Panel {
 enum LocationType {
   UNIDADE // unidade do grupo (UPC, filial, fazenda)
   CLIENTE // destino externo
+  // Tipos adicionados 2026-08-03 (pedido do usuário: "mais opções, cidades,
+  // posto de gasolina, oficina, residência") — não participam do casamento
+  // de rota (matchColigada/matchClientePattern), servem só de referência
+  // geográfica para os relatórios de permanência (LocationVisit).
+  CIDADE
+  POSTO_GASOLINA
+  OFICINA
+  RESIDENCIA
 }
 
-// Local: origem (unidades do grupo) ou destino (clientes) das rotas.
-// Os campos match* fazem o casamento com as linhas sincronizadas:
-// UNIDADE casa por coligada/filial; CLIENTE casa por trecho do NOMEFANTASIA.
+// Local: origem (unidades do grupo) ou destino (clientes) das rotas, mais
+// pontos de referência (cidade, posto, oficina, residência de motorista)
+// usados só para os relatórios de permanência/rota, sem participar do
+// casamento de viagens. Os campos match* fazem o casamento com as linhas
+// sincronizadas: UNIDADE casa por coligada/filial; CLIENTE casa por trecho
+// do NOMEFANTASIA; os demais tipos não usam match* (ficam null).
 model Location {
-  id                  String       @id @default(uuid())
-  name                String       @unique // nome amigável (definido pelo usuário)
-  officialName        String? // nome real/oficial no ERP (referência)
+  id                  String          @id @default(uuid())
+  name                String          @unique // nome amigável (definido pelo usuário)
+  officialName        String?         @map("official_name") // nome real/oficial no ERP (referência)
   type                LocationType
-  matchColigada       Int?
-  matchFilial         Int?
-  matchClientePattern String?
+  matchColigada       Int?            @map("match_coligada")
+  matchFilial         Int?            @map("match_filial")
+  matchClientePattern String?         @map("match_cliente_pattern")
+  // Nome do motorista dono da residência — só preenchido quando type =
+  // RESIDENCIA (pedido do usuário 2026-08-03). Texto livre (motorista ainda
+  // não tem cadastro próprio no sistema, só aparece como string nas notas).
+  motoristaNome       String?         @map("motorista_nome")
   // Coordenadas para nominar onde o caminhão está a partir da posição GPS
   // (Omnilink) — pedido do usuário 2026-07-30, integração de rastreamento.
   // raioMetros = raio de tolerância para considerar o caminhão "neste local".
   latitude            Float?
   longitude           Float?
-  raioMetros          Float?       @default(500)
+  raioMetros          Float?          @default(500) @map("raio_metros")
   // Polígono alternativo ao ponto+raio (pedido do usuário 2026-07-30, além
   // do círculo simples — locais grandes/irregulares como um pátio ou
   // fazenda não cabem bem num raio): lista de vértices [{lat,lng}, ...],
@@ -271,11 +343,44 @@ model Location {
   // (comportamento anterior); preenchido = usa o polígono para nominar a
   // posição do caminhão em vez do círculo.
   polygon             Json?
-  active              Boolean      @default(true)
-  createdAt           DateTime     @default(now())
-  updatedAt           DateTime     @updatedAt
-  routesFrom          Route[]      @relation("RouteOrigin")
-  routesTo            Route[]      @relation("RouteDestination")
+  active              Boolean         @default(true)
+  // Preparação multi-tenant (holding/empresa/filial) — nullable, sem FK
+  // real entre schemas, sem lógica de filtro ainda. Ver padroes-dev
+  // vault/adr/0009-preparacao-multi-tenant-holding-empresa-filial.md.
+  holdingId           String?         @map("holding_id")
+  companyId           String?         @map("company_id")
+  branchId            String?         @map("branch_id")
+  createdAt           DateTime        @default(now()) @map("created_at")
+  updatedAt           DateTime        @updatedAt @map("updated_at")
+  routesFrom          Route[]         @relation("RouteOrigin")
+  routesTo            Route[]         @relation("RouteDestination")
+  visits              LocationVisit[]
+
+  @@map("locations")
+}
+
+// Permanência de uma placa num Local, detectada por geofence (posição GPS
+// dentro do raio/polígono do local) — pedido do usuário 2026-08-03:
+// "relatórios do tempo que ficou em cada local, hora de chegada e saída".
+// `saida` null = ainda está no local (visita em aberto); fechada quando a
+// próxima posição da placa sai da geofence. Gerado no post-process do sync
+// Omnilink (src/lib/sync/post-process.ts), não por um job separado.
+model LocationVisit {
+  id         String    @id @default(uuid())
+  locationId String    @map("location_id")
+  location   Location  @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  placa      String
+  chegada    DateTime
+  saida      DateTime?
+  holdingId  String?   @map("holding_id")
+  companyId  String?   @map("company_id")
+  branchId   String?   @map("branch_id")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  @@index([placa, saida])
+  @@index([locationId, chegada])
+  @@map("location_visits")
 }
 
 // Posições de GPS de cada caminhão durante a viagem, vindas do rastreamento
@@ -286,19 +391,62 @@ model Location {
 // no banco para consultas espaciais futuras (raio, distância até a rota
 // etc.) assim que a integração real estiver validada com dados de verdade.
 model VehiclePosition {
-  id         String   @id @default(uuid())
-  placa      String
-  capturedAt DateTime // data/hora da posição no rastreador (não da gravação)
-  latitude   Float
-  longitude  Float
-  speedKmh   Float?
+  id          String   @id @default(uuid())
+  placa       String
+  capturedAt  DateTime @map("captured_at") // data/hora da posição no rastreador (não da gravação)
+  latitude    Float
+  longitude   Float
+  speedKmh    Float?   @map("speed_kmh")
   // Direção em graus (0-360, 0 = norte), quando o rastreador informar
-  heading    Float?
-  status     String? // status bruto do rastreador (ex.: ligado, parado, ignição)
-  source     String   @default("OMNILINK")
-  createdAt  DateTime @default(now())
+  heading     Float?
+  status      String? // status bruto do rastreador (ex.: ligado, parado, ignição)
+  // Endereço já reverse-geocodado pela Omnilink (campo "localizacao" da API) —
+  // guardado a partir de 2026-08-03 (pedido do usuário: "inserir no painel as
+  // informações recuperadas da viagem"), antes descartado no post-process.
+  localizacao String?
+  source      String   @default("OMNILINK")
+  holdingId   String?  @map("holding_id")
+  companyId   String?  @map("company_id")
+  branchId    String?  @map("branch_id")
+  createdAt   DateTime @default(now()) @map("created_at")
 
-  @@index([placa, capturedAt])
+  // Único em vez de índice simples (2026-07-30, integração Omnilink real):
+  // permite upsert idempotente — sincronizações com janelas de data
+  // sobrepostas não duplicam a mesma posição.
+  @@unique([placa, capturedAt])
+  @@map("vehicle_positions")
+}
+
+// Episódio de excesso de velocidade — pedido do usuário 2026-08-03: "não pode
+// acontecer, velocidades acima do limite estabelecido nos parâmetros devem
+// alertar com reconhecimento formal do operador da logística". Diferente do
+// `useAcknowledgeable` do dashboard (que só esconde por navegador, sem
+// registro), este exige um usuário logado e motivo, gravados no banco —
+// visível para todo mundo até alguém reconhecer, mesmo depois de aberto em
+// outro navegador. Um único registro "aberto" por placa: leituras seguintes
+// acima do limite atualizam o pico em vez de criar alerta novo (evita
+// spam — o rastreador manda posição a cada poucos segundos); reconhecendo,
+// a próxima leitura acima do limite abre um episódio novo.
+model SpeedAlert {
+  id             String    @id @default(uuid())
+  placa          String
+  speedKmh       Float     @map("speed_kmh") // maior velocidade observada no episódio
+  limiteKmh      Float     @map("limite_kmh") // limite vigente (Parameter VELOCIDADE_MAXIMA_KMH) no momento
+  capturedAt     DateTime  @map("captured_at") // quando a maior velocidade ocorreu
+  latitude       Float?
+  longitude      Float?
+  localizacao    String?
+  acknowledgedAt DateTime? @map("acknowledged_at")
+  acknowledgedBy String?   @map("acknowledged_by")
+  motivo         String?
+  holdingId      String?   @map("holding_id")
+  companyId      String?   @map("company_id")
+  branchId       String?   @map("branch_id")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([placa, acknowledgedAt])
+  @@map("speed_alerts")
 }
 
 // Composição (implemento) de cada placa, com histórico de mudanças por data.
@@ -310,11 +458,15 @@ model PlateComposition {
   id            String    @id @default(uuid())
   placa         String
   composition   String // ex.: "LS 4 Eixos", "RodoTrem", "LS 3 Eixos"
-  effectiveFrom DateTime? // null = composição de cadastro (inicial)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  effectiveFrom DateTime? @map("effective_from") // null = composição de cadastro (inicial)
+  holdingId     String?   @map("holding_id")
+  companyId     String?   @map("company_id")
+  branchId      String?   @map("branch_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
 
   @@index([placa, effectiveFrom])
+  @@map("plate_compositions")
 }
 
 // Rota origem->destino com dados operacionais para cálculo de expectativa
@@ -322,30 +474,34 @@ model PlateComposition {
 // Distância separada por tipo de piso; velocidades separadas por condição
 // de carga (cheio na ida, vazio na volta).
 model Route {
-  id                    String   @id @default(uuid())
-  originId              String
-  origin                Location @relation("RouteOrigin", fields: [originId], references: [id])
-  destinationId         String
-  destination           Location @relation("RouteDestination", fields: [destinationId], references: [id])
-  distanceAsphaltKm     Decimal  @default(0) // trecho de asfalto
-  distanceDirtKm        Decimal  @default(0) // trecho de terra
-  speedLoadedKmh        Decimal? // velocidade média carregado (cheio)
-  speedEmptyKmh         Decimal? // velocidade média vazio
-  loadMinutes           Int? // tempo de espera para carga
-  unloadMinutes         Int? // tempo de espera para descarga
+  id                    String              @id @default(uuid())
+  originId              String              @map("origin_id")
+  origin                Location            @relation("RouteOrigin", fields: [originId], references: [id])
+  destinationId         String              @map("destination_id")
+  destination           Location            @relation("RouteDestination", fields: [destinationId], references: [id])
+  distanceAsphaltKm     Decimal             @default(0) @map("distance_asphalt_km") // trecho de asfalto
+  distanceDirtKm        Decimal             @default(0) @map("distance_dirt_km") // trecho de terra
+  speedLoadedKmh        Decimal?            @map("speed_loaded_kmh") // velocidade média carregado (cheio)
+  speedEmptyKmh         Decimal?            @map("speed_empty_kmh") // velocidade média vazio
+  loadMinutes           Int?                @map("load_minutes") // tempo de espera para carga
+  unloadMinutes         Int?                @map("unload_minutes") // tempo de espera para descarga
   // Expectativa total de ida e volta em DIAS. Quando preenchida, tem
   // prioridade sobre o cálculo por velocidades/tempos.
-  expectedRoundTripDays Decimal?
+  expectedRoundTripDays Decimal?            @map("expected_round_trip_days")
   // Composição fixa desta rota (ex.: trecho interno sempre feito de Tritrem).
   // Quando preenchida, tem prioridade sobre o cadastro de placa e a coluna
   // condicional — vazio significa que a viagem usa a composição normal da placa.
-  fixedComposition      String?
-  active                Boolean  @default(true)
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  fixedComposition      String?             @map("fixed_composition")
+  active                Boolean             @default(true)
+  holdingId             String?             @map("holding_id")
+  companyId             String?             @map("company_id")
+  branchId              String?             @map("branch_id")
+  createdAt             DateTime            @default(now()) @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
   freightPrices         RouteFreightPrice[]
 
   @@unique([originId, destinationId])
+  @@map("routes")
 }
 
 // Unidade do valor de referência de frete — o preço da nota fiscal mistura
@@ -364,16 +520,20 @@ enum FreightRateUnit {
 // considerar o valor vigente na data de cada viagem, não só o mais recente.
 model RouteFreightPrice {
   id              String          @id @default(uuid())
-  routeId         String
+  routeId         String          @map("route_id")
   route           Route           @relation(fields: [routeId], references: [id], onDelete: Cascade)
   // Valor de referência em R$ POR unidade (ver campo unidade abaixo)
-  valorReferencia Decimal
+  valorReferencia Decimal         @map("valor_referencia")
   unidade         FreightRateUnit @default(TONELADA)
-  effectiveFrom   DateTime? // null = cadastro inicial (vale desde sempre até a primeira mudança)
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  effectiveFrom   DateTime?       @map("effective_from") // null = cadastro inicial (vale desde sempre até a primeira mudança)
+  holdingId       String?         @map("holding_id")
+  companyId       String?         @map("company_id")
+  branchId        String?         @map("branch_id")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
 
   @@index([routeId, effectiveFrom])
+  @@map("route_freight_prices")
 }
 
 // Período de manutenção de um caminhão (placa). endDate NULL = manutenção em
@@ -384,25 +544,33 @@ model RouteFreightPrice {
 model VehicleMaintenance {
   id        String    @id @default(uuid())
   placa     String
-  startDate DateTime
-  endDate   DateTime?
+  startDate DateTime  @map("start_date")
+  endDate   DateTime? @map("end_date")
   motivo    String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  holdingId String?   @map("holding_id")
+  companyId String?   @map("company_id")
+  branchId  String?   @map("branch_id")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
 
   @@index([placa, startDate])
+  @@map("vehicle_maintenances")
 }
 
 // Período de férias de um motorista, mesmo padrão de VehicleMaintenance.
 model DriverVacation {
   id        String    @id @default(uuid())
   motorista String
-  startDate DateTime
-  endDate   DateTime?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  startDate DateTime  @map("start_date")
+  endDate   DateTime? @map("end_date")
+  holdingId String?   @map("holding_id")
+  companyId String?   @map("company_id")
+  branchId  String?   @map("branch_id")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
 
   @@index([motorista, startDate])
+  @@map("driver_vacations")
 }
 
 // Justificativa de atraso de uma viagem específica (chave = mesma
@@ -410,15 +578,70 @@ model DriverVacation {
 // data+placa+motorista+destino). Uma viagem tem no máximo uma justificativa;
 // editar substitui o motivo anterior.
 model TripJustification {
-  id        String    @id @default(uuid())
-  tripKey   String    @unique
-  motivo    String
+  id           String    @id @default(uuid())
+  tripKey      String    @unique @map("trip_key")
+  motivo       String
   // Nova previsão de retorno dada junto com a justificativa (opcional). Se
   // vencer e a viagem continuar sem correção (mesmo tripKey ainda
   // atrasado/muito atrasado), o painel gera um novo alerta.
-  novaPrevisao DateTime?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  novaPrevisao DateTime? @map("nova_previsao")
+  holdingId    String?   @map("holding_id")
+  companyId    String?   @map("company_id")
+  branchId     String?   @map("branch_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@map("trip_justifications")
+}
+
+// Ticket de viagem (pesagem/canhoto) enviado pelo usuário (foto/PDF
+// escaneado) para conciliar com a nota fiscal emitida — pedido do usuário
+// 2026-08-03, refinado no mesmo dia: o operador só sobe o arquivo, o painel
+// tenta reconhecer placa/peso/data automaticamente por OCR (src/lib/ocr) e,
+// achando uma viagem candidata com peso bem próximo, concilia sozinho
+// (`matchedTripKeys`, mesma chave de src/lib/fase1/trips.ts). Falhando o
+// reconhecimento (ou sem candidato claro), os 3 campos ficam nulos e o
+// operador preenche manualmente para então ver as viagens candidatas.
+// `matchedTripKeys` é um array porque um ticket de pesagem às vezes cobre
+// mais de uma nota/viagem (pedido do usuário 2026-08-03: "opção de
+// selecionar várias notas") — o operador marca todas que o ticket comprova.
+// `fileData` guarda o arquivo direto no banco — volume baixo (tickets
+// avulsos), sem justificar um storage externo.
+model TripTicket {
+  id                String    @id @default(uuid())
+  placa             String?
+  pesoAproximadoTon Decimal?  @map("peso_aproximado_ton")
+  dataTicket        DateTime? @map("data_ticket")
+  fileName          String    @map("file_name")
+  fileMime          String    @map("file_mime")
+  fileData          Bytes     @map("file_data")
+  // processando = OCR rodando em segundo plano; reconhecido = extraiu os 3
+  // campos; falhou = não conseguiu, aguardando preenchimento manual. O
+  // upload responde na hora (pedido do usuário 2026-08-03: "trabalhar com o
+  // upload e reconhecimento em segundo plano") — o OCR roda depois, sem
+  // segurar a resposta HTTP.
+  ocrStatus         String    @default("processando") @map("ocr_status")
+  // texto bruto extraído pelo OCR, guardado mesmo quando falha em achar os
+  // campos — ajuda o operador a preencher manualmente sem abrir o arquivo.
+  ocrTexto          String?   @map("ocr_texto")
+  // log passo a passo do processamento (pedido do usuário: "mostrar um log
+  // com o processo de OCR pois está demorando") — a tela mostra essas linhas
+  // enquanto ocrStatus ainda é "processando".
+  ocrLog            String[]  @default([]) @map("ocr_log")
+  // 0-100, atualizado junto com o log — pedido do usuário 2026-08-03: sem
+  // percentual não dá pra saber se travou ou se ainda está processando.
+  ocrProgress       Int       @default(0) @map("ocr_progress")
+  matchedTripKeys   String[]  @default([]) @map("matched_trip_keys")
+  conferidoEm       DateTime? @map("conferido_em")
+  conferidoPor      String?   @map("conferido_por")
+  holdingId         String?   @map("holding_id")
+  companyId         String?   @map("company_id")
+  branchId          String?   @map("branch_id")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@index([placa, dataTicket])
+  @@map("trip_tickets")
 }
 
 // Tabela de referência: peso máximo permitido por tipo de composição
@@ -428,16 +651,21 @@ model TripJustification {
 model CompositionSpec {
   id                 String   @id @default(uuid())
   composition        String   @unique
-  numEixos           String?
-  pbtcMaximoTon      Decimal?
-  taraMinTon         Decimal?
-  taraMaxTon         Decimal?
-  cargaLiquidaMinTon Decimal?
+  numEixos           String?  @map("num_eixos")
+  pbtcMaximoTon      Decimal? @map("pbtc_maximo_ton")
+  taraMinTon         Decimal? @map("tara_min_ton")
+  taraMaxTon         Decimal? @map("tara_max_ton")
+  cargaLiquidaMinTon Decimal? @map("carga_liquida_min_ton")
   // Teto usado na conformidade: peso líquido da viagem não pode superar este valor.
-  cargaLiquidaMaxTon Decimal?
+  cargaLiquidaMaxTon Decimal? @map("carga_liquida_max_ton")
   active             Boolean  @default(true)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  holdingId          String?  @map("holding_id")
+  companyId          String?  @map("company_id")
+  branchId           String?  @map("branch_id")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@map("composition_specs")
 }
 
 // Classificação de produto (Carvão, Cavaco, Maravalha, ...) — substitui a
@@ -446,10 +674,146 @@ model CompositionSpec {
 // nome (PRODUTO) muda ou tem variação de acentuação.
 model ProductType {
   id          String   @id @default(uuid())
-  codigoPrd   String   @unique
-  produtoNome String? // último nome (PRODUTO) visto no ERP, só referência
-  tipoProduto String // classificação (Carvão, Cavaco, Maravalha, Outros, ...)
+  codigoPrd   String   @unique @map("codigo_prd")
+  produtoNome String?  @map("produto_nome") // último nome (PRODUTO) visto no ERP, só referência
+  tipoProduto String   @map("tipo_produto") // classificação (Carvão, Cavaco, Maravalha, Outros, ...)
   active      Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  holdingId   String?  @map("holding_id")
+  companyId   String?  @map("company_id")
+  branchId    String?  @map("branch_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("product_types")
+}
+
+// Fase 3 — status de ação comercial por cliente na aba "Clientes potenciais"
+// (prospecção/win-back) — pedido do usuário 2026-08-04: "colocar uma opção
+// para selecionar (fazer contato, cliente negativado, não tem interesse,
+// encerrou atividade)". Chaveado pelo nome do cliente (mesma chave usada em
+// todo o resto da Fase 3, vinda de FCFO.NOMEFANTASIA) — não há necessidade
+// de uma tabela de associação, um registro por cliente é suficiente já que
+// é sempre o status mais recente que importa.
+model Fase3ClienteAcao {
+  id            String   @id @default(uuid())
+  cliente       String   @unique
+  status        String // 'FAZER_CONTATO' | 'NEGATIVADO' | 'SEM_INTERESSE' | 'ENCERROU_ATIVIDADE'
+  observacao    String?
+  atualizadoPor String?  @map("atualizado_por")
+  holdingId     String?  @map("holding_id")
+  companyId     String?  @map("company_id")
+  branchId      String?  @map("branch_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("fase3_cliente_acoes")
+}
+
+// Aba "Crítica ao modelo" — genérico, reusável por qualquer módulo/fase.
+// Pedido do usuário 2026-08-05: "para este caso dos desvios de combustível e
+// transporte em geral vamos montar uma aba com crítica ao modelo, sendo que
+// cada problema deve ter o reconhecimento formal, ou até mesmo ajuste na
+// origem". Mesmo padrão do `SpeedAlert` (reconhecimento com usuário+motivo
+// gravados, visível até alguém tratar), mas os achados aqui são
+// RECALCULADOS AO VIVO a cada carregamento (não fixos) — esta tabela só
+// guarda o STATUS de tratamento de cada achado, casado pela chave estável
+// (`modulo`+`chave`) que a função de detecção gera. Sem isso, um achado
+// reconhecido reapareceria a cada refresh como se nunca tivesse sido visto.
+model CriticaModeloAchado {
+  id             String    @id @default(uuid())
+  modulo         String // 'fase1_combustivel', 'fase1_transporte', 'fase3', ...
+  // Identificador estável do achado DENTRO do módulo (ex.: a placa, ou
+  // "categoria|placa") — precisa ser determinístico para a mesma condição
+  // real ser reconhecida como o MESMO achado entre uma sincronização e outra.
+  chave          String
+  categoria      String // tipo do achado (ex.: 'hodometro_travado', 'anormalidade_critica')
+  // Snapshot do texto do achado no momento do reconhecimento/encaminhamento
+  // — histórico de o que exatamente foi tratado, mesmo que o cálculo ao vivo
+  // mude depois (ex.: novos dados chegando).
+  descricao      String
+  status         String    @default("aberto") // 'aberto' | 'reconhecido' | 'encaminhado_origem' | 'resolvido'
+  reconhecidoPor String?   @map("reconhecido_por")
+  reconhecidoEm  DateTime? @map("reconhecido_em")
+  motivo         String?
+  holdingId      String?   @map("holding_id")
+  companyId      String?   @map("company_id")
+  branchId       String?   @map("branch_id")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@unique([modulo, chave])
+  @@map("critica_modelo_achados")
+}
+
+// ============================================================
+// Fase 3 — Cotas de venda (madeira tratada): metas mensais
+// ajustáveis pedidas pelo usuário 2026-08-12, a partir da planilha
+// cotamadeiratratada.xlsx. Cadastro começa em ago/2026 pra frente — não
+// importa o histórico 2018-2026 da planilha, só usa os valores mais
+// recentes como ponto de partida.
+// ============================================================
+
+// Configuração geral do mês: meta de volume total (m³, linha inteira de
+// madeira tratada) e a distribuição-alvo entre as 3 faixas de ICMS que o
+// sistema já calcula por UF do cliente (ver TABELA_PRECO em
+// src/lib/fase3/faturamento.ts) — 7%, 12% e 18%. Não existe faixa de 20%
+// nos dados reais (nenhuma UF mapeia pra isso), confirmado com o usuário
+// 2026-08-12 antes de implementar.
+model MonthlyQuotaSettings {
+  id           String   @id @default(uuid())
+  month        DateTime @unique // sempre dia 1 do mês (ex.: 2026-08-01)
+  metaVolumeM3 Decimal  @map("meta_volume_m3")
+  icms7Pct     Decimal  @map("icms_7_pct") // meta %, ex. 60
+  icms12Pct    Decimal  @map("icms_12_pct") // meta %, ex. 20
+  icms18Pct    Decimal  @map("icms_18_pct") // meta %, ex. 20
+  holdingId    String?  @map("holding_id")
+  companyId    String?  @map("company_id")
+  branchId     String?  @map("branch_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("monthly_quota_settings")
+}
+
+// Meta de faturamento (R$) por distribuidor por mês. Casa por
+// CODDISTRIBUIDOR bruto (FCFOCOMPL.DISTRIBUIDOR na consulta Oracle, ex.
+// "C00003154") — o mesmo código usado na planilha original, não o bucket
+// ABREV_DISTRIBUIDOR (esse é só pra exibição/agrupamento por nome).
+model DistributorQuota {
+  id               String   @id @default(uuid())
+  month            DateTime // dia 1 do mês
+  codDistribuidor  String   @map("cod_distribuidor")
+  nomeDistribuidor String?  @map("nome_distribuidor") // cache pra exibição, não usado no casamento
+  metaValor        Decimal  @map("meta_valor")
+  holdingId        String?  @map("holding_id")
+  companyId        String?  @map("company_id")
+  branchId         String?  @map("branch_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@unique([month, codDistribuidor])
+  @@map("distributor_quotas")
+}
+
+// Meta de unidades vendidas por produto por mês, com o fator m³/unidade (pra
+// derivar a meta em m³ desse produto = cotaUnidades × m3PorUnidade). Casa
+// por TPRD.CODIGOPRD (ex. "95.02.070006"). m3PorUnidade fica null quando o
+// produto não tem fator confiável cadastrado na origem (TOTVS RM) — mesmo
+// problema de dado já registrado no Achado 4 da aba Crítica ao modelo
+// (src/components/fase3/CriticaModeloTab.tsx) — não inventar um valor.
+model ProductQuota {
+  id           String   @id @default(uuid())
+  month        DateTime
+  codigoPrd    String   @map("codigo_prd")
+  nomeProduto  String?  @map("nome_produto") // cache pra exibição
+  m3PorUnidade Decimal? @map("m3_por_unidade")
+  cotaUnidades Decimal  @map("cota_unidades")
+  holdingId    String?  @map("holding_id")
+  companyId    String?  @map("company_id")
+  branchId     String?  @map("branch_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([month, codigoPrd])
+  @@map("product_quotas")
 }

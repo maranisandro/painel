@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # Só para satisfazer o schema do Prisma/Next no build — nenhuma
+      # conexão real é feita (páginas do dashboard são todas dinâmicas,
+      # gated por sessão). Ver vault/padroes/ci-cd.md do padroes-dev.
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci_db
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npx prisma generate
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build

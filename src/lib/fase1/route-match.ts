@@ -9,6 +9,11 @@ export interface MatchedRoute {
   unloadMinutes: number | null
   expectedRoundTripDays: number | null
   fixedComposition: string | null
+  // Coordenadas de origem/destino — usadas para saber se o caminhão está
+  // indo (se aproximando do destino) ou voltando (se aproximando da origem)
+  // no rastreamento (pedido do usuário 2026-08-03).
+  originCoords: { lat: number; lng: number } | null
+  destinationCoords: { lat: number; lng: number } | null
 }
 
 type Row = Record<string, unknown>
@@ -49,6 +54,14 @@ export async function buildRouteMatcher(): Promise<(row: Row) => MatchedRoute | 
       unloadMinutes: r.unloadMinutes,
       expectedRoundTripDays: r.expectedRoundTripDays ? Number(r.expectedRoundTripDays) : null,
       fixedComposition: r.fixedComposition,
+      originCoords:
+        r.origin.latitude != null && r.origin.longitude != null
+          ? { lat: r.origin.latitude, lng: r.origin.longitude }
+          : null,
+      destinationCoords:
+        r.destination.latitude != null && r.destination.longitude != null
+          ? { lat: r.destination.latitude, lng: r.destination.longitude }
+          : null,
     }
   }
 }

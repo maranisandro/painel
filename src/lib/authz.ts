@@ -12,6 +12,8 @@ export interface SessionUser {
   mustChangePassword: boolean
   sessionVersion: number
   moduleCodes: string[]
+  /** Códigos de AdminResource (telas de Cadastro) que o usuário tem vínculo — ver hasResourceAccess/canEditResource */
+  resourceCodes: string[]
 }
 
 /**
@@ -33,6 +35,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
       mustChangePassword: true,
       sessionVersion: true,
       moduleAccesses: { select: { module: { select: { code: true } } } },
+      adminAccesses: { select: { resource: { select: { code: true } } } },
     },
   })
   if (!user || !user.active) return null
@@ -47,6 +50,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     mustChangePassword: user.mustChangePassword,
     sessionVersion: user.sessionVersion,
     moduleCodes: user.moduleAccesses.map((access) => access.module.code),
+    resourceCodes: user.adminAccesses.map((access) => access.resource.code),
   }
 }
 
@@ -69,4 +73,23 @@ export function canEditModule(user: SessionUser | null, moduleCode: string): boo
 
 export function accessibleModuleCodes(user: SessionUser | null): string[] {
   return user ? (isAdmin(user) ? [] : user.moduleCodes) : []
+}
+
+/**
+ * Acesso granular a uma tela de Cadastro (Locais, Rotas, Parâmetros...) —
+ * pedido do usuário 2026-08-14: "os perfis possa ter acesso a alguns
+ * cadastro". Mesma regra de hasModuleAccess/canEditModule, só que por
+ * AdminResource em vez de Module.
+ */
+export function hasResourceAccess(user: SessionUser | null, resourceCode: string): boolean {
+  if (!user) return false
+  return isAdmin(user) || user.resourceCodes.includes(resourceCode)
+}
+
+export function canEditResource(user: SessionUser | null, resourceCode: string): boolean {
+  return canEdit(user) && hasResourceAccess(user, resourceCode)
+}
+
+export function accessibleResourceCodes(user: SessionUser | null): string[] {
+  return user ? (isAdmin(user) ? [] : user.resourceCodes) : []
 }

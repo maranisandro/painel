@@ -10,11 +10,18 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   const admin = isAdmin(user)
   const canSeeFase1 = hasModuleAccess(user, 'fase1')
-  const canSeeCadastros = admin || canEditModule(user, 'fase1')
+  const canSeeFase3 = hasModuleAccess(user, 'fase3')
+  const canSeeRh = hasModuleAccess(user, 'rh')
+  // Acesso granular por tela de Cadastro (pedido do usuário 2026-08-14) — o
+  // link "Cadastros" aparece se o usuário tem pelo menos UM recurso
+  // concedido (ou fase3, que ainda usa o gate de módulo inteiro pra Cotas
+  // de venda) ou é admin; cada card individual em /dashboard/admin decide a
+  // própria visibilidade por AdminResource.
+  const canSeeCadastros = admin || user.resourceCodes.length > 0 || canEditModule(user, 'fase3')
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="border-b border-slate-200 bg-white">
+    <div className="flex h-screen flex-col">
+      <header className="shrink-0 border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-6">
             <Link href="/dashboard" className="text-lg font-semibold text-emerald-800">
@@ -26,7 +33,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
                 <Link href="/dashboard/fase1" className="hover:text-emerald-700">Transporte Rodoviário</Link>
               )}
               {canSeeFase1 && (
-                <Link href="/dashboard/fase1/mapa" className="hover:text-emerald-700">Mapa</Link>
+                <Link href="/dashboard/fase1/mapa" className="hover:text-emerald-700">Rastreamento</Link>
+              )}
+              {canSeeFase3 && (
+                <Link href="/dashboard/fase3" className="hover:text-emerald-700">Venda Madeira Tratada</Link>
+              )}
+              {canSeeRh && (
+                <Link href="/dashboard/rh" className="hover:text-emerald-700">Recursos Humanos</Link>
               )}
               {admin && (
                 <Link href="/dashboard/datasets" className="hover:text-emerald-700">Fontes de Dados</Link>
@@ -42,7 +55,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
           </div>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6">{children}</main>
+      <main className="mx-auto w-full max-w-7xl flex-1 overflow-y-auto px-4 py-6">{children}</main>
     </div>
   )
 }

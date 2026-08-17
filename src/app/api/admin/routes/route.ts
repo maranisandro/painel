@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { logAudit } from '@/lib/audit'
-import { requireEditor, badRequest } from '@/lib/api-helpers'
+import { requireResourceViewer, requireResourceEditor, badRequest } from '@/lib/api-helpers'
 
 const routeSchema = z.object({
   originId: z.string().uuid(),
@@ -19,7 +19,7 @@ const routeSchema = z.object({
 })
 
 export async function GET() {
-  const auth = await requireEditor()
+  const auth = await requireResourceViewer('rotas')
   if ('error' in auth) return auth.error
   const routes = await prisma.route.findMany({
     include: { origin: true, destination: true },
@@ -29,7 +29,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await requireEditor()
+  const auth = await requireResourceEditor('rotas')
   if ('error' in auth) return auth.error
   const parsed = routeSchema.safeParse(await req.json())
   if (!parsed.success) return badRequest(parsed.error.issues.map((i) => i.message).join('; '))

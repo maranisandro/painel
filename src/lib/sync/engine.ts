@@ -108,7 +108,13 @@ async function syncDatasetUnlocked(datasetId: string): Promise<{ rowsUpserted: n
       rows = await connector.fetchRows(dataset.dataSource as DataSource, dataset, dataset.watermark)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      throw new Error(`Falha ao buscar dados em "${dataset.dataSource.name}" (${dataset.dataSource.type}): ${msg}`)
+      // "fetch failed" sozinho não diz nada — o motivo real (DNS, conexão
+      // recusada, TLS, timeout) vem em err.cause, que o Node não inclui em
+      // err.message. Sem isso, cada falha de rede vira uma investigação
+      // manual (achado em 2026-08-12: precisou testar a conectividade fora
+      // do app pra descobrir que não era credencial nem código).
+      const cause = err instanceof Error && err.cause instanceof Error ? ` — causa: ${err.cause.message}` : ''
+      throw new Error(`Falha ao buscar dados em "${dataset.dataSource.name}" (${dataset.dataSource.type}): ${msg}${cause}`)
     }
     const pkFields = dataset.primaryKeyFields.split(',').map((s) => s.trim()).filter(Boolean)
 

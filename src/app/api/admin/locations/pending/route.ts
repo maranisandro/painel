@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { requireEditor } from '@/lib/api-helpers'
+import { requireResourceEditor } from '@/lib/api-helpers'
 
 /**
  * Unidades (coligada/filial) presentes nos dados sincronizados da Fase 1 que
@@ -8,7 +8,7 @@ import { requireEditor } from '@/lib/api-helpers'
  * nome amigável à medida que aparecerem (o nome real vem do ERP).
  */
 export async function GET() {
-  const auth = await requireEditor()
+  const auth = await requireResourceEditor('locais')
   if ('error' in auth) return auth.error
 
   const dataset = await prisma.dataset.findUnique({ where: { code: 'fase1_vendas_transporte' } })

@@ -4,6 +4,8 @@ import {
   isAdmin,
   hasModuleAccess,
   canEditModule,
+  hasResourceAccess,
+  canEditResource,
   type SessionUser,
 } from '@/lib/authz'
 
@@ -50,8 +52,29 @@ export async function requireModuleEditor(moduleCode: string): Promise<Authorize
 }
 
 /**
- * Compatibilidade com os cadastros atuais, todos pertencentes à Fase 1.
- * Novas fases devem chamar requireModuleEditor com o próprio código.
+ * Acesso granular por tela de Cadastro (pedido do usuário 2026-08-14) —
+ * mesmo padrão de requireModuleViewer/Editor, mas por AdminResource (Locais,
+ * Rotas, Parâmetros...) em vez de módulo/fase inteira.
+ */
+export async function requireResourceViewer(resourceCode: string): Promise<Authorized | Denied> {
+  const user = await getSessionUser()
+  return hasResourceAccess(user, resourceCode) && !user!.mustChangePassword
+    ? { user: user! }
+    : denied(user)
+}
+
+export async function requireResourceEditor(resourceCode: string): Promise<Authorized | Denied> {
+  const user = await getSessionUser()
+  return canEditResource(user, resourceCode) && !user!.mustChangePassword
+    ? { user: user! }
+    : denied(user)
+}
+
+/**
+ * Usado só por ações do próprio painel de Fase 1 que não são telas de
+ * Cadastro (ex.: justificativa de atraso, `trip-justifications`) — os
+ * cadastros de verdade (Locais, Rotas, Manutenção etc.) migraram para
+ * requireResourceEditor/Viewer em 2026-08-14, com acesso granular por tela.
  */
 export async function requireEditor(): Promise<Authorized | Denied> {
   return requireModuleEditor('fase1')

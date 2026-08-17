@@ -1,5 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import type { ExternalRow } from './types'
+import { parseLatLog, parseVelocidadeSentido } from './connectors/omnilink'
+import { findContainingLocation, type GeofenceLocation } from '@/lib/geo'
 
 /**
  * Depois de sincronizar `fase1_custos_transporte`, transforma o bloco
@@ -43,7 +45,181 @@ export async function processCustosTransporteRodoviario(rows: ExternalRow[]): Pr
   }
 }
 
+// Retenção de histórico de posições — pedido do usuário 2026-08-03: "vamos
+// trabalhar com um histórico de 60 dias e limpar o log de viagem das viagens
+// com mais de 60 dias". Roda a cada sync (mesmo gatilho periódico que já
+// existe), não precisa de um agendador à parte.
+const RETENCAO_DIAS = 60
+
+async function purgeOldVehiclePositions(): Promise<void> {
+  const limite = new Date(Date.now() - RETENCAO_DIAS * 86_400_000)
+  const { count } = await prisma.vehiclePosition.deleteMany({ where: { capturedAt: { lt: limite } } })
+  if (count > 0) console.log(`[omnilink] limpeza: ${count} posição(ões) com mais de ${RETENCAO_DIAS} dias removida(s)`)
+}
+
+export const VELOCIDADE_MAXIMA_PARAM_CODE = 'VELOCIDADE_MAXIMA_KMH'
+const VELOCIDADE_MAXIMA_PADRAO_KMH = 100 // usado só se o parâmetro ainda não foi cadastrado
+
+async function getLimiteVelocidade(): Promise<number> {
+  const param = await prisma.parameter.findUnique({ where: { code: VELOCIDADE_MAXIMA_PARAM_CODE } })
+  const valor = param?.valueNumber != null ? Number(param.valueNumber) : null
+  return valor && valor > 0 ? valor : VELOCIDADE_MAXIMA_PADRAO_KMH
+}
+
+/**
+ * Registra/atualiza o episódio de excesso de velocidade da placa — pedido do
+ * usuário 2026-08-03: velocidade acima do limite dos Parâmetros precisa de
+ * reconhecimento formal do operador, não pode só "aparecer no mapa e passar
+ * batido". Um alerta ainda não reconhecido é ATUALIZADO (pico de velocidade e
+ * local mais recentes) em vez de duplicado — o rastreador manda posição a
+ * cada poucos segundos, criar um alerta por leitura acima do limite
+ * inundaria a tela.
+ */
+async function registrarExcessoVelocidade(
+  placa: string,
+  speedKmh: number,
+  limiteKmh: number,
+  capturedAt: Date,
+  latitude: number,
+  longitude: number,
+  localizacao: string | null,
+): Promise<void> {
+  const aberto = await prisma.speedAlert.findFirst({
+    where: { placa, acknowledgedAt: null },
+    orderBy: { createdAt: 'desc' },
+  })
+  if (aberto) {
+    if (speedKmh > aberto.speedKmh) {
+      await prisma.speedAlert.update({
+        where: { id: aberto.id },
+        data: { speedKmh, capturedAt, latitude, longitude, localizacao },
+      })
+    }
+    return
+  }
+  await prisma.speedAlert.create({
+    data: { placa, speedKmh, limiteKmh, capturedAt, latitude, longitude, localizacao },
+  })
+}
+
+interface VisitaAberta {
+  id: string
+  locationId: string
+}
+
+/**
+ * Motor de permanência por local (geofence) — pedido do usuário 2026-08-03:
+ * "relatórios do tempo que ficou em cada local, hora de chegada e saída".
+ * Estado (visita aberta por placa) fica em memória durante o sync inteiro —
+ * as linhas são processadas em ordem cronológica por placa (ver chamada mais
+ * abaixo), então dá pra decidir entra/sai sem reconsultar o banco a cada
+ * posição.
+ */
+async function processarVisitaLocal(
+  placa: string,
+  capturedAt: Date,
+  coords: { lat: number; lng: number },
+  locations: (GeofenceLocation & { id: string })[],
+  abertas: Map<string, VisitaAberta>,
+): Promise<void> {
+  const local = findContainingLocation(coords, locations)
+  const aberta = abertas.get(placa)
+
+  if (local) {
+    if (aberta?.locationId === local.id) return // continua no mesmo local, nada a fazer
+    if (aberta) {
+      await prisma.locationVisit.update({ where: { id: aberta.id }, data: { saida: capturedAt } })
+    }
+    const nova = await prisma.locationVisit.create({
+      data: { locationId: local.id, placa, chegada: capturedAt },
+    })
+    abertas.set(placa, { id: nova.id, locationId: local.id })
+    return
+  }
+
+  if (aberta) {
+    await prisma.locationVisit.update({ where: { id: aberta.id }, data: { saida: capturedAt } })
+    abertas.delete(placa)
+  }
+}
+
+/**
+ * Depois de sincronizar `fase1_omnilink_posicoes`, converte cada linha bruta
+ * (campos em texto formatado — ver comentário em
+ * `src/lib/sync/connectors/omnilink.ts`) em `VehiclePosition`, usado pelo
+ * mapa da frota (`/dashboard/fase1/mapa`). Upsert por (placa, capturedAt) —
+ * migration `..._vehicle_position_unique` trocou o índice simples por
+ * `@@unique`, permitindo sincronizações com janelas sobrepostas sem duplicar.
+ */
+export async function processOmnilinkPosicoes(rows: ExternalRow[]): Promise<void> {
+  const limiteVelocidade = await getLimiteVelocidade()
+
+  const locations = await prisma.location.findMany({
+    where: { active: true },
+    select: { id: true, latitude: true, longitude: true, raioMetros: true, polygon: true },
+  })
+  const locationsGeofence = locations.map((l) => ({
+    ...l,
+    polygon: (l.polygon as { lat: number; lng: number }[] | null) ?? null,
+  }))
+  const visitasAbertasIniciais = await prisma.locationVisit.findMany({
+    where: { saida: null },
+    orderBy: { chegada: 'desc' },
+  })
+  const abertas = new Map<string, VisitaAberta>()
+  for (const v of visitasAbertasIniciais) {
+    if (!abertas.has(v.placa)) abertas.set(v.placa, { id: v.id, locationId: v.locationId })
+  }
+
+  // Ordem cronológica por placa — o motor de visita depende de processar
+  // entra/sai na sequência real; a API não garante essa ordem por página.
+  const rowsOrdenadas = [...rows].sort((a, b) => {
+    const placaCmp = String(a.placa ?? '').localeCompare(String(b.placa ?? ''))
+    if (placaCmp !== 0) return placaCmp
+    return String(a._capturedAtIso ?? '').localeCompare(String(b._capturedAtIso ?? ''))
+  })
+
+  for (const row of rowsOrdenadas) {
+    const placa = String(row.placa ?? '').trim().toUpperCase()
+    const capturedAtIso = row._capturedAtIso ? String(row._capturedAtIso) : null
+    const coords = parseLatLog(String(row.lat_log ?? ''))
+    if (!placa || !capturedAtIso || !coords) continue
+
+    const capturedAt = new Date(capturedAtIso)
+    const { speedKmh, heading } = parseVelocidadeSentido(String(row.velocidade_sentido ?? ''))
+    const estado = String(row.estado ?? '').trim()
+    const causa = String(row.causa ?? '').trim()
+    const status = causa && causa !== estado ? [estado, causa].filter(Boolean).join(' — ') : estado || null
+    const localizacaoRaw = String(row.localizacao ?? '').trim()
+    const localizacao = localizacaoRaw && localizacaoRaw !== '-' ? localizacaoRaw : null
+
+    await prisma.vehiclePosition.upsert({
+      where: { placa_capturedAt: { placa, capturedAt } },
+      update: { latitude: coords.lat, longitude: coords.lng, speedKmh, heading, status, localizacao },
+      create: {
+        placa,
+        capturedAt,
+        latitude: coords.lat,
+        longitude: coords.lng,
+        speedKmh,
+        heading,
+        status,
+        localizacao,
+        source: 'OMNILINK',
+      },
+    })
+
+    if (speedKmh != null && speedKmh > limiteVelocidade) {
+      await registrarExcessoVelocidade(placa, speedKmh, limiteVelocidade, capturedAt, coords.lat, coords.lng, localizacao)
+    }
+
+    await processarVisitaLocal(placa, capturedAt, coords, locationsGeofence, abertas)
+  }
+  await purgeOldVehiclePositions()
+}
+
 /** Passos extras específicos por dataset, executados após o sync bater com sucesso. */
 export const POST_SYNC_PROCESSORS: Record<string, (rows: ExternalRow[]) => Promise<void>> = {
   fase1_custos_transporte: processCustosTransporteRodoviario,
+  fase1_omnilink_posicoes: processOmnilinkPosicoes,
 }

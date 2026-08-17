@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { logAudit } from '@/lib/audit'
-import { requireEditor, badRequest } from '@/lib/api-helpers'
+import { requireResourceViewer, requireResourceEditor, badRequest } from '@/lib/api-helpers'
 
 const productTypeSchema = z.object({
   codigoPrd: z.string().min(1).transform((v) => v.trim()),
@@ -12,14 +12,14 @@ const productTypeSchema = z.object({
 })
 
 export async function GET() {
-  const auth = await requireEditor()
+  const auth = await requireResourceViewer('produtos')
   if ('error' in auth) return auth.error
   const productTypes = await prisma.productType.findMany({ orderBy: { codigoPrd: 'asc' } })
   return NextResponse.json(productTypes)
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await requireEditor()
+  const auth = await requireResourceEditor('produtos')
   if ('error' in auth) return auth.error
   const parsed = productTypeSchema.safeParse(await req.json())
   if (!parsed.success) return badRequest(parsed.error.issues.map((i) => i.message).join('; '))

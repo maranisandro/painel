@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { logAudit } from '@/lib/audit'
-import { requireEditor, badRequest } from '@/lib/api-helpers'
+import { requireResourceEditor, badRequest } from '@/lib/api-helpers'
 
 const updateSchema = z.object({
   valorReferencia: z.number().positive().optional(),
@@ -11,7 +11,7 @@ const updateSchema = z.object({
 })
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireEditor()
+  const auth = await requireResourceEditor('precos_frete')
   if ('error' in auth) return auth.error
   const { id } = await params
   const parsed = updateSchema.safeParse(await req.json())
@@ -42,7 +42,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireEditor()
+  const auth = await requireResourceEditor('precos_frete')
   if ('error' in auth) return auth.error
   const { id } = await params
   await prisma.routeFreightPrice.delete({ where: { id } })

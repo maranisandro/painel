@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { logAudit } from '@/lib/audit'
-import { requireEditor, badRequest } from '@/lib/api-helpers'
+import { requireResourceEditor, badRequest } from '@/lib/api-helpers'
 
 const polygonSchema = z
   .array(z.object({ lat: z.number(), lng: z.number() }))
@@ -14,10 +14,11 @@ const polygonSchema = z
 const updateSchema = z.object({
   name: z.string().min(2).optional(),
   officialName: z.string().nullable().optional(),
-  type: z.enum(['UNIDADE', 'CLIENTE']).optional(),
+  type: z.enum(['UNIDADE', 'CLIENTE', 'CIDADE', 'POSTO_GASOLINA', 'OFICINA', 'RESIDENCIA']).optional(),
   matchColigada: z.number().int().nullable().optional(),
   matchFilial: z.number().int().nullable().optional(),
   matchClientePattern: z.string().nullable().optional(),
+  motoristaNome: z.string().nullable().optional(),
   latitude: z.number().nullable().optional(),
   longitude: z.number().nullable().optional(),
   raioMetros: z.number().nullable().optional(),
@@ -26,7 +27,7 @@ const updateSchema = z.object({
 })
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireEditor()
+  const auth = await requireResourceEditor('locais')
   if ('error' in auth) return auth.error
   const { id } = await params
   const parsed = updateSchema.safeParse(await req.json())
@@ -48,7 +49,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireEditor()
+  const auth = await requireResourceEditor('locais')
   if ('error' in auth) return auth.error
   const { id } = await params
   const routes = await prisma.route.count({ where: { OR: [{ originId: id }, { destinationId: id }] } })

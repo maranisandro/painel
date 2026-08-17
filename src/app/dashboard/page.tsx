@@ -36,7 +36,9 @@ export default async function DashboardPage() {
               <div
                 className={`rounded-xl border p-4 ${m.active ? 'border-emerald-300 bg-white hover:border-emerald-500' : 'border-slate-200 bg-slate-100 opacity-70'}`}
               >
-                <p className="text-xs uppercase tracking-wide text-slate-500">Fase {m.phase}</p>
+                <p className="text-xs uppercase tracking-wide text-slate-500">
+                  {m.code.startsWith('fase') ? `Fase ${m.phase}` : 'Módulo'}
+                </p>
                 <h2 className="mt-1 font-medium">{m.name}</h2>
                 <p className="mt-2 text-sm text-slate-500">
                   {m.active ? 'Abrir painel →' : 'Não iniciado'}

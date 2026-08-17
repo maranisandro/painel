@@ -253,6 +253,31 @@ export async function GET(req: NextRequest) {
   const custoMesAtualAteHoje = custoDiaBase * cutoffDay
   const custoMesAtualProjetadoFechamento = custoDiaBase * diasDoMesAtual
 
+  // Todos os CUSTO_MES_<AAAAMM> cadastrados, independente do período
+  // selecionado (pedido do usuário 2026-08-13: "montar uma aba de análise
+  // estratégica por ano... gráfico com o custo do mês") — a aba estratégica
+  // precisa do ano inteiro, não só do mês/período em foco no filtro tático.
+  const custoMesRegistrado: Record<string, number> = {}
+  for (const p of all) {
+    if (/^CUSTO_MES_\d{6}$/.test(p.code) && p.valueNumber != null) {
+      custoMesRegistrado[p.code.replace('CUSTO_MES_', '')] = p.valueNumber
+    }
+  }
+
+  // Detalhe por mês do período (pedido do usuário 2026-08-13: "o detalhe do
+  // cálculo precisa mostrar de acordo com o filtro... se for um mês fechado
+  // com data parcial, pegar proporcional aos dias") — exposto para o "ver
+  // cálculo" do front mostrar, mês a mês, o valor cadastrado e a proporção
+  // de dias realmente usada, em vez de só o total somado.
+  const custoPorMes: {
+    ym: string
+    valorCadastrado: number
+    diasNoPeriodo: number
+    diasDoMes: number
+    isMesAtual: boolean
+    contribuicao: number
+  }[] = []
+
   let custoPeriodo = 0
   for (const { ym, daysInPeriod, daysInMonth } of monthsInRange(from, to)) {
     if (ym === mesAtualYm) {
@@ -260,10 +285,14 @@ export async function GET(req: NextRequest) {
       // corrente, mesmo que o período selecionado avance até o fim do mês
       // (viagens futuras não existem, o custo correspondente também não).
       const diasContribuintes = Math.min(daysInPeriod, cutoffDay)
-      custoPeriodo += custoDiaBase * diasContribuintes
+      const contribuicao = custoDiaBase * diasContribuintes
+      custoPeriodo += contribuicao
+      custoPorMes.push({ ym, valorCadastrado: custoMesAtualLancado, diasNoPeriodo: diasContribuintes, diasDoMes: daysInMonth, isMesAtual: true, contribuicao })
     } else {
       const custoMes = paramNumber(all, `CUSTO_MES_${ym}`, 0, calendar)
-      custoPeriodo += custoMes * (daysInPeriod / daysInMonth)
+      const contribuicao = custoMes * (daysInPeriod / daysInMonth)
+      custoPeriodo += contribuicao
+      custoPorMes.push({ ym, valorCadastrado: custoMes, diasNoPeriodo: daysInPeriod, diasDoMes: daysInMonth, isMesAtual: false, contribuicao })
     }
   }
 
@@ -343,6 +372,8 @@ export async function GET(req: NextRequest) {
       agora: new Date().toISOString(),
       metaKmPorComposicao,
       custoPeriodo,
+      custoPorMes,
+      custoMesRegistrado,
       metaConsumoKmL,
       // Transparência da projeção do mês corrente (pedido do usuário
       // 2026-07-30: "demonstrar o cálculo caso clique para saber como

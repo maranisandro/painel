@@ -88,11 +88,171 @@ AND TMOV.STATUS <> 'C'
 AND TMOV.DATASAIDA >= TO_DATE('01/01/2026', 'DD/MM/YYYY')
 `.trim()
 
+// Consulta de origem do painel Power BI "Planep_Faturamento_New" (Fase 3 —
+// Produção e Venda de Madeira Tratada), tabela FaturamentoNovo. Migrado da
+// query ativa (2022 em diante) do arquivo .SemanticModel; a query anterior
+// (2016-2020, comentada no original) ficou de fora. DISTRIBUIDOR vem de um
+// segundo join em RM.GCONSIST (CODTABELA='DISTRIBUID'), igual à consulta
+// D_CLIENTES do mesmo relatório.
+// Exclusão de Carvão/Cavaco (pedido do usuário 2026-08-04: "este painel não
+// deve trazer carvão nem cavaco, pode desprezar estes produtos, somente
+// madeira tratada AMARU, SERRAGEM, MARAVALHA, PERFIL, MOURAO, PECAS") —
+// a faixa ampla de CODIGOPRD (42.00.000001–95.99.999999) da query original
+// também trazia CARVAO VEGETAL (42.57.000002), CAVACO/RESIDUO DE CAVACO
+// (42.59.x), LENHA PARA CARVÃO/CAVACO (42.56.000025/027), COMPLEMENTO DE
+// PREÇO CARVAO (91.09.000002) e dois subprodutos sem relação com madeira
+// tratada (ALCATRÃO VEGETAL 42.02.000007, COAGULO-LATEX 42.58.000001) —
+// esses são de Fase 2 (Carvão) e Fase 4 (Cavaco), fora de escopo aqui.
+// Filtrado por NOME em vez de faixa de código (mais robusto a novos SKUs
+// de carvão/cavaco que a Oracle possa cadastrar depois).
+// PRECO_MEDIO_TABELA4 (pedido do usuário 2026-08-03: "o valor de bonificação
+// é a diferença do preço de venda para o preço tabela 4") — duas subqueries
+// correlacionadas contra RM.TTABPRECO/TTABPRECOCFO/TTABPRECOPRD: se existir
+// uma tabela de preço "DISTRIBUIDOR%" vigente na data da venda para
+// aquele cliente/produto, usa o preço dela; senão cai no próprio
+// PRECOUNITARIO (bonificação sem tabela de distribuidor = sem diferença a
+// apurar). Não precisa de TPRODUTODEF/PRECO1-3 — isso só existia na query
+// antiga (2016-2020), já fora do recorte.
+const QUERY_FASE3_VENDAS_MADEIRA = `
+SELECT
+TMOV.CODCOLIGADA,
+TMOV.CODFILIAL,
+TMOV.IDMOV,
+TITMMOV.NSEQITMMOV,
+TMOV.DATASAIDA,
+TMOV.NUMEROMOV,
+TMOV.CODCFO,
+FCFO.CODETD,
+FCFO.CIDADE,
+FCFO.NOMEFANTASIA CLIENTE,
+FCFOCOMPL.DISTRIBUIDOR CODDISTRIBUIDOR,
+DISTRIBUIDOR.DESCRICAO DISTRIBUIDOR,
+TPRD.CODIGOPRD,
+TPRD.NOMEFANTASIA PRODUTO,
+TITMMOV.QUANTIDADE,
+TITMMOV.PRECOUNITARIO PRECO_VENDIDO,
+TITMMOV.PRECOUNITARIO * TITMMOV.QUANTIDADE - NVL(TITMMOV.VALORDESC,0) VALOR,
+TITMMOV.VALORDESC DESCONTO,
+TPRDCOMPL.M3 M3_UNITARIO,
+CASE
+  WHEN TPRD.CODIGOPRD = '95.10.000013' THEN ROUND((TITMMOV.QUANTIDADE) / 4, 4)
+  WHEN TPRD.CODIGOPRD = '95.10.000012' THEN ROUND((TITMMOV.QUANTIDADE), 4)
+  ELSE ROUND(TITMMOV.QUANTIDADE * TPRDCOMPL.M3, 4)
+END M3_TOTAL,
+ROUND(TITMMOV.PRECOUNITARIO/TPRDCOMPL.M3,4) VALOR_M3,
+CASE
+  WHEN FCFO.CODETD IN ('AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MT','MS','PA','PB','PE','PI','RN','RO','RR','SE','TO') THEN 'ICMS 7%'
+  WHEN FCFO.CODETD IN ('PR','RS','RJ','SC','SP') THEN 'ICMS 12%'
+  WHEN FCFO.CODETD IN ('MG') THEN 'ICMS 18%'
+END TABELA_PRECO,
+CASE
+  WHEN TMOVCOMPL.BONIFICACAO = 1 THEN 'SIM'
+  ELSE 'NAO'
+END BONIFICACAO,
+CASE
+  WHEN (SELECT TTABPRECO.NOME
+        FROM RM.TTABPRECO, RM.TTABPRECOCFO, RM.TTABPRECOPRD
+        WHERE TTABPRECO.CODCOLIGADA = TMOV.CODCOLIGADA
+        AND   TTABPRECO.DATAVIGENCIAINI <= TMOV.DATASAIDA
+        AND   TTABPRECO.DATAVIGENCIAFIM >= TMOV.DATASAIDA
+        AND   TTABPRECO.CODCOLIGADA = TTABPRECOCFO.CODCOLIGADA
+        AND   TTABPRECO.IDTABPRECO  = TTABPRECOCFO.IDTABPRECO
+        AND   TTABPRECOCFO.CODCFO = TMOV.CODCFO
+        AND   TTABPRECO.CODCOLIGADA = TTABPRECOPRD.CODCOLIGADA
+        AND   TTABPRECO.IDTABPRECO  = TTABPRECOPRD.IDTABPRECO
+        AND   TTABPRECOPRD.IDPRD = TPRD.IDPRD
+        AND   TTABPRECO.NOME LIKE 'DISTRIBUIDOR%'
+        AND   ROWNUM = 1) IS NOT NULL
+  THEN (SELECT TTABPRECOPRD.PRECO
+        FROM RM.TTABPRECO, RM.TTABPRECOCFO, RM.TTABPRECOPRD
+        WHERE TTABPRECO.CODCOLIGADA = TMOV.CODCOLIGADA
+        AND   TTABPRECO.DATAVIGENCIAINI <= TMOV.DATASAIDA
+        AND   TTABPRECO.DATAVIGENCIAFIM >= TMOV.DATASAIDA
+        AND   TTABPRECO.CODCOLIGADA = TTABPRECOCFO.CODCOLIGADA
+        AND   TTABPRECO.IDTABPRECO  = TTABPRECOCFO.IDTABPRECO
+        AND   TTABPRECOCFO.CODCFO = TMOV.CODCFO
+        AND   TTABPRECO.CODCOLIGADA = TTABPRECOPRD.CODCOLIGADA
+        AND   TTABPRECO.IDTABPRECO  = TTABPRECOPRD.IDTABPRECO
+        AND   TTABPRECOPRD.IDPRD = TPRD.IDPRD
+        AND   TTABPRECO.NOME LIKE 'DISTRIBUIDOR%'
+        AND   ROWNUM = 1)
+  ELSE TITMMOV.PRECOUNITARIO
+END PRECO_MEDIO_TABELA4,
+TMOV.CODTMV,
+TMOVCOMPL.PLACA,
+GREATEST(NVL(TMOV.RECMODIFIEDON,TMOV.RECCREATEDON), NVL(TITMMOV.RECMODIFIEDON,TITMMOV.RECCREATEDON)) RECMODIFIEDON
+FROM RM.TMOV, RM.TITMMOV, RM.TMOVCOMPL, RM.FCFO, RM.TPRD, RM.TPRDCOMPL, RM.FCFOCOMPL
+LEFT JOIN RM.GCONSIST DISTRIBUIDOR
+ON       FCFOCOMPL.CODCOLIGADA = DISTRIBUIDOR.CODCOLIGADA
+AND      FCFOCOMPL.DISTRIBUIDOR = DISTRIBUIDOR.CODCLIENTE
+AND      DISTRIBUIDOR.APLICACAO = 'T'
+AND      DISTRIBUIDOR.CODTABELA = 'DISTRIBUID'
+WHERE   TMOV.CODCOLIGADA = TITMMOV.CODCOLIGADA
+AND     TMOV.IDMOV = TITMMOV.IDMOV
+AND     TMOV.CODCOLIGADA = TMOVCOMPL.CODCOLIGADA
+AND     TMOV.IDMOV = TMOVCOMPL.IDMOV
+AND     TMOV.CODCOLIGADA = FCFO.CODCOLIGADA
+AND     TMOV.CODCFO = FCFO.CODCFO
+AND     TITMMOV.CODCOLIGADA = TPRD.CODCOLIGADA
+AND     TITMMOV.IDPRD = TPRD.IDPRD
+AND     TPRD.CODCOLIGADA = TPRDCOMPL.CODCOLIGADA
+AND     TPRD.IDPRD = TPRDCOMPL.IDPRD
+AND     FCFO.CODCOLIGADA = FCFOCOMPL.CODCOLIGADA
+AND     FCFO.CODCFO = FCFOCOMPL.CODCFO
+AND     TMOV.CODCOLIGADA = 5
+AND     TMOV.CODTMV IN ('2.2.40','2.2.44','2.2.45','2.2.48','2.2.55','2.2.01','2.2.02','2.2.05','2.2.10','2.2.12','2.2.15','2.2.65','2.2.07','2.2.08','1.2.83','1.2.84','2.2.41')
+AND     TPRD.CODIGOPRD BETWEEN '42.00.000001' AND '95.99.999999'
+AND     TPRD.CODIGOPRD <> '95.02.050001'
+AND     TPRD.CODIGOPRD NOT LIKE '60.%'
+AND     TPRD.CODIGOPRD NOT LIKE '90.%'
+AND     TMOV.STATUS <> 'C'
+AND     TMOV.DATASAIDA >= TO_DATE('01/01/2022', 'DD/MM/YYYY')
+AND     UPPER(TPRD.NOMEFANTASIA) NOT LIKE '%CARV%'
+AND     UPPER(TPRD.NOMEFANTASIA) NOT LIKE '%CAVACO%'
+AND     UPPER(TPRD.NOMEFANTASIA) NOT LIKE '%ALCATR%'
+AND     UPPER(TPRD.NOMEFANTASIA) NOT LIKE '%LATEX%'
+`.trim()
+
+// Cadastro de clientes (D_CLIENTES no Power BI "Planep_Faturamento_New") —
+// colado pelo usuário na nota Fase 3 em 2026-08-04 ("acertarmos os
+// distribuidores, pois esta incorreto" + base para a aba de clientes
+// inativos/prospecção, que precisa de e-mail/telefone para contato). Mesmo
+// JOIN de DISTRIBUIDOR (RM.GCONSIST, CODTABELA='DISTRIBUID') da query de
+// vendas — ABREV_DISTRIBUIDOR usa a mesma cascata de texto, então serve para
+// conferir se o distribuidor de um cliente bate entre as duas fontes.
+// Omitidas as subqueries financeiras do original (VALORES_ABERTO,
+// PEDIDOS_PENDENTES, LIMITE_DISPONIVEL) e VINCULO — não usadas em nenhuma
+// análise da Fase 3, só custo extra de consulta.
+const QUERY_FASE3_CLIENTES = `
+SELECT
+CLIENTE.CODCFO,
+CLIENTE.NOMEFANTASIA CLIENTE,
+FCFOCOMPL.DISTRIBUIDOR CODDISTRIBUIDOR,
+DISTRIBUIDOR.DESCRICAO DISTRIBUIDOR,
+CLIENTE.EMAIL,
+CLIENTE.CONTATO,
+CLIENTE.CODETD,
+CLIENTE.CIDADE,
+CLIENTE.TELEFONE,
+CLIENTE.TELEX CELULAR,
+CLIENTE.RECCREATEDON,
+GREATEST(NVL(CLIENTE.RECMODIFIEDON,CLIENTE.RECCREATEDON), NVL(FCFOCOMPL.RECMODIFIEDON,FCFOCOMPL.RECCREATEDON)) RECMODIFIEDON
+FROM RM.FCFO CLIENTE, RM.FCFOCOMPL
+LEFT JOIN RM.GCONSIST DISTRIBUIDOR
+ON       FCFOCOMPL.CODCOLIGADA = DISTRIBUIDOR.CODCOLIGADA
+AND      FCFOCOMPL.DISTRIBUIDOR = DISTRIBUIDOR.CODCLIENTE
+AND      DISTRIBUIDOR.APLICACAO = 'T'
+AND      DISTRIBUIDOR.CODTABELA = 'DISTRIBUID'
+WHERE   CLIENTE.CODCOLIGADA = 5
+AND     CLIENTE.CODCOLIGADA = FCFOCOMPL.CODCOLIGADA
+AND     CLIENTE.CODCFO = FCFOCOMPL.CODCFO
+`.trim()
+
 // Cadastro de transportadoras (dTransportadorasRM no Power BI). Adaptações
 // em relação ao PowerQuery: o filtro de coligadas virou WHERE e a correção
 // "VIANA & MATOS LTDA" -> "VIANA E MATOS LTDA" virou REPLACE no SQL.
 const QUERY_TRANSPORTADORAS = `
-SELECT CODCOLIGADA, CODTRA, REPLACE(NOME, 'VIANA & MATOS LTDA', 'VIANA E MATOS LTDA') NOME, RECMODIFIEDON
+SELECT CODCOLIGADA, CODTRA, REPLACE(NOME, 'VIANA & MATOS LTDA', 'VIANA E MATOS LTDA') NOME, NVL(RECMODIFIEDON, RECCREATEDON) RECMODIFIEDON
 FROM RM.TTRA
 WHERE CODCOLIGADA IN (2, 3, 5, 6, 28, 33, 34)
 `.trim()
@@ -212,12 +372,42 @@ async function main() {
   const modules: { code: string; name: string; phase: number; active: boolean }[] = [
     { code: 'fase1', name: 'Transporte Rodoviário', phase: 1, active: true },
     { code: 'fase2', name: 'Produção e Venda de Carvão Vegetal', phase: 2, active: false },
-    { code: 'fase3', name: 'Produção e Venda de Madeira Tratada', phase: 3, active: false },
+    // Fase 3 iniciada 2026-08-03 (pedido do usuário: "ler o obsidian a fase 3
+    // e iniciar o desenvolvimento" — perdas em valor de venda de madeira
+    // tratada, comparado a um preço mínimo ponderado por ICMS/tipo produto).
+    { code: 'fase3', name: 'Produção e Venda de Madeira Tratada', phase: 3, active: true },
     { code: 'fase4', name: 'Produção e Venda de Cavaco', phase: 4, active: false },
     { code: 'fase5', name: 'Transporte Interno de Madeira', phase: 5, active: false },
+    // "rh" não é uma das 5 fases de negócio (produção/venda) — é módulo
+    // transversal de Recursos Humanos, pedido do usuário 2026-08-13. `phase:
+    // 6` só serve para ordenar depois das fases; a UI trata code sem prefixo
+    // "fase" como módulo comum, sem o rótulo "Fase N" (ver dashboard/page.tsx).
+    { code: 'rh', name: 'Recursos Humanos', phase: 6, active: true },
   ]
   for (const m of modules) {
-    await prisma.module.upsert({ where: { code: m.code }, update: { name: m.name }, create: m })
+    // `active` também precisa sincronizar no update — antes só atualizava o
+    // nome, então ativar uma fase exigia editar o banco na mão além do seed.
+    await prisma.module.upsert({ where: { code: m.code }, update: { name: m.name, active: m.active }, create: m })
+  }
+
+  // --- Telas de Cadastro (acesso granular, pedido do usuário 2026-08-14) ---
+  // Antes de existir isto, todas essas telas compartilhavam um único gate
+  // (admin ou editor do módulo fase1 inteiro — ver requireEditor() em
+  // api-helpers.ts). Cada uma vira um AdminResource concedível separadamente
+  // via Cadastros → Usuários (mesmo padrão de checkbox já usado pra módulo).
+  const adminResources: { code: string; name: string; position: number }[] = [
+    { code: 'locais', name: 'Locais', position: 1 },
+    { code: 'rotas', name: 'Rotas', position: 2 },
+    { code: 'parametros', name: 'Parâmetros', position: 3 },
+    { code: 'composicoes', name: 'Composições', position: 4 },
+    { code: 'produtos', name: 'Produtos', position: 5 },
+    { code: 'precos_frete', name: 'Preços de frete', position: 6 },
+    { code: 'manutencao', name: 'Manutenção', position: 7 },
+    { code: 'ferias', name: 'Férias', position: 8 },
+    { code: 'tickets_viagem', name: 'Tickets de viagem', position: 9 },
+  ]
+  for (const r of adminResources) {
+    await prisma.adminResource.upsert({ where: { code: r.code }, update: { name: r.name, position: r.position }, create: r })
   }
 
   // --- Parâmetros e fórmulas (Fase 1) ---
@@ -376,6 +566,128 @@ async function main() {
     create: { datasetId: transportadoras.id, intervalMinutes: 1440 },
   })
 
+  // --- Dataset RH: cadastro de funcionários (RM.ZFUNCIONARIOS) ---
+  // Pedido do usuário 2026-08-13: painel de Gestão de RH com quantidade por
+  // situação (Ativo/Férias/Demitido), homens x mulheres, idade média por
+  // sexo e tempo de empresa. Chave (CODCOLIGADA,CHAPA) confirmada única nas
+  // 50.464 linhas (introspecção real na tabela, sem coluna de ID própria).
+  // IDADE_ANOS e TEMPO_EMPRESA_ANOS calculados aqui no Oracle porque
+  // DTNASCIMENTO vem como VARCHAR2 'DD/MM/YYYY' (não DATE) — mais barato
+  // converter uma vez na consulta do que em toda leitura do painel.
+  // PCD adicionado 2026-08-13 (mesmo dia, pedido seguinte): base para a
+  // cota legal de PCD por empresa (Lei 8.213/91, art. 93) — ver
+  // src/lib/rh/funcionarios.ts.
+  // MEMBROCIPA adicionado no mesmo dia (aba SST — quadro descritivo de CIPA
+  // e funções de segurança/saúde por empresa; sem CNAE/grau de risco nesta
+  // base, não dá pra calcular o quadro MÍNIMO legal de SESMT/CIPA, só o
+  // quadro ATUAL).
+  // DATAESTABILIDADE adicionado no mesmo dia (pedido seguinte: avaliar se
+  // cada membro da CIPA está dentro do período de estabilidade) — campo já
+  // calculado pela origem (TOTVS RM), aqui só comparado com a data de hoje.
+  const QUERY_RH_FUNCIONARIOS = `
+SELECT
+  CODCOLIGADA,
+  COLIGADA,
+  CODFILIAL,
+  FILIAL,
+  CHAPA,
+  NOME,
+  SITUACAO,
+  CODTIPODEMISSAO,
+  TIPODEMISSAO,
+  DATAADMISSAO,
+  DATADEMISSAO,
+  CODFUNCAO,
+  FUNCAO,
+  CODSECAO,
+  SECAO,
+  CODCCUSTO,
+  CCUSTO,
+  CCUSTOATIVO,
+  SEXO,
+  DTNASCIMENTO,
+  PCD,
+  MEMBROCIPA,
+  DATAESTABILIDADE,
+  TIPOFUNCIONARIO,
+  GERENCIAL,
+  CBO,
+  RECMODIFIEDON,
+  TRUNC(MONTHS_BETWEEN(SYSDATE, TO_DATE(DTNASCIMENTO, 'DD/MM/YYYY')) / 12) AS IDADE_ANOS,
+  ROUND(MONTHS_BETWEEN(NVL(DATADEMISSAO, SYSDATE), DATAADMISSAO) / 12, 1) AS TEMPO_EMPRESA_ANOS
+FROM rm.zfuncionarios
+`
+  const datasetRh = await prisma.dataset.upsert({
+    where: { code: 'rh_funcionarios' },
+    update: { query: QUERY_RH_FUNCIONARIOS, incrementalField: 'RECMODIFIEDON', incrementalType: 'DATETIME' },
+    create: {
+      dataSourceId: oracle.id,
+      code: 'rh_funcionarios',
+      name: 'RH — Funcionários (TOTVS RM)',
+      description:
+        'Cadastro completo de funcionários (situação, admissão/demissão, sexo, idade, tempo de empresa) — base do painel de Gestão de RH.',
+      query: QUERY_RH_FUNCIONARIOS,
+      primaryKeyFields: 'CODCOLIGADA,CHAPA',
+      incrementalField: 'RECMODIFIEDON',
+      incrementalType: 'DATETIME',
+    },
+  })
+  await prisma.syncSchedule.upsert({
+    where: { datasetId: datasetRh.id },
+    update: {},
+    create: { datasetId: datasetRh.id, intervalMinutes: 360 },
+  })
+  // CODTIPODEMISSAO '5' = "TRANSFERÊNCIA SEM ÔNUS P/ CEDENTE" (confirmado na
+  // origem) — pedido do usuário 2026-08-13: não é uma demissão de verdade,
+  // vira categoria própria "Transferido" (fora das métricas de turnover e do
+  // tempo médio de empresa dos demitidos). Demais SITUACAO fora de
+  // Ativo/Férias/Demitido (afastamento INSS, licença, aviso prévio etc.,
+  // ~290 registros) caem em "Outros/Afastado" — decisão do usuário, agrupar
+  // em vez de esconder do painel.
+  await prisma.computedColumn.upsert({
+    where: { datasetId_name: { datasetId: datasetRh.id, name: 'CATEGORIA_RH' } },
+    update: {
+      rules: {
+        rules: [
+          {
+            when: [
+              { field: 'SITUACAO', op: 'equals', value: 'DEMITIDO' },
+              { field: 'CODTIPODEMISSAO', op: 'equals', value: '5' },
+            ],
+            then: 'Transferido',
+          },
+          { when: [{ field: 'SITUACAO', op: 'equals', value: 'ATIVO' }], then: 'Ativo' },
+          { when: [{ field: 'SITUACAO', op: 'equals', value: 'FÉRIAS' }], then: 'Férias' },
+          { when: [{ field: 'SITUACAO', op: 'equals', value: 'DEMITIDO' }], then: 'Demitido' },
+        ],
+        else: 'Outros/Afastado',
+      },
+      position: 1,
+      type: 'CONDITIONAL',
+    },
+    create: {
+      datasetId: datasetRh.id,
+      name: 'CATEGORIA_RH',
+      position: 1,
+      type: 'CONDITIONAL',
+      rules: {
+        rules: [
+          {
+            when: [
+              { field: 'SITUACAO', op: 'equals', value: 'DEMITIDO' },
+              { field: 'CODTIPODEMISSAO', op: 'equals', value: '5' },
+            ],
+            then: 'Transferido',
+          },
+          { when: [{ field: 'SITUACAO', op: 'equals', value: 'ATIVO' }], then: 'Ativo' },
+          { when: [{ field: 'SITUACAO', op: 'equals', value: 'FÉRIAS' }], then: 'Férias' },
+          { when: [{ field: 'SITUACAO', op: 'equals', value: 'DEMITIDO' }], then: 'Demitido' },
+        ],
+        else: 'Outros/Afastado',
+      },
+    },
+  })
+
   // --- Fonte de dados MySQL Officium (controle de combustível) ---
   const officium = await prisma.dataSource.upsert({
     where: { id: '22a36b1c-99bd-49e8-be38-49459844edf4' },
@@ -470,13 +782,13 @@ async function main() {
   // src/lib/sync/connectors/omnilink.ts (mesmo padrão de extensão usado
   // pelo authType 'session-login' da Controladoria).
   //
-  // PENDÊNCIA (2026-07-30): testado ao vivo — login funciona (retorna
-  // {status,auth,token}), mas as 49 placas conhecidas da frota própria (base
-  // de vendas) responderam "Placa não localizada" em todos os testes — ou os
-  // rastreadores ainda não foram instalados/ativados nessas placas, ou essa
-  // conta cobre outro conjunto de veículos. primaryKeyFields/incrementalField
-  // abaixo são um ponto de partida (nomes de campo da resposta de posição
-  // ainda não confirmados) — ajustar assim que uma placa real responder.
+  // RESOLVIDO (2026-07-30): a conta estava sem vínculo com a frota do lado
+  // da Show Tecnologia — corrigido por eles. Testado ao vivo com as 10
+  // placas confirmadas pelo usuário: resposta real em `dados.tabela[]`
+  // (ver comentário completo em src/lib/sync/connectors/omnilink.ts). Cada
+  // linha ganha `_capturedAtIso` (calculado pelo conector a partir de
+  // `envio_recepcao`) — usado como chave/marca d'água porque o campo
+  // original é um intervalo em texto (DD/MM/AAAA), não ordena como string.
   const omnilink = await prisma.dataSource.upsert({
     where: { id: 'a1f0c6d2-7e4b-4a9d-9c1e-3b6f2d8a5c70' },
     update: { config: { baseUrl: 'https://api.showtecnologia.com', connectorMode: 'omnilink-turbo' } },
@@ -490,21 +802,27 @@ async function main() {
   })
   const omnilinkPosicoes = await prisma.dataset.upsert({
     where: { code: 'fase1_omnilink_posicoes' },
-    update: {},
+    update: {
+      primaryKeyFields: 'placa,_capturedAtIso',
+      incrementalField: '_capturedAtIso',
+      incrementalType: 'DATETIME',
+    },
     create: {
       dataSourceId: omnilink.id,
       code: 'fase1_omnilink_posicoes',
       name: 'Posições e eventos (Omnilink Turbo)',
       description:
-        'Posições/eventos dos rastreadores da frota própria (Show Tecnologia/Omnilink). Alimenta VehiclePosition para o mapa da frota — ver src/lib/sync/post-process.ts quando o mapeamento de campos for confirmado com dados reais.',
+        'Posições/eventos dos rastreadores da frota própria (Show Tecnologia/Omnilink). Alimenta VehiclePosition para o mapa da frota via post-process (src/lib/sync/post-process.ts).',
       query: 'POST /api/omniturbo/relatorios/posicoes (login + paginação por "parte", ver connectorMode)',
-      primaryKeyFields: 'placa,dataHora', // provisório — confirmar nomes reais dos campos
+      primaryKeyFields: 'placa,_capturedAtIso',
+      incrementalField: '_capturedAtIso',
+      incrementalType: 'DATETIME',
     },
   })
   await prisma.syncSchedule.upsert({
     where: { datasetId: omnilinkPosicoes.id },
-    update: {},
-    create: { datasetId: omnilinkPosicoes.id, intervalMinutes: 15, enabled: false }, // desabilitado até confirmar placas reais
+    update: { enabled: true },
+    create: { datasetId: omnilinkPosicoes.id, intervalMinutes: 15, enabled: true },
   })
 
   // --- Colunas condicionais (migradas das etapas do PowerQuery) ---
@@ -616,6 +934,272 @@ async function main() {
       },
     })
   }
+
+  // --- Dataset Fase 3: vendas de madeira tratada (perda de preço) ---
+  // Incremental por RECMODIFIEDON, mesmo padrão de fase1_vendas_transporte.
+  const datasetFase3 = await prisma.dataset.upsert({
+    where: { code: 'fase3_vendas_madeira_tratada' },
+    update: {
+      query: QUERY_FASE3_VENDAS_MADEIRA,
+      primaryKeyFields: 'CODCOLIGADA,CODFILIAL,IDMOV,CODIGOPRD,NSEQITMMOV',
+      incrementalField: 'RECMODIFIEDON',
+      incrementalType: 'DATETIME',
+    },
+    create: {
+      dataSourceId: oracle.id,
+      code: 'fase3_vendas_madeira_tratada',
+      name: 'Fase 3 — Vendas de madeira tratada (TOTVS RM)',
+      description:
+        'Movimentos de venda de madeira tratada/agronegócio/perfil com preço, desconto, m³ e distribuidor — base do painel de perda de preço. Migrado do Power BI "Planep_Faturamento_New".',
+      query: QUERY_FASE3_VENDAS_MADEIRA,
+      // BUG REAL corrigido 2026-08-04: (CODCOLIGADA,CODFILIAL,IDMOV,CODIGOPRD)
+      // NÃO é único — o mesmo produto pode aparecer 2x na MESMA NF com
+      // preço/quantidade diferentes (ex.: correção de preço parcelada na
+      // mesma linha de produto), cada ocorrência com seu próprio
+      // TITMMOV.NSEQITMMOV. Sem esse campo na chave, o upsert do sync
+      // descartava silenciosamente uma das duas linhas — em julho/2026,
+      // 24 de 1.143 linhas (2,1%) eram perdidas assim, exatamente a escala
+      // da divergência de m³/faturamento contra o Power BI que o usuário
+      // reportou (achado confirmado comparando produto a produto contra um
+      // export real do BI).
+      primaryKeyFields: 'CODCOLIGADA,CODFILIAL,IDMOV,CODIGOPRD,NSEQITMMOV',
+      incrementalField: 'RECMODIFIEDON',
+      incrementalType: 'DATETIME',
+    },
+  })
+  await prisma.syncSchedule.upsert({
+    where: { datasetId: datasetFase3.id },
+    update: {},
+    create: { datasetId: datasetFase3.id, intervalMinutes: 60 },
+  })
+
+  // Classificação TipoProduto — migrada literalmente da cascata Text.Contains
+  // do PowerQuery de D_PRODUTOS (etapa "Add TipoProduto"), na MESMA ordem
+  // (primeira regra que bate vence) — "Agronegócio" é o balde padrão (else),
+  // não uma regra explícita, para qualquer produto de madeira tratada que não
+  // caia em nenhuma categoria específica abaixo.
+  const computedColumnsFase3: {
+    name: string
+    position: number
+    type?: 'CONDITIONAL' | 'LOOKUP'
+    rules: object
+  }[] = [
+    {
+      name: 'TipoProduto',
+      position: 1,
+      rules: {
+        rules: [
+          { when: [{ field: 'PRODUTO', op: 'contains', value: 'CEMIG' }], then: 'CEMIG' },
+          { when: [{ field: 'PRODUTO', op: 'contains', value: 'LENHA DE EUCALIPTO - UTM' }], then: 'Lenha UTM' },
+          { when: [{ field: 'PRODUTO', op: 'contains', value: 'RESIDUO DE MADEIRA - SEM TRATAMENTO' }], then: 'Lenha UTM' },
+          { when: [{ field: 'PRODUTO', op: 'contains', value: 'POSTE IN NATURA' }], then: 'Lenha UTM' },
+          { when: [{ field: 'PRODUTO', op: 'contains', value: 'RESIDUO DE MADEIRA TRATADA' }], then: 'Resíduo Tratado' },
+          { when: [{ field: 'PRODUTO', op: 'contains', value: 'LENHA - CLASSE 2' }], then: 'Resíduo Colheita' },
+          { when: [{ field: 'PRODUTO', op: 'contains', value: 'LENHA DE EUCALIPTO - FIBRIA' }], then: 'Lenha' },
+          { when: [{ field: 'PRODUTO', op: 'contains', value: 'SERRAGEM' }], then: 'Serragem' },
+          { when: [{ field: 'PRODUTO', op: 'contains', value: 'CONSTRUÇÃO CIVIL' }], then: 'Construção Civil' },
+          { when: [{ field: 'PRODUTO', op: 'contains', value: 'MADEIRA TRATADA LINHA 2' }], then: 'Resíduo Tratado' },
+          { when: [{ field: 'PRODUTO', op: 'contains', value: 'PERFILADO PREMIUM TRATADO' }], then: 'Perfil' },
+          { when: [{ field: 'PRODUTO', op: 'contains', value: 'PERFILADO ARCO TRATADO' }], then: 'Perfil' },
+          { when: [{ field: 'PRODUTO', op: 'contains', value: 'PERFILADO TRATADO' }], then: 'Perfil' },
+          { when: [{ field: 'PRODUTO', op: 'contains', value: 'PERFILADO PREMIUM SEM TRATAMENTO' }], then: 'Perfil In-Natura' },
+          { when: [{ field: 'PRODUTO', op: 'contains', value: 'PERFILADO ARCO SEM TRATAMENTO' }], then: 'Perfil In-Natura' },
+          { when: [{ field: 'PRODUTO', op: 'contains', value: '(PALANQUE) DE AMARU TRATADO - LINHA 2' }], then: 'Resíduo Tratado' },
+          { when: [{ field: 'PRODUTO', op: 'contains', value: 'PERFILADA TRATADA LINHA 2' }], then: 'Perfil - Linha 2' },
+          { when: [{ field: 'PRODUTO', op: 'contains', value: 'LENHA PARA CARVÃO' }], then: 'Lenha' },
+          { when: [{ field: 'PRODUTO', op: 'contains', value: 'MARAVALHA' }], then: 'Maravalha' },
+        ],
+        else: 'Agronegócio',
+      },
+    },
+    // Movimento: devolução/bonificação/venda — decide o sinal e se entra nas
+    // métricas de venda (Total m3 vendido etc. excluem Bonificacoes).
+    {
+      name: 'TipoMovimento',
+      position: 3,
+      rules: {
+        rules: [
+          { when: [{ field: 'CODTMV', op: 'in', value: ['1.2.83', '1.2.84'] }], then: 'Devolucoes' },
+          { when: [{ field: 'CODTMV', op: 'equals', value: '2.2.48' }], then: 'Bonificacoes' },
+        ],
+        else: 'Vendas',
+      },
+    },
+    // Abreviação do distribuidor (etapa "Coluna Condicional Adicionada" de
+    // D_CLIENTES) — texto bruto de DISTRIBUIDOR já vem com prefixo de código
+    // (ex.: "C00003288 - TOP TOP..."), mas "contains" não normaliza acento e
+    // não se importa com o prefixo, então a regra bate igual sem precisar
+    // remover o código antes.
+    //
+    // BUG REAL corrigido em 2026-08-04: o PowerQuery original checa
+    // Text.Contains([DISTRIBUIDOR], "TOPTOP") DEPOIS de remover todos os
+    // espaços do campo (`Table.ReplaceValue(..., " ", "", ...)`), então
+    // "TOP TOP MADEIRAS..." vira "TOPTOPMADEIRAS..." antes da comparação.
+    // Nossa regra comparava direto contra o texto bruto (com espaço), então
+    // "TOPTOP" NUNCA batia com "TOP TOP MADEIRAS TRATADAS - EIRELI - ME" —
+    // as ~5.045 vendas da TOP TOP (2022 até hoje) caíam silenciosamente em
+    // "SEM DISTRIBUIDOR". Corrigido usando "TOP TOP" (com espaço, igual ao
+    // texto real no Oracle) em vez de replicar o passo de remover espaços.
+    {
+      name: 'ABREV_DISTRIBUIDOR',
+      position: 4,
+      rules: {
+        rules: [
+          { when: [{ field: 'DISTRIBUIDOR', op: 'contains', value: 'PLANEP' }], then: 'PLANEP' },
+          { when: [{ field: 'DISTRIBUIDOR', op: 'contains', value: 'TOP TOP' }], then: 'TOP TOP' },
+          { when: [{ field: 'DISTRIBUIDOR', op: 'contains', value: 'EXTRA' }], then: 'EXTRA' },
+          { when: [{ field: 'DISTRIBUIDOR', op: 'contains', value: 'GREANY' }], then: 'GREANY´S' },
+          { when: [{ field: 'DISTRIBUIDOR', op: 'contains', value: 'RURAL' }], then: 'RURAL MADEIRAS' },
+        ],
+        else: 'SEM DISTRIBUIDOR',
+      },
+    },
+    // Preço mínimo ponderado (m3_minimo) por ICMS x TipoProduto — migrado
+    // literalmente da coluna m3_minimo do PowerQuery (valores conferidos
+    // 2026-08-03 contra o modelo Power BI ao vivo). As variantes
+    // "DISTRIBUIDOR X% 2020" do PowerQuery original nunca ocorrem nesta
+    // consulta (TABELA_PRECO aqui só assume os 3 valores ICMS, calculados em
+    // SQL) — por isso omitidas, sem perda de cobertura.
+    {
+      name: 'm3_minimo',
+      position: 5,
+      rules: {
+        rules: [
+          { when: [{ field: 'TABELA_PRECO', op: 'equals', value: 'ICMS 7%' }, { field: 'TipoProduto', op: 'equals', value: 'Agronegócio' }], then: 1131.76 },
+          { when: [{ field: 'TABELA_PRECO', op: 'equals', value: 'ICMS 12%' }, { field: 'TipoProduto', op: 'equals', value: 'Agronegócio' }], then: 1238.47 },
+          { when: [{ field: 'TABELA_PRECO', op: 'equals', value: 'ICMS 18%' }, { field: 'TipoProduto', op: 'equals', value: 'Agronegócio' }], then: 1395.83 },
+          { when: [{ field: 'TABELA_PRECO', op: 'equals', value: 'ICMS 7%' }, { field: 'TipoProduto', op: 'equals', value: 'Perfil' }], then: 2675 },
+          { when: [{ field: 'TABELA_PRECO', op: 'equals', value: 'ICMS 12%' }, { field: 'TipoProduto', op: 'equals', value: 'Perfil' }], then: 2675 },
+          { when: [{ field: 'TABELA_PRECO', op: 'equals', value: 'ICMS 18%' }, { field: 'TipoProduto', op: 'equals', value: 'Perfil' }], then: 2675 },
+        ],
+        else: 0,
+      },
+    },
+    // SubTipoProduto (pedido original da nota Fase 3, nunca implementado até
+    // 2026-08-04): dentro de "Agronegócio", produto com "2,20" no nome vira
+    // "Mourão"; qualquer outro Agronegócio vira "Peças" — é essa divisão que
+    // faltava para a análise de "melhor carga" (Mourão x Peças por ICMS).
+    // Fora de Agronegócio, SubTipoProduto só repete o TipoProduto.
+    {
+      name: 'SubTipoProduto',
+      position: 6,
+      rules: {
+        rules: [
+          { when: [{ field: 'TipoProduto', op: 'equals', value: 'Agronegócio' }, { field: 'PRODUTO', op: 'contains', value: '2,20' }], then: 'Mourão' },
+          { when: [{ field: 'TipoProduto', op: 'equals', value: 'Agronegócio' }], then: 'Peças' },
+          { when: [{ field: 'TipoProduto', op: 'equals', value: 'CEMIG' }], then: 'CEMIG' },
+          { when: [{ field: 'TipoProduto', op: 'equals', value: 'Perfil In-Natura' }], then: 'Perfil In-Natura' },
+          { when: [{ field: 'TipoProduto', op: 'equals', value: 'Perfil' }], then: 'Perfil' },
+          { when: [{ field: 'TipoProduto', op: 'equals', value: 'Serragem' }], then: 'Serragem' },
+          { when: [{ field: 'TipoProduto', op: 'equals', value: 'Lenha UTM' }], then: 'Lenha UTM' },
+          { when: [{ field: 'TipoProduto', op: 'equals', value: 'Lenha' }], then: 'Lenha' },
+          { when: [{ field: 'TipoProduto', op: 'equals', value: 'Resíduo Colheita' }], then: 'Resíduo Colheita' },
+          { when: [{ field: 'TipoProduto', op: 'equals', value: 'Resíduo Tratado' }], then: 'Resíduo Tratado' },
+          { when: [{ field: 'TipoProduto', op: 'equals', value: 'Construção Civil' }], then: 'Construção Civil' },
+          { when: [{ field: 'TipoProduto', op: 'equals', value: 'Maravalha' }], then: 'Maravalha' },
+          { when: [{ field: 'TipoProduto', op: 'equals', value: 'Perfil - Linha 2' }], then: 'Perfil 2' },
+        ],
+        else: 'Outros',
+      },
+    },
+    // Marca (pedido original, nunca implementado): separa "Amaru Standard"
+    // (inclusive a grafia "STANDART" sem D, encontrada nos dados reais) do
+    // "Amaru" padrão.
+    {
+      name: 'Marca',
+      position: 7,
+      rules: {
+        rules: [
+          { when: [{ field: 'PRODUTO', op: 'contains', value: 'AMARU STANDARD' }], then: 'Amaru Standard' },
+          { when: [{ field: 'PRODUTO', op: 'contains', value: 'AMARU STANDART' }], then: 'Amaru Standard' },
+        ],
+        else: 'Amaru',
+      },
+    },
+    // Tamanho (comprimento em metros, lido do início do nome do produto) —
+    // pedido original, nunca implementado.
+    {
+      name: 'Tamanho',
+      position: 8,
+      rules: {
+        rules: [
+          { when: [{ field: 'PRODUTO', op: 'startsWith', value: '2,20' }], then: 2.2 },
+          { when: [{ field: 'PRODUTO', op: 'startsWith', value: '1,60' }], then: 1.6 },
+          { when: [{ field: 'PRODUTO', op: 'startsWith', value: '2,50' }], then: 2.5 },
+          { when: [{ field: 'PRODUTO', op: 'startsWith', value: '2,80' }], then: 2.8 },
+          { when: [{ field: 'PRODUTO', op: 'startsWith', value: '3,20' }], then: 3.2 },
+        ],
+        else: 'Outros',
+      },
+    },
+    // Produto_Classe_Diametro (faixa de diâmetro lida do nome) — pedido
+    // original, nunca implementado. Ordem das regras preservada da nota
+    // original (X 08 tem faixa própria, diferente de X 04/X 06).
+    {
+      name: 'Produto_Classe_Diametro',
+      position: 9,
+      rules: {
+        rules: [
+          { when: [{ field: 'PRODUTO', op: 'contains', value: 'X 04 -' }], then: '04 a 08' },
+          { when: [{ field: 'PRODUTO', op: 'contains', value: 'X 06 -' }], then: '04 a 08' },
+          { when: [{ field: 'PRODUTO', op: 'contains', value: 'X 08 -' }], then: '08 a 12' },
+          { when: [{ field: 'PRODUTO', op: 'contains', value: 'X 18 -' }], then: '18 a 20' },
+          { when: [{ field: 'PRODUTO', op: 'contains', value: 'X 14 -' }], then: '12 a 16' },
+          { when: [{ field: 'PRODUTO', op: 'contains', value: 'X 16 -' }], then: '12 a 16' },
+          { when: [{ field: 'PRODUTO', op: 'contains', value: 'X 12 -' }], then: '12 a 16' },
+        ],
+        else: 'Outros',
+      },
+    },
+  ]
+
+  for (const col of computedColumnsFase3) {
+    await prisma.computedColumn.upsert({
+      where: { datasetId_name: { datasetId: datasetFase3.id, name: col.name } },
+      update: { rules: col.rules, position: col.position, type: col.type ?? 'CONDITIONAL' },
+      create: {
+        datasetId: datasetFase3.id,
+        name: col.name,
+        position: col.position,
+        type: col.type ?? 'CONDITIONAL',
+        rules: col.rules,
+      },
+    })
+  }
+
+  // --- Dataset Fase 3: cadastro de clientes (D_CLIENTES) ---
+  // Incremental por RECMODIFIEDON. Serve de base para a aba de clientes
+  // inativos/prospecção (e-mail/telefone/distribuidor por cliente).
+  const datasetFase3Clientes = await prisma.dataset.upsert({
+    where: { code: 'fase3_clientes' },
+    update: { query: QUERY_FASE3_CLIENTES, incrementalField: 'RECMODIFIEDON', incrementalType: 'DATETIME' },
+    create: {
+      dataSourceId: oracle.id,
+      code: 'fase3_clientes',
+      name: 'Fase 3 — Cadastro de clientes (TOTVS RM)',
+      description: 'Cadastro de clientes com distribuidor e contato (e-mail/telefone) — migrado de D_CLIENTES do Power BI "Planep_Faturamento_New".',
+      query: QUERY_FASE3_CLIENTES,
+      primaryKeyFields: 'CODCFO',
+      incrementalField: 'RECMODIFIEDON',
+      incrementalType: 'DATETIME',
+    },
+  })
+  await prisma.syncSchedule.upsert({
+    where: { datasetId: datasetFase3Clientes.id },
+    update: {},
+    create: { datasetId: datasetFase3Clientes.id, intervalMinutes: 60 },
+  })
+  await prisma.computedColumn.upsert({
+    where: { datasetId_name: { datasetId: datasetFase3Clientes.id, name: 'ABREV_DISTRIBUIDOR' } },
+    update: { rules: computedColumnsFase3.find((c) => c.name === 'ABREV_DISTRIBUIDOR')!.rules, position: 1, type: 'CONDITIONAL' },
+    create: {
+      datasetId: datasetFase3Clientes.id,
+      name: 'ABREV_DISTRIBUIDOR',
+      position: 1,
+      type: 'CONDITIONAL',
+      rules: computedColumnsFase3.find((c) => c.name === 'ABREV_DISTRIBUIDOR')!.rules,
+    },
+  })
 
   // --- Tabela de referência: peso máximo por composição (conformidade) ---
   // Valores fornecidos pelo usuário em 2026-07-25. update:{} preserva ajustes

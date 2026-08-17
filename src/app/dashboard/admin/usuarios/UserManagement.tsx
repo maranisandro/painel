@@ -13,6 +13,14 @@ interface ModuleOption {
   active: boolean
 }
 
+/** Tela de Cadastro concedível individualmente (Locais, Rotas, Parâmetros...) — pedido do usuário 2026-08-14 */
+interface ResourceOption {
+  id: string
+  code: string
+  name: string
+  position: number
+}
+
 interface UserRow {
   id: string
   name: string
@@ -22,6 +30,7 @@ interface UserRow {
   mustChangePassword: boolean
   createdAt: string
   moduleCodes: string[]
+  resourceCodes: string[]
 }
 
 interface FormState {
@@ -30,6 +39,7 @@ interface FormState {
   role: Role
   active: boolean
   moduleCodes: string[]
+  resourceCodes: string[]
 }
 
 interface TemporaryCredential {
@@ -44,6 +54,7 @@ const EMPTY_FORM: FormState = {
   role: 'VIEWER',
   active: true,
   moduleCodes: [],
+  resourceCodes: [],
 }
 
 const roleLabel: Record<Role, string> = {
@@ -61,10 +72,12 @@ const roleDescription: Record<Role, string> = {
 export function UserManagement({
   users,
   modules,
+  resources,
   currentUserId,
 }: {
   users: UserRow[]
   modules: ModuleOption[]
+  resources: ResourceOption[]
   currentUserId: string
 }) {
   const router = useRouter()
@@ -84,7 +97,7 @@ export function UserManagement({
       if (statusFilter === 'ACTIVE' && !user.active) return false
       if (statusFilter === 'INACTIVE' && user.active) return false
       if (!term) return true
-      return [user.name, user.email, roleLabel[user.role], ...user.moduleCodes]
+      return [user.name, user.email, roleLabel[user.role], ...user.moduleCodes, ...user.resourceCodes]
         .join(' ')
         .toLocaleLowerCase('pt-BR')
         .includes(term)
@@ -105,6 +118,7 @@ export function UserManagement({
       role: user.role,
       active: user.active,
       moduleCodes: user.moduleCodes,
+      resourceCodes: user.resourceCodes,
     })
     setError('')
   }
@@ -115,6 +129,15 @@ export function UserManagement({
       moduleCodes: current.moduleCodes.includes(code)
         ? current.moduleCodes.filter((item) => item !== code)
         : [...current.moduleCodes, code],
+    }))
+  }
+
+  function toggleResource(code: string) {
+    setForm((current) => ({
+      ...current,
+      resourceCodes: current.resourceCodes.includes(code)
+        ? current.resourceCodes.filter((item) => item !== code)
+        : [...current.resourceCodes, code],
     }))
   }
 
@@ -130,6 +153,7 @@ export function UserManagement({
       body: JSON.stringify({
         ...form,
         moduleCodes: form.role === 'ADMIN' ? [] : form.moduleCodes,
+        resourceCodes: form.role === 'ADMIN' ? [] : form.resourceCodes,
       }),
     })
     const body = await res.json().catch(() => ({}))
@@ -176,7 +200,7 @@ export function UserManagement({
         <div>
           <h1 className="text-xl font-semibold">Usuários e acessos</h1>
           <p className="text-sm text-slate-500">
-            Perfis globais e acesso separado para cada fase do Painel de Informações.
+            Perfis globais e acesso separado para cada fase e cada tela de Cadastro do Painel de Informações.
           </p>
         </div>
         <button
@@ -255,6 +279,7 @@ export function UserManagement({
               <th className="px-4 py-3">Usuário</th>
               <th className="px-4 py-3">Perfil</th>
               <th className="px-4 py-3">Acesso às fases</th>
+              <th className="px-4 py-3">Acesso aos cadastros</th>
               <th className="px-4 py-3">Situação</th>
               <th className="px-4 py-3">Senha</th>
               <th className="px-4 py-3"></th>
@@ -277,13 +302,31 @@ export function UserManagement({
                         const assignedModule = modules.find((item) => item.code === code)
                         return (
                           <span key={code} className="rounded bg-slate-100 px-2 py-0.5 text-xs">
-                            Fase {assignedModule?.phase ?? code}
+                            {code.startsWith('fase') ? `Fase ${assignedModule?.phase ?? code}` : (assignedModule?.name ?? code)}
                           </span>
                         )
                       })}
                     </div>
                   ) : (
                     <span className="text-amber-700">Nenhuma fase</span>
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  {user.role === 'ADMIN' ? (
+                    <span className="text-emerald-700">Todos os cadastros</span>
+                  ) : user.resourceCodes.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {user.resourceCodes.map((code) => {
+                        const assignedResource = resources.find((item) => item.code === code)
+                        return (
+                          <span key={code} className="rounded bg-slate-100 px-2 py-0.5 text-xs">
+                            {assignedResource?.name ?? code}
+                          </span>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <span className="text-slate-400">Nenhum</span>
                   )}
                 </td>
                 <td className="px-4 py-3">
@@ -315,7 +358,7 @@ export function UserManagement({
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
+                <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
                   Nenhum usuário encontrado.
                 </td>
               </tr>
@@ -411,12 +454,38 @@ export function UserManagement({
                     />
                     <span>
                       <span className="block text-sm font-medium">
-                        Fase {module.phase} — {module.name}
+                        {module.code.startsWith('fase') ? `Fase ${module.phase} — ${module.name}` : module.name}
                       </span>
                       <span className="text-xs">
                         {module.active ? 'Módulo ativo' : 'Ainda não iniciado'}
                       </span>
                     </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-5">
+              <p className="text-sm font-medium">Acesso aos cadastros</p>
+              <p className="text-xs text-slate-500">
+                Cada tela de Cadastro (Locais, Rotas, Parâmetros...) pode ser liberada separadamente — não depende de
+                ter acesso à fase inteira.
+              </p>
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {resources.map((resource) => (
+                  <label
+                    key={resource.code}
+                    className={`flex items-start gap-3 rounded-lg border p-3 ${
+                      form.role === 'ADMIN' ? 'border-slate-100 bg-slate-50 text-slate-400' : 'border-slate-200'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      disabled={form.role === 'ADMIN'}
+                      checked={form.role === 'ADMIN' || form.resourceCodes.includes(resource.code)}
+                      onChange={() => toggleResource(resource.code)}
+                    />
+                    <span className="block text-sm font-medium">{resource.name}</span>
                   </label>
                 ))}
               </div>

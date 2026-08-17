@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { logAudit } from '@/lib/audit'
-import { requireEditor, badRequest } from '@/lib/api-helpers'
+import { requireResourceViewer, requireResourceEditor, badRequest } from '@/lib/api-helpers'
 
 const schema = z.object({
   motorista: z.string().min(2).transform((v) => v.trim().toUpperCase()),
@@ -12,7 +12,7 @@ const schema = z.object({
 })
 
 export async function GET() {
-  const auth = await requireEditor()
+  const auth = await requireResourceViewer('ferias')
   if ('error' in auth) return auth.error
   const records = await prisma.driverVacation.findMany({
     orderBy: [{ motorista: 'asc' }, { startDate: 'desc' }],
@@ -21,7 +21,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await requireEditor()
+  const auth = await requireResourceEditor('ferias')
   if ('error' in auth) return auth.error
   const parsed = schema.safeParse(await req.json())
   if (!parsed.success) return badRequest(parsed.error.issues.map((i) => i.message).join('; '))

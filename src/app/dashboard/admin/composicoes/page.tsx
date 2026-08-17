@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { ExcelButtons } from '@/components/admin/ExcelButtons'
 
 interface CompositionRecord {
@@ -72,6 +73,11 @@ const TABS = [
 type TabKey = (typeof TABS)[number]['key']
 
 export default function ComposicoesPage() {
+  // Chegando via link externo com ?placa=XXX (pedido do usuário 2026-08-12:
+  // botão "ver composição" no balão do mapa de Rastreamento) já abre direto
+  // na aba de placas filtrada pela placa clicada.
+  const searchParams = useSearchParams()
+  const placaInicial = searchParams.get('placa') ?? ''
   const [tab, setTab] = useState<TabKey>('placas')
 
   const [records, setRecords] = useState<CompositionRecord[]>([])
@@ -79,7 +85,7 @@ export default function ComposicoesPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
-  const [placaFilter, setPlacaFilter] = useState('')
+  const [placaFilter, setPlacaFilter] = useState(placaInicial)
   const [compositionFilter, setCompositionFilter] = useState('')
 
   const [selected, setSelected] = useState<Set<string>>(new Set())

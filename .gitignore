@@ -36,6 +36,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# dumps do banco de produção (pg_dump) - dados sensíveis, nunca versionar
+/backups/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

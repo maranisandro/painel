@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { logAudit } from '@/lib/audit'
-import { requireEditor, badRequest } from '@/lib/api-helpers'
+import { requireResourceViewer, requireResourceEditor, badRequest } from '@/lib/api-helpers'
 
 const priceSchema = z.object({
   routeId: z.string().uuid(),
@@ -13,7 +13,7 @@ const priceSchema = z.object({
 })
 
 export async function GET() {
-  const auth = await requireEditor()
+  const auth = await requireResourceViewer('precos_frete')
   if ('error' in auth) return auth.error
   const records = await prisma.routeFreightPrice.findMany({
     include: { route: { include: { origin: true, destination: true } } },
@@ -23,7 +23,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await requireEditor()
+  const auth = await requireResourceEditor('precos_frete')
   if ('error' in auth) return auth.error
   const parsed = priceSchema.safeParse(await req.json())
   if (!parsed.success) return badRequest(parsed.error.issues.map((i) => i.message).join('; '))

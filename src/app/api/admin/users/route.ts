@@ -17,6 +17,8 @@ const createSchema = z.object({
   email: z.string().trim().toLowerCase().email(),
   role: z.enum(['ADMIN', 'EDITOR', 'VIEWER']),
   moduleCodes: z.array(z.string().min(1)).default([]).transform((codes) => [...new Set(codes)]),
+  // Acesso granular por tela de Cadastro (pedido do usuário 2026-08-14) — mesmo padrão de moduleCodes
+  resourceCodes: z.array(z.string().min(1)).default([]).transform((codes) => [...new Set(codes)]),
 })
 
 const userSelect = {
@@ -31,6 +33,12 @@ const userSelect = {
     orderBy: { module: { phase: 'asc' as const } },
     select: {
       module: { select: { id: true, code: true, name: true, phase: true, active: true } },
+    },
+  },
+  adminAccesses: {
+    orderBy: { resource: { position: 'asc' as const } },
+    select: {
+      resource: { select: { id: true, code: true, name: true, position: true } },
     },
   },
 }
@@ -49,18 +57,31 @@ async function resolveModules(moduleCodes: string[]) {
   return modules
 }
 
+async function resolveResources(resourceCodes: string[]) {
+  const resources = await prisma.adminResource.findMany({
+    where: { code: { in: resourceCodes } },
+    select: { id: true, code: true },
+  })
+  if (resources.length !== resourceCodes.length) return null
+  return resources
+}
+
 export async function GET() {
   const auth = await requireAdmin()
   if ('error' in auth) return auth.error
 
-  const [users, modules] = await Promise.all([
+  const [users, modules, resources] = await Promise.all([
     prisma.user.findMany({ select: userSelect, orderBy: { name: 'asc' } }),
     prisma.module.findMany({
       select: { id: true, code: true, name: true, phase: true, active: true },
       orderBy: { phase: 'asc' },
     }),
+    prisma.adminResource.findMany({
+      select: { id: true, code: true, name: true, position: true },
+      orderBy: { position: 'asc' },
+    }),
   ])
-  return NextResponse.json({ users, modules, currentUserId: auth.user.id })
+  return NextResponse.json({ users, modules, resources, currentUserId: auth.user.id })
 }
 
 export async function POST(req: NextRequest) {
@@ -78,6 +99,8 @@ export async function POST(req: NextRequest) {
 
   const modules = await resolveModules(parsed.data.moduleCodes)
   if (!modules) return badRequest('Um ou mais módulos informados não existem')
+  const resources = await resolveResources(parsed.data.resourceCodes)
+  if (!resources) return badRequest('Um ou mais cadastros informados não existem')
 
   const temporaryPassword = generateTemporaryPassword()
   const password = await bcrypt.hash(temporaryPassword, 10)
@@ -92,6 +115,10 @@ export async function POST(req: NextRequest) {
       moduleAccesses:
         parsed.data.role !== 'ADMIN' && modules.length > 0
           ? { create: modules.map((module) => ({ moduleId: module.id })) }
+          : undefined,
+      adminAccesses:
+        parsed.data.role !== 'ADMIN' && resources.length > 0
+          ? { create: resources.map((resource) => ({ resourceId: resource.id })) }
           : undefined,
     },
     select: userSelect,
@@ -108,6 +135,7 @@ export async function POST(req: NextRequest) {
       email: user.email,
       role: user.role,
       moduleCodes: user.moduleAccesses.map((access) => access.module.code),
+      resourceCodes: user.adminAccesses.map((access) => access.resource.code),
       mustChangePassword: true,
     },
   })

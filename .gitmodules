@@ -1,0 +1,3 @@
+[submodule ".claude/padroes-dev"]
+	path = .claude/padroes-dev
+	url = https://github.com/Grupo-Plantar/padroes-dev.git

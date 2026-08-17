@@ -1,0 +1,66 @@
+services:
+  postgres:
+    # postgis/postgis (não postgres:16-alpine puro) — o schema usa a extensão
+    # PostGIS (Location/VehiclePosition, ver migration 20260730000000).
+    # Mesma imagem/versão do stack compartilhado em C:\local\docker, pra
+    # manter os dois ambientes compatíveis.
+    image: postgis/postgis:16-3.4
+    container_name: paineis_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: paineis
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: paineis_db
+    volumes:
+      - paineis_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paineis -d paineis_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # Servidor dedicado, 2 vCPU / 3.8GB RAM (bem abaixo do padrão de produção
+    # do grupo de 8vCPU/16GB — ver padroes-dev/dimensionamento-infraestrutura.md;
+    # esses limites evitam um serviço tomar a máquina toda inteira, não são
+    # o dimensionamento "ideal" de uma stack Core/Sigo compartilhada).
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1g
+
+  app:
+    image: paineis:latest
+    container_name: paineis_app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env.production
+    ports:
+      - "3002:3002"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          # 1GB estourou (OOM) na primeira sincronização real — datasets
+          # como fase3_vendas_madeira_tratada carregam dezenas de milhares
+          # de linhas em memória de uma vez. 2GB deixa a máquina toda
+          # (3.8GB) apertada (~1GB pro postgres + ~0.8GB pro SO), mas ainda
+          # cabe; se voltar a estourar, é sinal de que a sincronização
+          # precisa paginar em vez de carregar tudo de uma vez.
+          memory: 2g
+
+  # Rodar sob demanda: docker compose run --rm migrate npx prisma migrate deploy
+  migrate:
+    image: paineis:migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env.production
+    profiles:
+      - tools
+
+volumes:
+  paineis_postgres_data:

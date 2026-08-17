@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { logAudit } from '@/lib/audit'
-import { requireEditor, badRequest } from '@/lib/api-helpers'
+import { requireResourceViewer, requireResourceEditor, badRequest } from '@/lib/api-helpers'
 
 // Polígono alternativo ao ponto+raio (pedido do usuário 2026-07-30): lista
 // de vértices desenhados no mapa da tela de Locais. Mínimo 3 pontos (senão
@@ -17,10 +17,12 @@ const polygonSchema = z
 const locationSchema = z.object({
   name: z.string().min(2),
   officialName: z.string().nullable().optional(),
-  type: z.enum(['UNIDADE', 'CLIENTE']),
+  type: z.enum(['UNIDADE', 'CLIENTE', 'CIDADE', 'POSTO_GASOLINA', 'OFICINA', 'RESIDENCIA']),
   matchColigada: z.number().int().nullable().optional(),
   matchFilial: z.number().int().nullable().optional(),
   matchClientePattern: z.string().nullable().optional(),
+  // Só usado quando type = RESIDENCIA (pedido do usuário 2026-08-03).
+  motoristaNome: z.string().nullable().optional(),
   latitude: z.number().nullable().optional(),
   longitude: z.number().nullable().optional(),
   raioMetros: z.number().nullable().optional(),
@@ -29,7 +31,7 @@ const locationSchema = z.object({
 })
 
 export async function GET() {
-  const auth = await requireEditor()
+  const auth = await requireResourceViewer('locais')
   if ('error' in auth) return auth.error
   const locations = await prisma.location.findMany({
     orderBy: [{ type: 'asc' }, { name: 'asc' }],
@@ -39,7 +41,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await requireEditor()
+  const auth = await requireResourceEditor('locais')
   if ('error' in auth) return auth.error
   const parsed = locationSchema.safeParse(await req.json())
   if (!parsed.success) return badRequest(parsed.error.issues.map((i) => i.message).join('; '))

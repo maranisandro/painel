@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { logAudit } from '@/lib/audit'
-import { requireEditor, badRequest } from '@/lib/api-helpers'
+import { requireResourceViewer, requireResourceEditor, badRequest } from '@/lib/api-helpers'
 
 const specSchema = z.object({
   composition: z.string().min(2),
@@ -16,14 +16,14 @@ const specSchema = z.object({
 })
 
 export async function GET() {
-  const auth = await requireEditor()
+  const auth = await requireResourceViewer('composicoes')
   if ('error' in auth) return auth.error
   const specs = await prisma.compositionSpec.findMany({ orderBy: { composition: 'asc' } })
   return NextResponse.json(specs)
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await requireEditor()
+  const auth = await requireResourceEditor('composicoes')
   if ('error' in auth) return auth.error
   const parsed = specSchema.safeParse(await req.json())
   if (!parsed.success) return badRequest(parsed.error.issues.map((i) => i.message).join('; '))

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { logAudit } from '@/lib/audit'
-import { requireEditor, badRequest } from '@/lib/api-helpers'
+import { requireResourceViewer, requireResourceEditor, badRequest } from '@/lib/api-helpers'
 import { validateParameterDefinition } from '@/lib/semantic/parameters'
 
 const parameterSchema = z.object({
@@ -15,14 +15,14 @@ const parameterSchema = z.object({
 })
 
 export async function GET() {
-  const auth = await requireEditor()
+  const auth = await requireResourceViewer('parametros')
   if ('error' in auth) return auth.error
   const parameters = await prisma.parameter.findMany({ orderBy: { code: 'asc' } })
   return NextResponse.json(parameters)
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await requireEditor()
+  const auth = await requireResourceEditor('parametros')
   if ('error' in auth) return auth.error
   const parsed = parameterSchema.safeParse(await req.json())
   if (!parsed.success) return badRequest(parsed.error.issues.map((i) => i.message).join('; '))

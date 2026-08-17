@@ -1,0 +1,334 @@
+'use client'
+
+import Link from 'next/link'
+import { SortableTable, type SortableColumn } from '@/components/shared/SortableTable'
+
+interface RitmoInfo {
+  diasDoMes: number | null
+  diasComFaturamento: number
+  ritmoEsperado: number | null
+  dentroDoRitmo: boolean | null
+  projecaoFechamento: number | null
+  diasUteisRestantes: number
+  necessarioPorDiaUtil: number | null
+}
+interface ComparativoVolume {
+  metaVolumeM3: number
+  realizadoM3: number
+  pctAtingido: number | null
+  mesReferencia: string | null
+  diasDoMes: number | null
+  diasComFaturamento: number | null
+  ritmoEsperadoM3: number | null
+  dentroDoRitmo: boolean | null
+  projecaoFechamentoM3: number | null
+  diasUteisRestantes: number
+  necessarioPorDiaUtilM3: number | null
+}
+interface ComparativoIcms {
+  tabelaPreco: string
+  metaPct: number | null
+  realM3: number
+  realPct: number | null
+  minimoFaixa: number | null
+  precoPraticado: number | null
+  diferencaMinimo: number | null
+}
+interface ImpactoMixIcms {
+  precoPonderadoMetaMix: number | null
+  precoPonderadoRealMix: number | null
+  diferenca: number | null
+  impacto: 'beneficio' | 'malefico' | 'neutro' | null
+}
+interface ComparativoDistribuidorCota {
+  codDistribuidor: string
+  nomeDistribuidor: string | null
+  metaValor: number
+  realizado: number
+  pctAtingido: number | null
+  ritmo: RitmoInfo
+}
+interface ComparativoProdutoCota {
+  codigoPrd: string
+  nomeProduto: string | null
+  cotaUnidades: number
+  vendidoUnidades: number
+  m3PorUnidade: number | null
+  metaM3: number | null
+  vendidoM3: number
+  pctAtingido: number | null
+}
+export interface ComparativoCotasData {
+  temCadastro: boolean
+  volume: ComparativoVolume
+  icms: ComparativoIcms[]
+  impactoMixIcms: ImpactoMixIcms
+  distribuidores: ComparativoDistribuidorCota[]
+  produtos: ComparativoProdutoCota[]
+}
+
+function fmtMoeda(n: number): string {
+  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
+}
+function fmt(n: number, digits = 0): string {
+  return n.toLocaleString('pt-BR', { maximumFractionDigits: digits, minimumFractionDigits: digits })
+}
+function fmtPct(n: number | null, digits = 0): string {
+  return n == null ? '—' : `${fmt(n * 100, digits)}%`
+}
+function corAtingido(pct: number | null): string {
+  if (pct == null) return 'text-slate-700'
+  return pct >= 1 ? 'text-emerald-700' : pct >= 0.9 ? 'text-amber-700' : 'text-red-700'
+}
+/**
+ * Cor pelo RITMO (dentro/fora do esperado até agora), não pela % crua do mês
+ * inteiro — pedido do usuário 2026-08-13: "este item marcado em vermelho não
+ * deveria estar verde visto que está acima da meta do ritmo?" (37,5% do mês
+ * aparecia vermelho mesmo estando ACIMA do esperado para o dia 12 de um mês
+ * de 31 dias). Cai para `corAtingido` só quando não há ritmo calculável
+ * (sem meta cadastrada pro mês, por exemplo).
+ */
+function corPorRitmo(dentroDoRitmo: boolean | null, pctAtingidoFallback: number | null): string {
+  if (dentroDoRitmo != null) return dentroDoRitmo ? 'text-emerald-700' : 'text-red-700'
+  return corAtingido(pctAtingidoFallback)
+}
+
+/**
+ * Meta x realizado das cotas de venda cadastradas em Cadastros → Cotas de
+ * venda — pedido do usuário 2026-08-13: "preciso que seja inserido na
+ * analise por periodo e na analise estrategico os comparativos com as cotas
+ * e com os parametros de distribuição por aliquota de ICMS". Reaproveitado
+ * (mesmo componente) no tático e no estratégico — só muda o recorte de tempo
+ * usado para somar as metas mensais cadastradas (`/lib/fase3/cotas.ts`).
+ */
+export function ComparativoCotas({ data, periodoLabel }: { data: ComparativoCotasData | null | undefined; periodoLabel: string }) {
+  if (!data) return null
+
+  if (!data.temCadastro) {
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <p className="text-sm font-medium">Cotas de venda — meta x realizado</p>
+        <p className="mt-1 text-sm text-slate-500">
+          Nenhuma cota cadastrada para {periodoLabel}. Cadastre em{' '}
+          <Link href="/dashboard/admin/cotas-venda" className="text-emerald-700 underline">
+            Cadastros → Cotas de venda
+          </Link>
+          .
+        </p>
+      </div>
+    )
+  }
+
+  const { volume, icms, impactoMixIcms, distribuidores, produtos } = data
+
+  const colunasDistribuidor: SortableColumn<ComparativoDistribuidorCota>[] = [
+    {
+      key: 'nome',
+      label: 'Distribuidor',
+      sortValue: (d) => d.nomeDistribuidor ?? d.codDistribuidor,
+      render: (d) => (
+        <>
+          {d.nomeDistribuidor ?? d.codDistribuidor} <span className="text-slate-400">({d.codDistribuidor})</span>
+        </>
+      ),
+    },
+    { key: 'meta', label: 'Meta', align: 'right', sortValue: (d) => d.metaValor, render: (d) => fmtMoeda(d.metaValor) },
+    { key: 'realizado', label: 'Realizado', align: 'right', sortValue: (d) => d.realizado, render: (d) => fmtMoeda(d.realizado) },
+    {
+      key: 'ritmoEsperado',
+      label: 'Ritmo esperado',
+      align: 'right',
+      sortValue: (d) => d.ritmo.ritmoEsperado ?? 0,
+      render: (d) => (d.ritmo.ritmoEsperado != null ? fmtMoeda(d.ritmo.ritmoEsperado) : '—'),
+    },
+    {
+      key: 'projecao',
+      label: 'Projeção fechamento',
+      align: 'right',
+      sortValue: (d) => d.ritmo.projecaoFechamento ?? 0,
+      render: (d) => (d.ritmo.projecaoFechamento != null ? fmtMoeda(d.ritmo.projecaoFechamento) : '—'),
+    },
+    {
+      key: 'necessario',
+      label: 'Nec./dia útil',
+      align: 'right',
+      sortValue: (d) => d.ritmo.necessarioPorDiaUtil ?? 0,
+      render: (d) =>
+        d.ritmo.necessarioPorDiaUtil == null ? (
+          '—'
+        ) : d.ritmo.necessarioPorDiaUtil === 0 ? (
+          <span className="text-emerald-700">meta já alcançada</span>
+        ) : (
+          fmtMoeda(d.ritmo.necessarioPorDiaUtil)
+        ),
+    },
+    {
+      key: 'pctAtingido',
+      label: '% atingido',
+      align: 'right',
+      sortValue: (d) => d.pctAtingido ?? 0,
+      render: (d) => <span className={`font-medium ${corPorRitmo(d.ritmo.dentroDoRitmo, d.pctAtingido)}`}>{fmtPct(d.pctAtingido, 1)}</span>,
+    },
+  ]
+
+  const colunasProduto: SortableColumn<ComparativoProdutoCota>[] = [
+    {
+      key: 'nome',
+      label: 'Produto',
+      sortValue: (p) => p.nomeProduto ?? p.codigoPrd,
+      render: (p) => (
+        <>
+          {p.nomeProduto ?? p.codigoPrd} <span className="text-slate-400">({p.codigoPrd})</span>
+        </>
+      ),
+    },
+    { key: 'cotaUnidades', label: 'Cota (un.)', align: 'right', sortValue: (p) => p.cotaUnidades, render: (p) => fmt(p.cotaUnidades) },
+    {
+      key: 'vendidoUnidades',
+      label: 'Expedição (un.)',
+      align: 'right',
+      sortValue: (p) => p.vendidoUnidades,
+      render: (p) => fmt(p.vendidoUnidades),
+    },
+    {
+      key: 'metaM3',
+      label: 'Cota (m³)',
+      align: 'right',
+      sortValue: (p) => p.metaM3 ?? -1,
+      render: (p) => (p.metaM3 != null ? fmt(p.metaM3, 1) : <span className="text-amber-600">—</span>),
+    },
+    { key: 'vendidoM3', label: 'Vendido (m³)', align: 'right', sortValue: (p) => p.vendidoM3, render: (p) => fmt(p.vendidoM3, 1) },
+    {
+      key: 'pctAtingido',
+      label: '% atingido',
+      align: 'right',
+      sortValue: (p) => p.pctAtingido ?? 0,
+      render: (p) => <span className={`font-medium ${corAtingido(p.pctAtingido)}`}>{fmtPct(p.pctAtingido, 1)}</span>,
+    },
+  ]
+
+  return (
+    <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-4">
+      <div className="flex items-baseline justify-between">
+        <p className="text-sm font-medium">Cotas de venda — meta x realizado ({periodoLabel})</p>
+        <Link href="/dashboard/admin/cotas-venda" className="text-xs text-emerald-700 underline">
+          gerenciar cotas
+        </Link>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <p className="text-xs text-slate-500">Meta de volume (madeira tratada)</p>
+          <p className={`text-lg font-semibold ${corPorRitmo(volume.dentroDoRitmo, volume.pctAtingido)}`}>{fmt(volume.realizadoM3, 1)} m³</p>
+          <p className="text-xs text-slate-500">
+            meta {fmt(volume.metaVolumeM3, 0)} m³ · {fmtPct(volume.pctAtingido)} atingido
+          </p>
+          {/* Barra com o % de diferença entre o vendido e a meta do mês — pedido do usuário 2026-08-13. */}
+          {volume.pctAtingido != null && (
+            <div className="mt-1.5">
+              <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                <div
+                  className={`h-full ${volume.pctAtingido >= 1 ? 'bg-emerald-600' : volume.pctAtingido >= 0.9 ? 'bg-amber-500' : 'bg-red-500'}`}
+                  style={{ width: `${Math.min(100, volume.pctAtingido * 100)}%` }}
+                />
+              </div>
+              <p className={`mt-0.5 text-xs font-medium ${corAtingido(volume.pctAtingido)}`}>
+                {volume.pctAtingido >= 1 ? '+' : ''}
+                {fmt((volume.pctAtingido - 1) * 100, 1)}% vs. meta do mês
+              </p>
+            </div>
+          )}
+          {volume.ritmoEsperadoM3 != null && (
+            <p className={`mt-1 text-xs font-medium ${volume.dentroDoRitmo ? 'text-emerald-700' : 'text-red-700'}`}>
+              {volume.dentroDoRitmo ? '✓' : '⚠'} ritmo do mês ({volume.diasComFaturamento}/{volume.diasDoMes} dias com
+              venda): esperado {fmt(volume.ritmoEsperadoM3, 0)} m³
+              {volume.projecaoFechamentoM3 != null && (
+                <> · projeção de fechamento {fmt(volume.projecaoFechamentoM3, 0)} m³</>
+              )}
+            </p>
+          )}
+          {volume.necessarioPorDiaUtilM3 != null && (
+            <p className="mt-0.5 text-xs text-slate-500">
+              {volume.necessarioPorDiaUtilM3 === 0
+                ? 'meta já alcançada'
+                : `precisa vender ${fmt(volume.necessarioPorDiaUtilM3, 1)} m³/dia útil (${volume.diasUteisRestantes} dias úteis restantes) para bater a meta`}
+            </p>
+          )}
+        </div>
+        {icms.map((t) => (
+          <div key={t.tabelaPreco} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs text-slate-500">{t.tabelaPreco} — mix de volume</p>
+            <p
+              className={`text-lg font-semibold ${
+                t.metaPct != null && t.realPct != null && Math.abs(t.realPct - t.metaPct) > 5 ? 'text-red-700' : ''
+              }`}
+            >
+              {t.realPct != null ? `${fmt(t.realPct, 1)}%` : '—'}
+            </p>
+            <p className="text-xs text-slate-500">
+              meta {t.metaPct != null ? `${fmt(t.metaPct, 1)}%` : '—'} · {fmt(t.realM3, 1)} m³
+            </p>
+            {t.minimoFaixa != null && <p className="mt-1 text-xs text-slate-400">mínimo da faixa {fmtMoeda(t.minimoFaixa)}/m³</p>}
+            {t.precoPraticado != null && (
+              <p className={`text-xs ${t.diferencaMinimo != null && t.diferencaMinimo < 0 ? 'text-red-600' : 'text-emerald-700'}`}>
+                praticado {fmtMoeda(t.precoPraticado)}/m³
+                {t.diferencaMinimo != null && (
+                  <> ({t.diferencaMinimo >= 0 ? '+' : ''}{fmtMoeda(t.diferencaMinimo)} vs. mínimo)</>
+                )}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {impactoMixIcms.impacto != null && impactoMixIcms.impacto !== 'neutro' && (
+        <div
+          className={`rounded-lg border px-3 py-2 text-xs ${
+            impactoMixIcms.impacto === 'beneficio' ? 'border-emerald-300 bg-emerald-50 text-emerald-900' : 'border-red-300 bg-red-50 text-red-900'
+          }`}
+        >
+          <strong>{impactoMixIcms.impacto === 'beneficio' ? 'Mix de ICMS favorável' : 'Mix de ICMS desfavorável'}</strong> ao
+          preço mínimo ponderado: a distribuição real entre as faixas de ICMS resultaria num mínimo de{' '}
+          {fmtMoeda(impactoMixIcms.precoPonderadoRealMix ?? 0)}/m³, {impactoMixIcms.impacto === 'beneficio' ? 'abaixo' : 'acima'}{' '}
+          do mínimo que a meta de distribuição do mês pressupõe ({fmtMoeda(impactoMixIcms.precoPonderadoMetaMix ?? 0)}/m³) —{' '}
+          {impactoMixIcms.impacto === 'beneficio'
+            ? 'mais fácil vender acima do mínimo com esse mix'
+            : 'mais difícil vender acima do mínimo com esse mix'}
+          , independente do preço praticado em cada faixa.
+        </div>
+      )}
+
+      {distribuidores.length > 0 && (
+        <div>
+          <p className="mb-2 text-xs font-medium text-slate-600">Por distribuidor (R$)</p>
+          <div className="overflow-x-auto rounded-lg border border-slate-200 text-xs">
+            <SortableTable
+              columns={colunasDistribuidor}
+              rows={distribuidores}
+              rowKey={(d) => d.codDistribuidor}
+              defaultSortKey="pctAtingido"
+              defaultSortDir="asc"
+              emptyMessage="Nenhuma meta cadastrada."
+            />
+          </div>
+        </div>
+      )}
+
+      {produtos.length > 0 && (
+        <div>
+          <p className="mb-2 text-xs font-medium text-slate-600">Por produto</p>
+          <div className="max-h-96 overflow-y-auto overflow-x-auto rounded-lg border border-slate-200 text-xs">
+            <SortableTable
+              columns={colunasProduto}
+              rows={produtos}
+              rowKey={(p) => p.codigoPrd}
+              defaultSortKey="pctAtingido"
+              defaultSortDir="asc"
+              emptyMessage="Nenhuma cota cadastrada."
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
