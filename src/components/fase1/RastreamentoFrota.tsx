@@ -97,6 +97,9 @@ interface ResumoPernoiteInfo {
   tipo: string | null
   noites: number
   placas: string[]
+  /** só presente quando sem Local cadastrado (cluster de coordenadas) — usado pelo botão "ver no mapa" */
+  latitude?: number
+  longitude?: number
 }
 
 function fmtDuracao(min: number | null): string {
@@ -176,6 +179,17 @@ export function RastreamentoFrota({
   const [selectedPlaca, setSelectedPlaca] = useState<string | null>(null)
   function verNoMapa(placa: string) {
     setSelectedPlaca(placa)
+    setTab('mapa')
+  }
+
+  // Coordenada avulsa a focar no mapa (ex.: local de pernoite sem cadastro) —
+  // pedido do usuário 2026-08-17: "é preciso clicar e ir para o mapa
+  // identificar o local para o devido cadastro". Zera selectedPlaca para não
+  // reabrir o balão de um caminhão junto por engano.
+  const [focusCoord, setFocusCoord] = useState<{ lat: number; lng: number } | null>(null)
+  function verCoordenadaNoMapa(lat: number, lng: number) {
+    setSelectedPlaca(null)
+    setFocusCoord({ lat, lng })
     setTab('mapa')
   }
 
@@ -404,7 +418,7 @@ export function RastreamentoFrota({
       {tab === 'mapa' ? (
         <div className="flex flex-col gap-4 lg:flex-row">
           <div className="lg:w-3/5">
-            <MapaFrota locations={locations} positions={positions} selectedPlaca={selectedPlaca} />
+            <MapaFrota locations={locations} positions={positions} selectedPlaca={selectedPlaca} focusCoord={focusCoord} />
           </div>
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white lg:w-2/5">
             <div className="border-b border-slate-100 px-3 py-2 text-xs font-semibold text-slate-600">
@@ -631,6 +645,7 @@ export function RastreamentoFrota({
                   <th className="px-3 py-2">Tipo</th>
                   <th className="px-3 py-2 text-right">Noites</th>
                   <th className="px-3 py-2">Placas</th>
+                  <th className="px-3 py-2" />
                 </tr>
               </thead>
               <tbody>
@@ -642,11 +657,24 @@ export function RastreamentoFrota({
                     </td>
                     <td className="px-3 py-2 text-right font-medium">{r.noites}</td>
                     <td className="px-3 py-2 font-mono text-xs text-slate-600">{r.placas.join(', ')}</td>
+                    <td className="px-3 py-2">
+                      {/* só locais sem cadastro têm lat/lng no resumo — pedido do
+                          usuário 2026-08-17: "clicar e ir para o mapa identificar
+                          o local para o devido cadastro" */}
+                      {r.latitude != null && r.longitude != null && (
+                        <button
+                          onClick={() => verCoordenadaNoMapa(r.latitude!, r.longitude!)}
+                          className="whitespace-nowrap rounded bg-violet-100 px-2 py-1 text-xs font-medium text-violet-800 hover:bg-violet-200"
+                        >
+                          📍 ver no mapa
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
                 {resumoPernoite.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
+                    <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
                       Nenhum pernoite identificado no período.
                     </td>
                   </tr>

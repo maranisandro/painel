@@ -82,12 +82,14 @@ export function MonthlyPerformanceChart({
     km: number
     kmPorPlaca: number
     placas: number
+    variacaoPct: number | null
     tendencia: number | null
   }[]
   title: string
   subtitle?: string
 }) {
   const fmtKm = (v: unknown) => Number(v).toLocaleString('pt-BR')
+  const fmtPct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4">
       <h2 className="font-medium">{title}</h2>
@@ -105,11 +107,15 @@ export function MonthlyPerformanceChart({
               allowDecimals={false}
             />
             <Tooltip
-              formatter={(v, name) =>
-                name === 'Placas'
-                  ? [fmtKm(v), 'Placas']
-                  : [`${fmtKm(v)} km`, name]
-              }
+              formatter={(v, name, entry) => {
+                if (name === 'Placas') return [fmtKm(v), 'Placas']
+                if (name === 'KM médio por placa') {
+                  const pct = (entry?.payload as { variacaoPct?: number | null } | undefined)?.variacaoPct
+                  const pctTxt = pct === null || pct === undefined ? '' : ` (${fmtPct(pct)} vs mês anterior)`
+                  return [`${fmtKm(v)} km${pctTxt}`, name]
+                }
+                return [`${fmtKm(v)} km`, name]
+              }}
             />
             <Legend />
             <Bar
@@ -122,7 +128,37 @@ export function MonthlyPerformanceChart({
               isAnimationActive={false}
               // rótulo no interior da barra
               label={{ position: 'inside', fill: '#ffffff', fontSize: 11, formatter: fmtKm }}
-            />
+            >
+              {/* % de ganho/perda vs. mês anterior, acima da barra (pedido do
+                  usuário 2026-08-17) — cor por sinal, já que o LabelList
+                  padrão não tem como colorir condicionalmente por ponto */}
+              <LabelList
+                dataKey="variacaoPct"
+                position="top"
+                content={(props: unknown) => {
+                  const { x, y, width, value } = props as {
+                    x: number
+                    y: number
+                    width: number
+                    value: number | null | undefined
+                  }
+                  if (value === null || value === undefined) return null
+                  const positivo = value >= 0
+                  return (
+                    <text
+                      x={Number(x) + Number(width) / 2}
+                      y={Number(y) - 6}
+                      textAnchor="middle"
+                      fontSize={11}
+                      fontWeight={600}
+                      fill={positivo ? '#047857' : '#b91c1c'}
+                    >
+                      {fmtPct(value)}
+                    </text>
+                  )
+                }}
+              />
+            </Bar>
             <Line
               yAxisId="placas"
               type="monotone"

@@ -815,22 +815,30 @@ export function Fase1Dashboard() {
       acc.placas.add(String(t.PLACA ?? ''))
       porMes.set(mes, acc)
     }
-    return [...porMes.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([mes, v]) => {
-        const kmPorPlaca = v.placas.size ? Math.round(v.km / v.placas.size) : 0
-        return {
-          mes,
-          label: `${MESES[Number(mes.slice(5, 7)) - 1]}/${mes.slice(2, 4)}`,
-          km: Math.round(v.km),
-          placas: v.placas.size,
-          kmPorPlaca,
-          tendencia:
-            mes === mesAtual && cutoffDay > 0
-              ? Math.round((kmPorPlaca / cutoffDay) * diasDoMesAtual)
-              : null,
-        }
-      })
+    const ordenado = [...porMes.entries()].sort(([a], [b]) => a.localeCompare(b))
+    let kmPorPlacaAnterior: number | null = null
+    return ordenado.map(([mes, v]) => {
+      const kmPorPlaca = v.placas.size ? Math.round(v.km / v.placas.size) : 0
+      // % de ganho/perda do KM médio por placa vs. o mês anterior (pedido do
+      // usuário 2026-08-17) — null no primeiro mês da série (sem anterior).
+      const variacaoPct =
+        kmPorPlacaAnterior !== null && kmPorPlacaAnterior > 0
+          ? ((kmPorPlaca - kmPorPlacaAnterior) / kmPorPlacaAnterior) * 100
+          : null
+      kmPorPlacaAnterior = kmPorPlaca
+      return {
+        mes,
+        label: `${MESES[Number(mes.slice(5, 7)) - 1]}/${mes.slice(2, 4)}`,
+        km: Math.round(v.km),
+        placas: v.placas.size,
+        kmPorPlaca,
+        variacaoPct,
+        tendencia:
+          mes === mesAtual && cutoffDay > 0
+            ? Math.round((kmPorPlaca / cutoffDay) * diasDoMesAtual)
+            : null,
+      }
+    })
   }, [data, matchesDims])
 
   // Viagens por dia da semana + % de ciclos "atrasados": para cada placa,

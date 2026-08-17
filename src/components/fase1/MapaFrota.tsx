@@ -86,6 +86,8 @@ interface MapaFrotaProps {
   positions: VehiclePositionMarker[]
   /** placa selecionada fora do mapa (ex.: clique na tabela ao lado) — centraliza e abre o balão desse caminhão */
   selectedPlaca?: string | null
+  /** coordenada avulsa a focar (ex.: local de pernoite não identificado, aba Pernoite) — pedido do usuário 2026-08-17: "é preciso clicar e ir para o mapa identificar o local para o devido cadastro" */
+  focusCoord?: { lat: number; lng: number } | null
 }
 
 /**
@@ -96,7 +98,7 @@ interface MapaFrotaProps {
  * normalmente vem vazio — o mapa já fica pronto para exibir assim que os
  * dados começarem a chegar, sem precisar de nova tela.
  */
-export function MapaFrota({ locations, positions, selectedPlaca }: MapaFrotaProps) {
+export function MapaFrota({ locations, positions, selectedPlaca, focusCoord }: MapaFrotaProps) {
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
   const mapRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
@@ -105,6 +107,9 @@ export function MapaFrota({ locations, positions, selectedPlaca }: MapaFrotaProp
   const mapInstanceRef = useRef<google.maps.Map | null>(null)
   const markersByPlacaRef = useRef<Map<string, google.maps.Marker>>(new Map())
   const infoWindowsByPlacaRef = useRef<Map<string, google.maps.InfoWindow>>(new Map())
+  // Marcador temporário para uma coordenada avulsa (não é um caminhão nem um
+  // Local cadastrado — ex.: local de pernoite ainda sem identificação).
+  const focusMarkerRef = useRef<google.maps.Marker | null>(null)
 
   // Centraliza e abre o balão do caminhão selecionado (clique na placa fora
   // do mapa, ex.: painel lateral ou tabela) — pedido do usuário 2026-08-03:
@@ -131,6 +136,39 @@ export function MapaFrota({ locations, positions, selectedPlaca }: MapaFrotaProp
     if (selectedPlaca) focarPlaca(selectedPlaca)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPlaca])
+
+  // Centraliza numa coordenada avulsa (ex.: local de pernoite sem cadastro,
+  // aba Pernoite do Rastreamento) — pedido do usuário 2026-08-17: "é preciso
+  // clicar e ir para o mapa identificar o local para o devido cadastro".
+  // Zoom alto (18) para dar pra reconhecer visualmente o que tem ali (imagem
+  // de satélite/rua), diferente do zoom de frota (13) usado para caminhões.
+  function focarCoordenada(coord: { lat: number; lng: number }) {
+    const map = mapInstanceRef.current
+    if (!map || !window.google) return
+    const { maps } = window.google
+    map.panTo(coord)
+    map.setZoom(18)
+    focusMarkerRef.current?.setMap(null)
+    focusMarkerRef.current = new maps.Marker({
+      position: coord,
+      map,
+      title: 'Local de pernoite não identificado',
+      icon: {
+        path: maps.SymbolPath.BACKWARD_CLOSED_ARROW,
+        scale: 6,
+        rotation: 180,
+        fillColor: '#be123c',
+        fillOpacity: 1,
+        strokeColor: '#fff',
+        strokeWeight: 2,
+      },
+    })
+  }
+
+  useEffect(() => {
+    if (focusCoord) focarCoordenada(focusCoord)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusCoord])
 
   useEffect(() => {
     if (!apiKey || !mapRef.current) return
@@ -280,6 +318,7 @@ export function MapaFrota({ locations, positions, selectedPlaca }: MapaFrotaProp
 
         if (hasBounds) map.fitBounds(bounds)
         if (selectedPlaca) focarPlaca(selectedPlaca)
+        if (focusCoord) focarCoordenada(focusCoord)
       })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
 
