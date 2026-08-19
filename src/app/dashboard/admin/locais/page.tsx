@@ -179,6 +179,11 @@ export default function LocaisPage() {
   // vezes o ponto "sem cadastro" só ficou fora do raio de um Local que já
   // existe (raio pequeno demais), não precisa de um Local novo.
   const [referenceCoord, setReferenceCoord] = useState<{ lat: number; lng: number } | null>(null)
+  // Primeira chegada / última saída observadas no ponto (qualquer placa) —
+  // pedido do usuário 2026-08-19: "quando identificar a pernoite para
+  // cadastro colocar a data e horario da chegada e data e horario de saida".
+  const [referenceChegada, setReferenceChegada] = useState<string | null>(null)
+  const [referenceSaida, setReferenceSaida] = useState<string | null>(null)
 
   // Chega aqui via link "➕ cadastrar local" na aba Pernoite do Rastreamento
   // (RastreamentoFrota.tsx) — só faz sentido rodar uma vez, ao entrar na
@@ -191,6 +196,8 @@ export default function LocaisPage() {
       setReferenceCoord({ lat: Number(lat), lng: Number(lng) })
       startFromCoordinate(Number(lat), Number(lng))
     }
+    setReferenceChegada(searchParams.get('chegada'))
+    setReferenceSaida(searchParams.get('saida'))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -340,8 +347,16 @@ export default function LocaisPage() {
       {referenceCoord && (
         <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-violet-200 bg-violet-50 p-3">
           <p className="text-sm text-violet-900">
-            📍 Coordenada recebida do Rastreamento ({referenceCoord.lat.toFixed(4)}, {referenceCoord.lng.toFixed(4)}) — cadastre como
-            novo local abaixo, ou associe a um já existente:
+            📍 Coordenada recebida do Rastreamento ({referenceCoord.lat.toFixed(4)}, {referenceCoord.lng.toFixed(4)})
+            {referenceChegada && referenceSaida && (
+              <>
+                {' '}
+                — visto de{' '}
+                <span className="font-medium">{new Date(referenceChegada).toLocaleString('pt-BR')}</span> até{' '}
+                <span className="font-medium">{new Date(referenceSaida).toLocaleString('pt-BR')}</span>
+              </>
+            )}
+            {' '}— cadastre como novo local abaixo, ou associe a um já existente:
           </p>
           <select
             value=""

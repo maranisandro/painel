@@ -102,6 +102,9 @@ interface ResumoPernoiteInfo {
   /** só presente quando sem Local cadastrado (cluster de coordenadas) — usado pelo botão "ver no mapa" */
   latitude?: number
   longitude?: number
+  /** primeira chegada e última saída observadas nesse cluster (qualquer placa) — pedido do usuário 2026-08-19, levado pro cadastro do Local */
+  primeiraChegada?: string
+  ultimaSaida?: string
 }
 
 interface SemComunicacaoInfo {
@@ -816,9 +819,12 @@ export function RastreamentoFrota({
                         {/* pedido do usuário 2026-08-19: "não me deixa cadastrar
                             o local, preciso desta opção" — depois de identificar
                             visualmente no mapa, precisa de um caminho direto pra
-                            cadastrar (Cadastros → Locais já com lat/lng prontos). */}
+                            cadastrar (Cadastros → Locais já com lat/lng prontos).
+                            Chegada/saída também vão junto (pedido do usuário
+                            2026-08-19: "colocar a data e horario da chegada e
+                            data e horario de saida"). */}
                         <a
-                          href={`/dashboard/admin/locais?lat=${r.latitude}&lng=${r.longitude}`}
+                          href={`/dashboard/admin/locais?lat=${r.latitude}&lng=${r.longitude}${r.primeiraChegada ? `&chegada=${encodeURIComponent(r.primeiraChegada)}` : ''}${r.ultimaSaida ? `&saida=${encodeURIComponent(r.ultimaSaida)}` : ''}`}
                           target="_blank"
                           rel="noreferrer"
                           className="whitespace-nowrap rounded bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-200"

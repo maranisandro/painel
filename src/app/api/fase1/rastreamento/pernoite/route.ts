@@ -127,6 +127,13 @@ export async function GET(req: NextRequest) {
     const longitude = itens.reduce((s, i) => s + i.lng, 0) / itens.length
     const noites = new Set(itens.map((i) => `${i.ref.placa}|${i.ref.noite}`))
     const placas = new Set(itens.map((i) => i.ref.placa))
+    // Pedido do usuário 2026-08-19: "quando identificar a pernoite para
+    // cadastro colocar a data e horario da chegada e data e horario de
+    // saida" — como o cluster junta várias noites/placas, usa a primeira vez
+    // que qualquer placa chegou e a última vez que qualquer placa saiu
+    // (janela completa observada naquele ponto), não uma ocorrência só.
+    const primeiraChegada = itens.reduce((min, i) => (i.ref.primeiraHora < min ? i.ref.primeiraHora : min), itens[0].ref.primeiraHora)
+    const ultimaSaida = itens.reduce((max, i) => (i.ref.ultimaHora > max ? i.ref.ultimaHora : max), itens[0].ref.ultimaHora)
     return {
       nome: `Local não identificado (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`,
       tipo: null as string | null,
@@ -134,6 +141,8 @@ export async function GET(req: NextRequest) {
       placas: [...placas].sort(),
       latitude,
       longitude,
+      primeiraChegada,
+      ultimaSaida,
     }
   })
   const resumo = [...resumoComLocal, ...resumoSemLocal].sort((a, b) => b.noites - a.noites)
