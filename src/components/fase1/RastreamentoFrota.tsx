@@ -1,8 +1,9 @@
 'use client'
 
-import React, { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { MapaFrota } from './MapaFrota'
 import { DateRangeInputs, formatBRInput, parseBRToIso, fmtDateBR, MiniCalendarButton } from '@/components/shared/DateRangeInputs'
+import { SortableTable } from '@/components/shared/SortableTable'
 
 interface LocationMarker {
   id: string
@@ -437,26 +438,6 @@ export function RastreamentoFrota({
   const alertasAbertos = speedAlerts.filter((a) => !a.acknowledgedAt)
   const alertasReconhecidos = speedAlerts.filter((a) => a.acknowledgedAt)
 
-  // Agrupado por status — pedido do usuário 2026-08-03: "agrupar as últimas
-  // posições por placa e status, sempre trazendo o último status para parte
-  // superior". Cada grupo (um status) sobe para o topo conforme a atualização
-  // mais recente dentro dele; dentro do grupo, mais recente primeiro também.
-  const grupos = useMemo(() => {
-    const porStatus = new Map<string, VehiclePositionInfo[]>()
-    for (const p of positions) {
-      const chave = p.status ?? 'Sem status'
-      const lista = porStatus.get(chave) ?? []
-      lista.push(p)
-      porStatus.set(chave, lista)
-    }
-    const arr = [...porStatus.entries()].map(([status, lista]) => {
-      const ordenada = [...lista].sort((a, b) => new Date(b.capturedAt).getTime() - new Date(a.capturedAt).getTime())
-      return { status, veiculos: ordenada, ultimaAtualizacao: ordenada[0]?.capturedAt ?? '' }
-    })
-    arr.sort((a, b) => new Date(b.ultimaAtualizacao).getTime() - new Date(a.ultimaAtualizacao).getTime())
-    return arr
-  }, [positions])
-
   // Painel ao lado do mapa: indo/voltando + atrasado/em dia — pedido do
   // usuário 2026-08-03: "colocar uma tabela do que está indo e o que está
   // voltando, se está atrasado ou em dia em relação aos parâmetros do
@@ -697,68 +678,51 @@ export function RastreamentoFrota({
         </div>
       ) : tab === 'lista' ? (
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-left text-slate-600">
-              <tr>
-                <th className="px-3 py-2">Placa</th>
-                <th className="px-3 py-2">Atualizado</th>
-                <th className="px-3 py-2">Status</th>
-                <th className="px-3 py-2">Sentido</th>
-                <th className="px-3 py-2 text-right">Velocidade</th>
-                <th className="px-3 py-2">Localização</th>
-                <th className="px-3 py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {grupos.map((g) => (
-                <React.Fragment key={g.status}>
-                  <tr className="border-t border-slate-200 bg-slate-50">
-                    <td colSpan={7} className="px-3 py-1.5 text-xs font-semibold text-slate-600">
-                      {g.status} ({g.veiculos.length})
-                    </td>
-                  </tr>
-                  {g.veiculos.map((p) => (
-                    <tr key={p.placa} className="border-t border-slate-100">
-                      <td className="px-3 py-2">
-                        <button onClick={() => verNoMapa(p.placa)} className="font-mono font-medium text-emerald-700 hover:underline">
-                          {p.placa}
-                        </button>
-                      </td>
-                      <td className="px-3 py-2 whitespace-nowrap" title={fmtDataHora(p.capturedAt)}>
-                        {haQuanto(p.capturedAt)}
-                      </td>
-                      <td className="px-3 py-2">{p.status ?? '—'}</td>
-                      <td className="px-3 py-2">
-                        {p.localAtual ? (
-                          <LocalAtualBadge localAtual={p.localAtual} ultimaComunicacao={p.capturedAt} />
-                        ) : p.sentido ? (
-                          <span className={`rounded px-2 py-0.5 text-xs ${SENTIDO_CLASS[p.sentido]}`}>
-                            {SENTIDO_LABEL[p.sentido]}
-                          </span>
-                        ) : (
-                          <span className="text-slate-400">—</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-right">{p.speedKmh != null ? `${p.speedKmh} km/h` : '—'}</td>
-                      <td className="px-3 py-2 text-slate-600">{p.localizacao ?? '—'}</td>
-                      <td className="px-3 py-2 text-right">
-                        <button onClick={() => abrirHistorico(p.placa)} className="text-emerald-700 hover:underline">
-                          histórico
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </React.Fragment>
-              ))}
-              {grupos.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
-                    Nenhuma posição de caminhão no momento.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+          <SortableTable
+            rows={positions}
+            rowKey={(p) => p.placa}
+            defaultSortKey="atualizado"
+            emptyMessage="Nenhuma posição de caminhão no momento."
+            columns={[
+              {
+                key: 'placa',
+                label: 'Placa',
+                sortValue: (p) => p.placa,
+                render: (p) => (
+                  <button onClick={() => verNoMapa(p.placa)} className="font-mono font-medium text-emerald-700 hover:underline">
+                    {p.placa}
+                  </button>
+                ),
+              },
+              { key: 'atualizado', label: 'Atualizado', sortValue: (p) => new Date(p.capturedAt).getTime(), render: (p) => <span title={fmtDataHora(p.capturedAt)}>{haQuanto(p.capturedAt)}</span> },
+              { key: 'status', label: 'Status', sortValue: (p) => p.status ?? '—', render: (p) => p.status ?? '—' },
+              {
+                key: 'sentido',
+                label: 'Sentido',
+                sortValue: (p) => (p.localAtual ? `no local: ${p.localAtual.nome}` : (p.sentido ?? '—')),
+                render: (p) =>
+                  p.localAtual ? (
+                    <LocalAtualBadge localAtual={p.localAtual} ultimaComunicacao={p.capturedAt} />
+                  ) : p.sentido ? (
+                    <span className={`rounded px-2 py-0.5 text-xs ${SENTIDO_CLASS[p.sentido]}`}>{SENTIDO_LABEL[p.sentido]}</span>
+                  ) : (
+                    <span className="text-slate-400">—</span>
+                  ),
+              },
+              { key: 'velocidade', label: 'Velocidade', align: 'right', sortValue: (p) => p.speedKmh ?? -1, render: (p) => (p.speedKmh != null ? `${p.speedKmh} km/h` : '—') },
+              { key: 'localizacao', label: 'Localização', sortValue: (p) => p.localizacao ?? '—', render: (p) => <span className="text-slate-600">{p.localizacao ?? '—'}</span> },
+              {
+                key: 'historico',
+                label: '',
+                sortValue: () => '',
+                render: (p) => (
+                  <button onClick={() => abrirHistorico(p.placa)} className="text-emerald-700 hover:underline">
+                    histórico
+                  </button>
+                ),
+              },
+            ]}
+          />
         </div>
       ) : tab === 'permanencia' ? (
         <div>
@@ -769,48 +733,40 @@ export function RastreamentoFrota({
             </span>
           </div>
           <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-left text-slate-600">
-                <tr>
-                  <th className="px-3 py-2">Placa</th>
-                  <th className="px-3 py-2">Local</th>
-                  <th className="px-3 py-2">Tipo</th>
-                  <th className="px-3 py-2">Chegada</th>
-                  <th className="px-3 py-2">Saída</th>
-                  <th className="px-3 py-2 text-right">Duração</th>
-                </tr>
-              </thead>
-              <tbody>
-                {permanencias.map((v) => (
-                  <tr key={v.id} className="border-t border-slate-100">
-                    <td className="px-3 py-2 font-mono font-medium">{v.placa}</td>
-                    <td className="px-3 py-2">
+            <SortableTable
+              rows={permanencias}
+              rowKey={(v) => v.id}
+              defaultSortKey="chegada"
+              emptyMessage="Nenhuma visita a local cadastrado no período."
+              columns={[
+                { key: 'placa', label: 'Placa', sortValue: (v) => v.placa, render: (v) => <span className="font-mono font-medium">{v.placa}</span> },
+                {
+                  key: 'local',
+                  label: 'Local',
+                  sortValue: (v) => v.localNome,
+                  render: (v) => (
+                    <>
                       {v.localNome}
-                      {v.motoristaResidencia && (
-                        <span className="ml-1 text-xs text-slate-500">({v.motoristaResidencia})</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-xs text-slate-500">{v.localTipo}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{fmtDataHora(v.chegada)}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      {v.saida ? (
-                        fmtDataHora(v.saida)
-                      ) : (
-                        <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-800">ainda está lá</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-right">{fmtDuracao(v.duracaoMinutos)}</td>
-                  </tr>
-                ))}
-                {permanencias.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
-                      Nenhuma visita a local cadastrado no período.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                      {v.motoristaResidencia && <span className="ml-1 text-xs text-slate-500">({v.motoristaResidencia})</span>}
+                    </>
+                  ),
+                },
+                { key: 'tipo', label: 'Tipo', sortValue: (v) => v.localTipo, render: (v) => <span className="text-xs text-slate-500">{v.localTipo}</span> },
+                { key: 'chegada', label: 'Chegada', sortValue: (v) => new Date(v.chegada).getTime(), render: (v) => <span className="whitespace-nowrap">{fmtDataHora(v.chegada)}</span> },
+                {
+                  key: 'saida',
+                  label: 'Saída',
+                  sortValue: (v) => (v.saida ? new Date(v.saida).getTime() : Infinity),
+                  render: (v) =>
+                    v.saida ? (
+                      <span className="whitespace-nowrap">{fmtDataHora(v.saida)}</span>
+                    ) : (
+                      <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-800">ainda está lá</span>
+                    ),
+                },
+                { key: 'duracao', label: 'Duração', align: 'right', sortValue: (v) => v.duracaoMinutos ?? Infinity, render: (v) => fmtDuracao(v.duracaoMinutos) },
+              ]}
+            />
           </div>
         </div>
       ) : tab === 'pernoite' ? (
@@ -826,104 +782,83 @@ export function RastreamentoFrota({
             <div className="border-b border-slate-100 px-3 py-2 text-xs font-semibold text-slate-600">
               Locais mais frequentes de pernoite
             </div>
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-left text-slate-600">
-                <tr>
-                  <th className="px-3 py-2">Local</th>
-                  <th className="px-3 py-2">Tipo</th>
-                  <th className="px-3 py-2 text-right">Noites</th>
-                  <th className="px-3 py-2">Placas</th>
-                  <th className="px-3 py-2" />
-                </tr>
-              </thead>
-              <tbody>
-                {resumoPernoite.map((r) => (
-                  <tr key={r.nome} className="border-t border-slate-100">
-                    <td className="px-3 py-2">{r.nome}</td>
-                    <td className="px-3 py-2 text-xs text-slate-500">
-                      {r.tipo ?? <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-800">sem cadastro</span>}
-                    </td>
-                    <td className="px-3 py-2 text-right font-medium">{r.noites}</td>
-                    <td className="px-3 py-2 font-mono text-xs text-slate-600">{r.placas.join(', ')}</td>
-                    <td className="px-3 py-2">
-                      {/* só locais sem cadastro têm lat/lng no resumo — pedido do
-                          usuário 2026-08-17: "clicar e ir para o mapa identificar
-                          o local para o devido cadastro" */}
-                      {r.latitude != null && r.longitude != null && (
-                        <div className="flex flex-wrap gap-1">
-                          <button
-                            onClick={() => verCoordenadaNoMapa(r.latitude!, r.longitude!)}
-                            className="whitespace-nowrap rounded bg-violet-100 px-2 py-1 text-xs font-medium text-violet-800 hover:bg-violet-200"
-                          >
-                            📍 ver no mapa
-                          </button>
-                          {/* pedido do usuário 2026-08-19: "não me deixa cadastrar
-                              o local, preciso desta opção" — depois de identificar
-                              visualmente no mapa, precisa de um caminho direto pra
-                              cadastrar (Cadastros → Locais já com lat/lng prontos). */}
-                          <a
-                            href={`/dashboard/admin/locais?lat=${r.latitude}&lng=${r.longitude}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="whitespace-nowrap rounded bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-200"
-                          >
-                            ➕ cadastrar local
-                          </a>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {resumoPernoite.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
-                      Nenhum pernoite identificado no período.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+            <SortableTable
+              rows={resumoPernoite}
+              rowKey={(r) => r.nome}
+              defaultSortKey="noites"
+              emptyMessage="Nenhum pernoite identificado no período."
+              columns={[
+                { key: 'local', label: 'Local', sortValue: (r) => r.nome, render: (r) => r.nome },
+                {
+                  key: 'tipo',
+                  label: 'Tipo',
+                  sortValue: (r) => r.tipo ?? 'sem cadastro',
+                  render: (r) => (r.tipo ?? <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">sem cadastro</span>),
+                },
+                { key: 'noites', label: 'Noites', align: 'right', sortValue: (r) => r.noites, render: (r) => <span className="font-medium">{r.noites}</span> },
+                { key: 'placas', label: 'Placas', sortValue: (r) => r.placas.join(', '), render: (r) => <span className="font-mono text-xs text-slate-600">{r.placas.join(', ')}</span> },
+                {
+                  key: 'acoes',
+                  label: '',
+                  sortValue: () => '',
+                  render: (r) =>
+                    // só locais sem cadastro têm lat/lng no resumo — pedido do
+                    // usuário 2026-08-17: "clicar e ir para o mapa identificar
+                    // o local para o devido cadastro"
+                    r.latitude != null && r.longitude != null ? (
+                      <div className="flex flex-wrap gap-1">
+                        <button
+                          onClick={() => verCoordenadaNoMapa(r.latitude!, r.longitude!)}
+                          className="whitespace-nowrap rounded bg-violet-100 px-2 py-1 text-xs font-medium text-violet-800 hover:bg-violet-200"
+                        >
+                          📍 ver no mapa
+                        </button>
+                        {/* pedido do usuário 2026-08-19: "não me deixa cadastrar
+                            o local, preciso desta opção" — depois de identificar
+                            visualmente no mapa, precisa de um caminho direto pra
+                            cadastrar (Cadastros → Locais já com lat/lng prontos). */}
+                        <a
+                          href={`/dashboard/admin/locais?lat=${r.latitude}&lng=${r.longitude}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="whitespace-nowrap rounded bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-200"
+                        >
+                          ➕ cadastrar local
+                        </a>
+                      </div>
+                    ) : null,
+                },
+              ]}
+            />
           </div>
 
           <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
             <div className="border-b border-slate-100 px-3 py-2 text-xs font-semibold text-slate-600">
               Detalhe por noite
             </div>
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-left text-slate-600">
-                <tr>
-                  <th className="px-3 py-2">Placa</th>
-                  <th className="px-3 py-2">Noite</th>
-                  <th className="px-3 py-2">Local</th>
-                  <th className="px-3 py-2">Primeira posição</th>
-                  <th className="px-3 py-2">Última posição</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pernoites.map((p) => (
-                  <tr key={`${p.placa}-${p.noite}`} className="border-t border-slate-100">
-                    <td className="px-3 py-2 font-mono font-medium">{p.placa}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{fmtDataCurta(p.noite)}</td>
-                    <td className="px-3 py-2">
-                      {p.localNome ?? (
-                        <span className="text-xs text-slate-500">
-                          {p.latitude.toFixed(4)}, {p.longitude.toFixed(4)} (sem cadastro)
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap">{fmtDataHora(p.primeiraHora)}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{fmtDataHora(p.ultimaHora)}</td>
-                  </tr>
-                ))}
-                {pernoites.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
-                      Nenhum pernoite identificado no período.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+            <SortableTable
+              rows={pernoites}
+              rowKey={(p) => `${p.placa}-${p.noite}`}
+              defaultSortKey="noite"
+              emptyMessage="Nenhum pernoite identificado no período."
+              columns={[
+                { key: 'placa', label: 'Placa', sortValue: (p) => p.placa, render: (p) => <span className="font-mono font-medium">{p.placa}</span> },
+                { key: 'noite', label: 'Noite', sortValue: (p) => p.noite, render: (p) => <span className="whitespace-nowrap">{fmtDataCurta(p.noite)}</span> },
+                {
+                  key: 'local',
+                  label: 'Local',
+                  sortValue: (p) => p.localNome ?? 'sem cadastro',
+                  render: (p) =>
+                    p.localNome ?? (
+                      <span className="text-xs text-slate-500">
+                        {p.latitude.toFixed(4)}, {p.longitude.toFixed(4)} (sem cadastro)
+                      </span>
+                    ),
+                },
+                { key: 'primeira', label: 'Primeira posição', sortValue: (p) => new Date(p.primeiraHora).getTime(), render: (p) => <span className="whitespace-nowrap">{fmtDataHora(p.primeiraHora)}</span> },
+                { key: 'ultima', label: 'Última posição', sortValue: (p) => new Date(p.ultimaHora).getTime(), render: (p) => <span className="whitespace-nowrap">{fmtDataHora(p.ultimaHora)}</span> },
+              ]}
+            />
           </div>
         </div>
       ) : (
