@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react'
 import { MapaFrota } from './MapaFrota'
+import { DateRangeInputs, formatBRInput, parseBRToIso, fmtDateBR, MiniCalendarButton } from '@/components/shared/DateRangeInputs'
 
 interface LocationMarker {
   id: string
@@ -356,6 +357,7 @@ export function RastreamentoFrota({
   // abertos antes de uma data de corte de uma vez.
   const [reconhecendoLote, setReconhecendoLote] = useState(false)
   const [loteAntesDe, setLoteAntesDe] = useState('')
+  const [loteAntesDeTexto, setLoteAntesDeTexto] = useState('')
   const [loteMotivo, setLoteMotivo] = useState('')
   const [salvandoLote, setSalvandoLote] = useState(false)
 
@@ -500,12 +502,27 @@ export function RastreamentoFrota({
               <label className="text-xs text-slate-600">
                 Antes de
                 <input
-                  type="date"
-                  value={loteAntesDe}
-                  onChange={(e) => setLoteAntesDe(e.target.value)}
-                  className="ml-1 rounded-md border border-slate-300 px-2 py-1 text-xs"
+                  type="text"
+                  inputMode="numeric"
+                  value={loteAntesDeTexto}
+                  onChange={(e) => {
+                    const formatted = formatBRInput(e.target.value)
+                    setLoteAntesDeTexto(formatted)
+                    const iso = parseBRToIso(formatted)
+                    if (iso) setLoteAntesDe(iso)
+                  }}
+                  placeholder="dd/mm/aaaa"
+                  maxLength={10}
+                  className="ml-1 w-24 rounded-md border border-slate-300 px-2 py-1 text-xs"
                 />
               </label>
+              <MiniCalendarButton
+                valueIso={loteAntesDe}
+                onSelect={(iso) => {
+                  setLoteAntesDe(iso)
+                  setLoteAntesDeTexto(fmtDateBR(iso))
+                }}
+              />
               <input
                 autoFocus
                 value={loteMotivo}
@@ -518,7 +535,7 @@ export function RastreamentoFrota({
                 disabled={salvandoLote || !loteAntesDe || loteMotivo.trim().length < 3}
                 className="rounded bg-red-700 px-3 py-1 text-xs font-medium text-white hover:bg-red-800 disabled:opacity-50"
               >
-                {salvandoLote ? 'Salvando…' : `Reconhecer todos antes de ${loteAntesDe || '…'}`}
+                {salvandoLote ? 'Salvando…' : `Reconhecer todos antes de ${loteAntesDe ? fmtDateBR(loteAntesDe) : '…'}`}
               </button>
               <button
                 onClick={() => setReconhecendoLote(false)}
@@ -746,24 +763,7 @@ export function RastreamentoFrota({
       ) : tab === 'permanencia' ? (
         <div>
           <div className="mb-3 flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-3">
-            <div>
-              <label className="block text-xs font-medium text-slate-600">De</label>
-              <input
-                type="date"
-                value={permFrom}
-                onChange={(e) => setPermFrom(e.target.value)}
-                className="mt-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-600">Até</label>
-              <input
-                type="date"
-                value={permTo}
-                onChange={(e) => setPermTo(e.target.value)}
-                className="mt-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-              />
-            </div>
+            <DateRangeInputs from={permFrom} to={permTo} onFromChange={setPermFrom} onToChange={setPermTo} />
             <span className="text-xs text-slate-500">
               {carregandoPermanencia ? 'carregando…' : `${permanencias.length} visita(s) no período`}
             </span>
@@ -816,24 +816,7 @@ export function RastreamentoFrota({
       ) : tab === 'pernoite' ? (
         <div>
           <div className="mb-3 flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-3">
-            <div>
-              <label className="block text-xs font-medium text-slate-600">De</label>
-              <input
-                type="date"
-                value={pernFrom}
-                onChange={(e) => setPernFrom(e.target.value)}
-                className="mt-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-600">Até</label>
-              <input
-                type="date"
-                value={pernTo}
-                onChange={(e) => setPernTo(e.target.value)}
-                className="mt-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-              />
-            </div>
+            <DateRangeInputs from={pernFrom} to={pernTo} onFromChange={setPernFrom} onToChange={setPernTo} />
             <span className="text-xs text-slate-500">
               {carregandoPernoite ? 'carregando…' : `${pernoites.length} pernoite(s) no período`}
             </span>
