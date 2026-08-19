@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { SortableTable } from '@/components/shared/SortableTable'
 
 const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 
@@ -220,36 +221,23 @@ export function Fase1Estrategico({
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-slate-600">
-            <tr>
-              <th className="px-4 py-2">Mês</th>
-              <th className="px-4 py-2 text-right">Custo cadastrado</th>
-              <th className="px-4 py-2 text-right">Var. custo %</th>
-              <th className="px-4 py-2 text-right">KM rodado</th>
-              <th className="px-4 py-2 text-right">Peso (t)</th>
-              <th className="px-4 py-2 text-right">R$/km</th>
-              <th className="px-4 py-2 text-right">Var. R$/km %</th>
-              <th className="px-4 py-2 text-right">R$/tonelada</th>
-              <th className="px-4 py-2 text-right">Var. R$/tonelada %</th>
-            </tr>
-          </thead>
-          <tbody>
-            {dadosPorMes.map((m) => (
-              <tr key={m.ym} className="border-t border-slate-100">
-                <td className="px-4 py-2">{m.mes}</td>
-                <td className="px-4 py-2 text-right">{fmtMoeda(m.custoCadastrado)}</td>
-                <td className="px-4 py-2 text-right">{fmtPct(m.variacaoCustoPct)}</td>
-                <td className="px-4 py-2 text-right">{fmt(m.kmTotal)}</td>
-                <td className="px-4 py-2 text-right">{fmt(m.pesoT, 1)}</td>
-                <td className="px-4 py-2 text-right">{m.custoPorKm != null ? fmtMoeda(m.custoPorKm) : '—'}</td>
-                <td className="px-4 py-2 text-right">{fmtPct(m.variacaoCustoPorKmPct)}</td>
-                <td className="px-4 py-2 text-right">{m.custoPorTonelada != null ? fmtMoeda(m.custoPorTonelada) : '—'}</td>
-                <td className="px-4 py-2 text-right">{fmtPct(m.variacaoCustoPorToneladaPct)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <SortableTable
+          rows={dadosPorMes}
+          rowKey={(m) => m.ym}
+          defaultSortKey="mes"
+          defaultSortDir="asc"
+          columns={[
+            { key: 'mes', label: 'Mês', sortValue: (m) => m.ym, render: (m) => m.mes },
+            { key: 'custo', label: 'Custo cadastrado', align: 'right', sortValue: (m) => m.custoCadastrado, render: (m) => fmtMoeda(m.custoCadastrado) },
+            { key: 'varCusto', label: 'Var. custo %', align: 'right', sortValue: (m) => m.variacaoCustoPct ?? -Infinity, render: (m) => fmtPct(m.variacaoCustoPct) },
+            { key: 'km', label: 'KM rodado', align: 'right', sortValue: (m) => m.kmTotal, render: (m) => fmt(m.kmTotal) },
+            { key: 'peso', label: 'Peso (t)', align: 'right', sortValue: (m) => m.pesoT, render: (m) => fmt(m.pesoT, 1) },
+            { key: 'rskm', label: 'R$/km', align: 'right', sortValue: (m) => m.custoPorKm ?? -1, render: (m) => (m.custoPorKm != null ? fmtMoeda(m.custoPorKm) : '—') },
+            { key: 'varRskm', label: 'Var. R$/km %', align: 'right', sortValue: (m) => m.variacaoCustoPorKmPct ?? -Infinity, render: (m) => fmtPct(m.variacaoCustoPorKmPct) },
+            { key: 'rst', label: 'R$/tonelada', align: 'right', sortValue: (m) => m.custoPorTonelada ?? -1, render: (m) => (m.custoPorTonelada != null ? fmtMoeda(m.custoPorTonelada) : '—') },
+            { key: 'varRst', label: 'Var. R$/tonelada %', align: 'right', sortValue: (m) => m.variacaoCustoPorToneladaPct ?? -Infinity, render: (m) => fmtPct(m.variacaoCustoPorToneladaPct) },
+          ]}
+        />
       </div>
     </div>
   )

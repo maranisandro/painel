@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { MonthlyPerformanceChart, FreightPieChart, TripsBarChart, type NameValue } from './Charts'
 import { calcularConsumo, agruparConsumoPorMotorista, type ConsumoPlaca } from '@/lib/fase1/fuel'
 import { DateRangeInputs, fmtDateBR } from '@/components/shared/DateRangeInputs'
+import { SortableTable } from '@/components/shared/SortableTable'
 import { CriticaModeloTab } from './CriticaModeloTab'
 import { Fase1Estrategico } from './Fase1Estrategico'
 import { Fase1Disponibilidade } from './Fase1Disponibilidade'
@@ -626,7 +627,6 @@ export function Fase1Dashboard() {
   // mesma tabela de consumoPlacas, só troca as colunas exibidas.
   const [combustivelSubTab, setCombustivelSubTab] = useState<'diesel' | 'arla'>('diesel')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
-  const [expandedCompliance, setExpandedCompliance] = useState<Set<string>>(new Set())
   // Modal de detalhamento completo da placa/motorista — compartilhado entre a
   // tabela principal e a aba Combustível (pedido do usuário 2026-07-30:
   // clicar na placa em Combustível deve abrir o mesmo detalhamento).
@@ -2021,57 +2021,57 @@ export function Fase1Dashboard() {
               placas atrasadas/muito atrasadas cuja última viagem já tem justificativa registrada
             </span>
           </div>
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-left text-slate-600">
-              <tr>
-                <th className="px-3 py-2">Placa</th>
-                <th className="px-3 py-2">Motorista</th>
-                <th className="px-3 py-2 text-right">Dias de atraso</th>
-                <th className="px-3 py-2">Motivo</th>
-                <th className="px-3 py-2">Nova previsão</th>
-                <th className="px-3 py-2">Situação</th>
-              </tr>
-            </thead>
-            <tbody>
-              {atrasadosJustificados.map(({ group, justificativa }) => {
-                const previsaoMs = justificativa.novaPrevisao
-                  ? new Date(`${justificativa.novaPrevisao.slice(0, 10)}T23:59:59`).getTime()
-                  : null
-                const vencida = previsaoMs !== null && referenceNow > previsaoMs
-                return (
-                  <tr key={group.ultimaViagemKey} className="border-t border-slate-100">
-                    <td className="px-3 py-2 font-mono font-medium">{group.key}</td>
-                    <td className="px-3 py-2">{String(group.trips[0]?.MOTORISTA ?? '—')}</td>
-                    <td className="px-3 py-2 text-right">{fmt(group.statusDays, 1)}</td>
-                    <td className="px-3 py-2">{justificativa.motivo}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      {justificativa.novaPrevisao ? fmtDate(justificativa.novaPrevisao) : '—'}
-                    </td>
-                    <td className="px-3 py-2">
-                      {previsaoMs === null ? (
-                        <span className="text-slate-400">sem previsão</span>
-                      ) : vencida ? (
-                        <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-                          vencida
-                        </span>
-                      ) : (
-                        <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
-                          dentro do prazo
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
-              {atrasadosJustificados.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-500">
-                    Nenhuma placa atrasada com justificativa registrada no momento.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+          <SortableTable
+            rows={atrasadosJustificados}
+            rowKey={({ group }) => group.ultimaViagemKey}
+            emptyMessage="Nenhuma placa atrasada com justificativa registrada no momento."
+            columns={[
+              { key: 'placa', label: 'Placa', sortValue: ({ group }) => group.key, render: ({ group }) => <span className="font-mono font-medium">{group.key}</span> },
+              {
+                key: 'motorista',
+                label: 'Motorista',
+                sortValue: ({ group }) => String(group.trips[0]?.MOTORISTA ?? '—'),
+                render: ({ group }) => String(group.trips[0]?.MOTORISTA ?? '—'),
+              },
+              {
+                key: 'dias',
+                label: 'Dias de atraso',
+                align: 'right',
+                sortValue: ({ group }) => group.statusDays,
+                render: ({ group }) => fmt(group.statusDays, 1),
+              },
+              { key: 'motivo', label: 'Motivo', sortValue: ({ justificativa }) => justificativa.motivo, render: ({ justificativa }) => justificativa.motivo },
+              {
+                key: 'previsao',
+                label: 'Nova previsão',
+                sortValue: ({ justificativa }) => justificativa.novaPrevisao ?? '',
+                render: ({ justificativa }) => (
+                  <span className="whitespace-nowrap">{justificativa.novaPrevisao ? fmtDate(justificativa.novaPrevisao) : '—'}</span>
+                ),
+              },
+              {
+                key: 'situacao',
+                label: 'Situação',
+                sortValue: ({ justificativa }) => {
+                  const ms = justificativa.novaPrevisao ? new Date(`${justificativa.novaPrevisao.slice(0, 10)}T23:59:59`).getTime() : null
+                  return ms === null ? 'sem previsão' : referenceNow > ms ? 'vencida' : 'dentro do prazo'
+                },
+                render: ({ justificativa }) => {
+                  const previsaoMs = justificativa.novaPrevisao
+                    ? new Date(`${justificativa.novaPrevisao.slice(0, 10)}T23:59:59`).getTime()
+                    : null
+                  const vencida = previsaoMs !== null && referenceNow > previsaoMs
+                  return previsaoMs === null ? (
+                    <span className="text-slate-400">sem previsão</span>
+                  ) : vencida ? (
+                    <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">vencida</span>
+                  ) : (
+                    <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">dentro do prazo</span>
+                  )
+                },
+              },
+            ]}
+          />
         </div>
       ) : aba === 'combustivel' ? (
         /* Combustível: visão dedicada de consumo por placa (hodômetro
@@ -2119,174 +2119,132 @@ export function Fase1Dashboard() {
             ))}
           </div>
           {combustivelSubTab === 'diesel' ? (
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-left text-slate-600">
-                <tr>
-                  <th className="px-3 py-2"></th>
-                  <th className="px-3 py-2">Placa</th>
-                  <th className="px-3 py-2">Produto</th>
-                  <th className="px-3 py-2 text-right">Abastecimentos</th>
-                  <th className="px-3 py-2 text-right">Litros diesel</th>
-                  <th className="px-3 py-2 text-right">KM (hodômetro)</th>
-                  <th className="px-3 py-2 text-right">km/l</th>
-                  <th className="px-3 py-2">Situação</th>
-                  <th
-                    className="px-3 py-2 text-right"
-                    title="% dos abastecimentos do período com consumo fora do padrão — crítico = 3+ ocorrências ou metade+ dos abastecimentos (padrão recorrente, possível sensor quebrado ou fraude)"
-                  >
-                    Anormalidade
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {consumoPlacas.map((c) => (
-                  <tr
-                    key={c.placa}
-                    onClick={(e) => {
-                      const truckMatch = placaGroupsFull.find((g) => g.key === c.placa)
-                      if (truckMatch) {
-                        setDetalheModal({
-                          truck: truckMatch,
-                          otherFieldLabel: 'Motorista',
-                          otherFieldKey: 'MOTORISTA',
-                          ausencia: manutencaoPorPlaca.get(c.placa),
-                          ausenciaLabel: 'manutenção',
-                          justificativa: justificativas.get(truckMatch.ultimaViagemKey),
-                          consumo: c,
-                        })
-                      } else {
-                        toggleFilter('placa', c.placa, e.ctrlKey)
-                      }
-                    }}
-                    className="cursor-pointer border-t border-slate-100 hover:bg-slate-50"
-                    title="Ver detalhamento completo"
-                  >
-                    <td className="px-3 py-2">{c.temAlerta && '⚠️'}</td>
-                    <td className="px-3 py-2 font-mono font-medium">{c.placa}</td>
-                    <td className="px-3 py-2 text-xs text-slate-600">{c.produtos || '—'}</td>
-                    <td className="px-3 py-2 text-right">{c.abastecimentos}</td>
-                    <td className="px-3 py-2 text-right">{fmt(c.litrosConsiderados, 1)}</td>
-                    <td className="px-3 py-2 text-right">{fmt(c.kmRodado)}</td>
-                    <td className="px-3 py-2 text-right">
-                      {c.kmPorLitro === null ? '—' : fmt(c.kmPorLitro, 2)}
-                    </td>
-                    <td className="px-3 py-2">
-                      {c.kmPorLitro === null ? (
-                        <span className="text-slate-400">sem dados</span>
-                      ) : c.kmPorLitro >= data.params.metaConsumoKmL ? (
-                        <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
-                          dentro da meta
-                        </span>
-                      ) : (
-                        <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-                          abaixo da meta
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      {c.alertasCount === 0 ? (
-                        <span className="text-slate-400">—</span>
-                      ) : (
-                        <span
-                          className={`rounded px-2 py-0.5 text-xs font-medium ${c.nivelAnormalidade === 'critico' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'}`}
-                          title={`${c.alertasCount} de ${c.totalIntervalos} abastecimento(s) com alerta`}
-                        >
-                          {c.scoreAnormalidade}% {c.nivelAnormalidade === 'critico' ? 'crítico' : 'atenção'}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {consumoPlacas.length === 0 && (
-                  <tr>
-                    <td colSpan={9} className="px-4 py-8 text-center text-sm text-slate-500">
-                      Nenhum abastecimento encontrado para a frota própria no período.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          ) : (
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-left text-slate-600">
-                <tr>
-                  <th className="px-3 py-2">Placa</th>
-                  <th className="px-3 py-2 text-right">Litros de Arla</th>
-                  <th
-                    className="px-3 py-2 text-right"
-                    title="Litros de Arla32 no período ÷ litros de Diesel no período × 100 — padrão de mercado é 3% a 5%"
-                  >
-                    Arla (% do Diesel)
-                  </th>
-                  <th className="px-3 py-2 text-right" title="Litros de Arla32 no período ÷ km rodado (hodômetro) — dado de referência">
-                    L/km (ref.)
-                  </th>
-                  <th className="px-3 py-2">Origem</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...consumoPlacas]
-                  .filter((c) => c.litrosArla > 0 || c.arlaPctDiesel !== null)
-                  .sort((a, b) => {
-                    const aAlerta = a.arlaAlerta !== null ? 1 : 0
-                    const bAlerta = b.arlaAlerta !== null ? 1 : 0
-                    if (aAlerta !== bAlerta) return bAlerta - aAlerta
-                    return b.litrosArla - a.litrosArla
+            <SortableTable
+              rows={consumoPlacas}
+              rowKey={(c) => c.placa}
+              defaultSortKey="alerta"
+              emptyMessage="Nenhum abastecimento encontrado para a frota própria no período."
+              rowTitle={() => 'Ver detalhamento completo'}
+              onRowClick={(c, e) => {
+                const truckMatch = placaGroupsFull.find((g) => g.key === c.placa)
+                if (truckMatch) {
+                  setDetalheModal({
+                    truck: truckMatch,
+                    otherFieldLabel: 'Motorista',
+                    otherFieldKey: 'MOTORISTA',
+                    ausencia: manutencaoPorPlaca.get(c.placa),
+                    ausenciaLabel: 'manutenção',
+                    justificativa: justificativas.get(truckMatch.ultimaViagemKey),
+                    consumo: c,
                   })
-                  .map((c) => (
-                    <tr
-                      key={c.placa}
-                      onClick={(e) => {
-                        const truckMatch = placaGroupsFull.find((g) => g.key === c.placa)
-                        if (truckMatch) {
-                          setDetalheModal({
-                            truck: truckMatch,
-                            otherFieldLabel: 'Motorista',
-                            otherFieldKey: 'MOTORISTA',
-                            ausencia: manutencaoPorPlaca.get(c.placa),
-                            ausenciaLabel: 'manutenção',
-                            justificativa: justificativas.get(truckMatch.ultimaViagemKey),
-                            consumo: c,
-                          })
-                        } else {
-                          toggleFilter('placa', c.placa, e.ctrlKey)
-                        }
-                      }}
-                      className={`cursor-pointer border-t border-slate-100 hover:bg-slate-50 ${c.arlaAlerta ? 'bg-red-50' : ''}`}
-                      title={c.arlaAlerta ?? 'Ver detalhamento completo'}
-                    >
-                      <td className="px-3 py-2 font-mono font-medium">{c.placa}</td>
-                      <td className="px-3 py-2 text-right">{fmt(c.litrosArla, 1)}</td>
-                      <td className={`px-3 py-2 text-right ${c.arlaAlerta ? 'font-semibold text-red-700' : ''}`}>
-                        {c.arlaPctDiesel === null ? '—' : `${fmt(c.arlaPctDiesel, 1)}%`}
-                        {c.arlaAlerta && ' ⚠️'}
-                      </td>
-                      <td className="px-3 py-2 text-right text-slate-500">
-                        {c.arlaPorKm === null ? '—' : fmt(c.arlaPorKm, 3)}
-                      </td>
-                      <td className="px-3 py-2 text-xs">
-                        {c.arlaPctDieselEstimado ? (
-                          <span
-                            className="rounded bg-amber-100 px-2 py-0.5 text-amber-800"
-                            title={c.arlaPorKmReferenciaEm ? `Sem diesel no período — ref. ${fmtDateBR(c.arlaPorKmReferenciaEm.slice(0, 10))}` : 'Sem diesel no período'}
-                          >
-                            estimado (histórico)
-                          </span>
-                        ) : (
-                          <span className="text-slate-400">período</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                {consumoPlacas.filter((c) => c.litrosArla > 0 || c.arlaPctDiesel !== null).length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-500">
-                      Nenhum abastecimento de Arla32 encontrado para a frota própria no período.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                } else {
+                  toggleFilter('placa', c.placa, e.ctrlKey)
+                }
+              }}
+              columns={[
+                { key: 'alerta', label: '', sortValue: (c) => (c.temAlerta ? 1 : 0), render: (c) => (c.temAlerta ? '⚠️' : '') },
+                { key: 'placa', label: 'Placa', sortValue: (c) => c.placa, render: (c) => <span className="font-mono font-medium">{c.placa}</span> },
+                { key: 'produto', label: 'Produto', sortValue: (c) => c.produtos || '—', render: (c) => <span className="text-xs text-slate-600">{c.produtos || '—'}</span> },
+                { key: 'abastecimentos', label: 'Abastecimentos', align: 'right', sortValue: (c) => c.abastecimentos, render: (c) => c.abastecimentos },
+                { key: 'litros', label: 'Litros diesel', align: 'right', sortValue: (c) => c.litrosConsiderados, render: (c) => fmt(c.litrosConsiderados, 1) },
+                { key: 'km', label: 'KM (hodômetro)', align: 'right', sortValue: (c) => c.kmRodado, render: (c) => fmt(c.kmRodado) },
+                { key: 'kml', label: 'km/l', align: 'right', sortValue: (c) => c.kmPorLitro ?? -1, render: (c) => (c.kmPorLitro === null ? '—' : fmt(c.kmPorLitro, 2)) },
+                {
+                  key: 'situacao',
+                  label: 'Situação',
+                  sortValue: (c) => (c.kmPorLitro === null ? 'sem dados' : c.kmPorLitro >= data.params.metaConsumoKmL ? 'dentro da meta' : 'abaixo da meta'),
+                  render: (c) =>
+                    c.kmPorLitro === null ? (
+                      <span className="text-slate-400">sem dados</span>
+                    ) : c.kmPorLitro >= data.params.metaConsumoKmL ? (
+                      <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">dentro da meta</span>
+                    ) : (
+                      <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">abaixo da meta</span>
+                    ),
+                },
+                {
+                  key: 'anormalidade',
+                  label: 'Anormalidade',
+                  align: 'right',
+                  sortValue: (c) => c.scoreAnormalidade,
+                  render: (c) =>
+                    c.alertasCount === 0 ? (
+                      <span className="text-slate-400">—</span>
+                    ) : (
+                      <span
+                        className={`rounded px-2 py-0.5 text-xs font-medium ${c.nivelAnormalidade === 'critico' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'}`}
+                        title={`${c.alertasCount} de ${c.totalIntervalos} abastecimento(s) com alerta`}
+                      >
+                        {c.scoreAnormalidade}% {c.nivelAnormalidade === 'critico' ? 'crítico' : 'atenção'}
+                      </span>
+                    ),
+                },
+              ]}
+            />
+          ) : (
+            <SortableTable
+              rows={consumoPlacas.filter((c) => c.litrosArla > 0 || c.arlaPctDiesel !== null)}
+              rowKey={(c) => c.placa}
+              defaultSortKey="alerta"
+              emptyMessage="Nenhum abastecimento de Arla32 encontrado para a frota própria no período."
+              rowClassName={(c) => (c.arlaAlerta ? 'bg-red-50' : '')}
+              rowTitle={(c) => c.arlaAlerta ?? 'Ver detalhamento completo'}
+              onRowClick={(c, e) => {
+                const truckMatch = placaGroupsFull.find((g) => g.key === c.placa)
+                if (truckMatch) {
+                  setDetalheModal({
+                    truck: truckMatch,
+                    otherFieldLabel: 'Motorista',
+                    otherFieldKey: 'MOTORISTA',
+                    ausencia: manutencaoPorPlaca.get(c.placa),
+                    ausenciaLabel: 'manutenção',
+                    justificativa: justificativas.get(truckMatch.ultimaViagemKey),
+                    consumo: c,
+                  })
+                } else {
+                  toggleFilter('placa', c.placa, e.ctrlKey)
+                }
+              }}
+              columns={[
+                { key: 'placa', label: 'Placa', sortValue: (c) => c.placa, render: (c) => <span className="font-mono font-medium">{c.placa}</span> },
+                { key: 'litros', label: 'Litros de Arla', align: 'right', sortValue: (c) => c.litrosArla, render: (c) => fmt(c.litrosArla, 1) },
+                {
+                  key: 'pct',
+                  label: 'Arla (% do Diesel)',
+                  align: 'right',
+                  sortValue: (c) => c.arlaPctDiesel ?? -1,
+                  render: (c) => (
+                    <span className={c.arlaAlerta ? 'font-semibold text-red-700' : ''}>
+                      {c.arlaPctDiesel === null ? '—' : `${fmt(c.arlaPctDiesel, 1)}%`}
+                      {c.arlaAlerta && ' ⚠️'}
+                    </span>
+                  ),
+                },
+                { key: 'lkm', label: 'L/km (ref.)', align: 'right', sortValue: (c) => c.arlaPorKm ?? -1, render: (c) => <span className="text-slate-500">{c.arlaPorKm === null ? '—' : fmt(c.arlaPorKm, 3)}</span> },
+                {
+                  key: 'alerta',
+                  label: 'Alerta',
+                  sortValue: (c) => (c.arlaAlerta ? 1 : 0),
+                  render: (c) => (c.arlaAlerta ? '⚠️' : ''),
+                },
+                {
+                  key: 'origem',
+                  label: 'Origem',
+                  sortValue: (c) => (c.arlaPctDieselEstimado ? 'estimado (histórico)' : 'período'),
+                  render: (c) =>
+                    c.arlaPctDieselEstimado ? (
+                      <span
+                        className="rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-800"
+                        title={c.arlaPorKmReferenciaEm ? `Sem diesel no período — ref. ${fmtDateBR(c.arlaPorKmReferenciaEm.slice(0, 10))}` : 'Sem diesel no período'}
+                      >
+                        estimado (histórico)
+                      </span>
+                    ) : (
+                      <span className="text-xs text-slate-400">período</span>
+                    ),
+                },
+              ]}
+            />
           )}
         </div>
       ) : aba === 'critica' ? (
@@ -2497,93 +2455,55 @@ export function Fase1Dashboard() {
         </div>
         {overweightTrips.length > 0 && (
           <div className="mt-3 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-left text-slate-500">
-                <tr>
-                  <th className="w-8 px-2 py-1"></th>
-                  <th className="px-2 py-1">Saída</th>
-                  <th className="px-2 py-1">Placa</th>
-                  <th className="px-2 py-1">Composição</th>
-                  <th className="px-2 py-1">Nota(s) fiscal(is)</th>
-                  <th className="px-2 py-1 text-right">Peso líq. (t)</th>
-                  <th className="px-2 py-1 text-right">Limite (t)</th>
-                  <th className="px-2 py-1 text-right">Excesso (t)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {overweightTrips.map((t, i) => {
-                  const key = `${t.DATASAIDA}|${t.PLACA}|${t.NOMEFANTASIA}|${i}`
-                  const isOpen = expandedCompliance.has(key)
-                  const notas = Array.isArray(t.NOTAS) ? (t.NOTAS as Trip[]) : []
-                  return (
-                    <Fragment key={key}>
-                      <tr className="border-t border-slate-100">
-                        <td className="px-2 py-1">
-                          <button
-                            onClick={() =>
-                              setExpandedCompliance((prev) => {
-                                const next = new Set(prev)
-                                if (next.has(key)) next.delete(key)
-                                else next.add(key)
-                                return next
-                              })
-                            }
-                            className="rounded px-1 text-slate-500 hover:bg-slate-200"
-                            title="Ver notas fiscais da viagem"
-                          >
-                            {isOpen ? '▾' : '▸'}
-                          </button>
-                        </td>
-                        <td className="px-2 py-1 whitespace-nowrap">{fmtDate(String(t.DATASAIDA ?? ''))}</td>
-                        <td className="px-2 py-1 font-mono">{String(t.PLACA ?? '—')}</td>
-                        <td className="px-2 py-1">{String(t['TipoComposição'] ?? '—')}</td>
-                        <td className="px-2 py-1 font-mono text-xs">{String(t.NUMEROMOV ?? '—')}</td>
-                        <td className="px-2 py-1 text-right">{fmt(Number(t.PESOLIQUIDO ?? 0) / 1000, 1)}</td>
-                        <td className="px-2 py-1 text-right">{fmt(Number(t.PESO_LIMITE_T ?? 0), 1)}</td>
-                        <td className="px-2 py-1 text-right font-medium text-red-600">
-                          +{fmt(Number(t.PESO_EXCESSO_T ?? 0), 1)}
-                        </td>
+            <SortableTable
+              rows={overweightTrips.map((t, i) => ({ t, key: `${t.DATASAIDA}|${t.PLACA}|${t.NOMEFANTASIA}|${i}` }))}
+              rowKey={({ key }) => key}
+              defaultSortKey="excesso"
+              renderExpanded={({ t }) => {
+                const notas = Array.isArray(t.NOTAS) ? (t.NOTAS as Trip[]) : []
+                return (
+                  <table className="w-full text-xs">
+                    <thead className="text-left text-slate-500">
+                      <tr>
+                        <th className="px-2 py-1">Nota fiscal</th>
+                        <th className="px-2 py-1">Origem</th>
+                        <th className="px-2 py-1">Cliente</th>
+                        <th className="px-2 py-1">Produto</th>
+                        <th className="px-2 py-1 text-right">Peso bruto (t)</th>
+                        <th className="px-2 py-1 text-right">Peso líquido (t)</th>
                       </tr>
-                      {isOpen && (
-                        <tr className="border-t border-slate-100 bg-slate-50">
-                          <td></td>
-                          <td colSpan={7} className="px-2 py-2">
-                            <table className="w-full text-xs">
-                              <thead className="text-left text-slate-500">
-                                <tr>
-                                  <th className="px-2 py-1">Nota fiscal</th>
-                                  <th className="px-2 py-1">Origem</th>
-                                  <th className="px-2 py-1">Cliente</th>
-                                  <th className="px-2 py-1">Produto</th>
-                                  <th className="px-2 py-1 text-right">Peso bruto (t)</th>
-                                  <th className="px-2 py-1 text-right">Peso líquido (t)</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {notas.map((n, ni) => (
-                                  <tr key={ni} className="border-t border-slate-200">
-                                    <td className="px-2 py-1 font-mono">{String(n.numeroMov ?? '—')}</td>
-                                    <td className="px-2 py-1">{String(n.origem ?? '—')}</td>
-                                    <td className="px-2 py-1">{String(n.cliente ?? '—')}</td>
-                                    <td className="px-2 py-1">{String(n.produto ?? '—')}</td>
-                                    <td className="px-2 py-1 text-right">
-                                      {fmt(Number(n.pesoBruto ?? 0) / 1000, 2)}
-                                    </td>
-                                    <td className="px-2 py-1 text-right">
-                                      {fmt(Number(n.pesoLiquido ?? 0) / 1000, 2)}
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </td>
+                    </thead>
+                    <tbody>
+                      {notas.map((n, ni) => (
+                        <tr key={ni} className="border-t border-slate-200">
+                          <td className="px-2 py-1 font-mono">{String(n.numeroMov ?? '—')}</td>
+                          <td className="px-2 py-1">{String(n.origem ?? '—')}</td>
+                          <td className="px-2 py-1">{String(n.cliente ?? '—')}</td>
+                          <td className="px-2 py-1">{String(n.produto ?? '—')}</td>
+                          <td className="px-2 py-1 text-right">{fmt(Number(n.pesoBruto ?? 0) / 1000, 2)}</td>
+                          <td className="px-2 py-1 text-right">{fmt(Number(n.pesoLiquido ?? 0) / 1000, 2)}</td>
                         </tr>
-                      )}
-                    </Fragment>
-                  )
-                })}
-              </tbody>
-            </table>
+                      ))}
+                    </tbody>
+                  </table>
+                )
+              }}
+              columns={[
+                { key: 'saida', label: 'Saída', sortValue: ({ t }) => String(t.DATASAIDA ?? ''), render: ({ t }) => <span className="whitespace-nowrap">{fmtDate(String(t.DATASAIDA ?? ''))}</span> },
+                { key: 'placa', label: 'Placa', sortValue: ({ t }) => String(t.PLACA ?? '—'), render: ({ t }) => <span className="font-mono">{String(t.PLACA ?? '—')}</span> },
+                { key: 'composicao', label: 'Composição', sortValue: ({ t }) => String(t['TipoComposição'] ?? '—'), render: ({ t }) => String(t['TipoComposição'] ?? '—') },
+                { key: 'nota', label: 'Nota(s) fiscal(is)', sortValue: ({ t }) => String(t.NUMEROMOV ?? '—'), render: ({ t }) => <span className="font-mono text-xs">{String(t.NUMEROMOV ?? '—')}</span> },
+                { key: 'peso', label: 'Peso líq. (t)', align: 'right', sortValue: ({ t }) => Number(t.PESOLIQUIDO ?? 0), render: ({ t }) => fmt(Number(t.PESOLIQUIDO ?? 0) / 1000, 1) },
+                { key: 'limite', label: 'Limite (t)', align: 'right', sortValue: ({ t }) => Number(t.PESO_LIMITE_T ?? 0), render: ({ t }) => fmt(Number(t.PESO_LIMITE_T ?? 0), 1) },
+                {
+                  key: 'excesso',
+                  label: 'Excesso (t)',
+                  align: 'right',
+                  sortValue: ({ t }) => Number(t.PESO_EXCESSO_T ?? 0),
+                  render: ({ t }) => <span className="font-medium text-red-600">+{fmt(Number(t.PESO_EXCESSO_T ?? 0), 1)}</span>,
+                },
+              ]}
+            />
           </div>
         )}
       </div>
@@ -2615,102 +2535,62 @@ export function Fase1Dashboard() {
         </div>
         {inconsistentTrips.length > 0 && (
           <div className="mt-3 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-left text-slate-500">
-                <tr>
-                  <th className="w-8 px-2 py-1"></th>
-                  <th className="px-2 py-1">Saída</th>
-                  <th className="px-2 py-1">Placa</th>
-                  <th className="px-2 py-1">Motorista</th>
-                  <th className="px-2 py-1">Composição cadastrada</th>
-                  <th className="px-2 py-1">Nota(s) fiscal(is)</th>
-                  <th className="px-2 py-1 text-right">Peso líq. (t)</th>
-                  <th className="px-2 py-1">Motivo</th>
-                </tr>
-              </thead>
-              <tbody>
-                {inconsistentTrips.map((t, i) => {
-                  const key = `inc:${t.DATASAIDA}|${t.PLACA}|${t.NOMEFANTASIA}|${i}`
-                  const isOpen = expandedCompliance.has(key)
-                  const notas = Array.isArray(t.NOTAS) ? (t.NOTAS as Trip[]) : []
-                  // Mesmas três condições de `applyCompositionOverrides`
-                  // (src/lib/fase1/composition.ts) — precisa ficar em sincronia
-                  // com a lógica de lá se as regras mudarem.
-                  const numMovimentos = Number(t.MOVIMENTOS ?? 1)
-                  const cadastrada = t.COMPOSICAO_CADASTRADA ? String(t.COMPOSICAO_CADASTRADA) : null
-                  const motivo =
-                    numMovimentos >= 3
-                      ? `${numMovimentos} notas no mesmo agrupamento (RodoTrem só tem 2 reboques)`
-                      : numMovimentos >= 2
-                        ? `2 notas, mas cadastro diz "${cadastrada}" (não RodoTrem)`
-                        : `1 nota só, mas cadastro diz RodoTrem (deveria ter 2)`
-                  return (
-                    <Fragment key={key}>
-                      <tr className="border-t border-slate-100">
-                        <td className="px-2 py-1">
-                          <button
-                            onClick={() =>
-                              setExpandedCompliance((prev) => {
-                                const next = new Set(prev)
-                                if (next.has(key)) next.delete(key)
-                                else next.add(key)
-                                return next
-                              })
-                            }
-                            className="rounded px-1 text-slate-500 hover:bg-slate-200"
-                            title="Ver notas fiscais da viagem"
-                          >
-                            {isOpen ? '▾' : '▸'}
-                          </button>
-                        </td>
-                        <td className="px-2 py-1 whitespace-nowrap">{fmtDate(String(t.DATASAIDA ?? ''))}</td>
-                        <td className="px-2 py-1 font-mono">{String(t.PLACA ?? '—')}</td>
-                        <td className="px-2 py-1">{String(t.MOTORISTA ?? '—')}</td>
-                        <td className="px-2 py-1">{String(t.COMPOSICAO_CADASTRADA ?? '—')}</td>
-                        <td className="px-2 py-1 font-mono text-xs">{String(t.NUMEROMOV ?? '—')}</td>
-                        <td className="px-2 py-1 text-right">{fmt(Number(t.PESOLIQUIDO ?? 0) / 1000, 1)}</td>
-                        <td className="px-2 py-1 text-xs text-slate-600">{motivo}</td>
+            <SortableTable
+              rows={inconsistentTrips.map((t, i) => {
+                const numMovimentos = Number(t.MOVIMENTOS ?? 1)
+                const cadastrada = t.COMPOSICAO_CADASTRADA ? String(t.COMPOSICAO_CADASTRADA) : null
+                // Mesmas três condições de `applyCompositionOverrides`
+                // (src/lib/fase1/composition.ts) — precisa ficar em sincronia
+                // com a lógica de lá se as regras mudarem.
+                const motivo =
+                  numMovimentos >= 3
+                    ? `${numMovimentos} notas no mesmo agrupamento (RodoTrem só tem 2 reboques)`
+                    : numMovimentos >= 2
+                      ? `2 notas, mas cadastro diz "${cadastrada}" (não RodoTrem)`
+                      : `1 nota só, mas cadastro diz RodoTrem (deveria ter 2)`
+                return { t, motivo, key: `inc:${t.DATASAIDA}|${t.PLACA}|${t.NOMEFANTASIA}|${i}` }
+              })}
+              rowKey={({ key }) => key}
+              defaultSortKey="saida"
+              renderExpanded={({ t }) => {
+                const notas = Array.isArray(t.NOTAS) ? (t.NOTAS as Trip[]) : []
+                return (
+                  <table className="w-full text-xs">
+                    <thead className="text-left text-slate-500">
+                      <tr>
+                        <th className="px-2 py-1">Nota fiscal</th>
+                        <th className="px-2 py-1">Origem</th>
+                        <th className="px-2 py-1">Cliente</th>
+                        <th className="px-2 py-1">Produto</th>
+                        <th className="px-2 py-1 text-right">Peso bruto (t)</th>
+                        <th className="px-2 py-1 text-right">Peso líquido (t)</th>
                       </tr>
-                      {isOpen && (
-                        <tr className="border-t border-slate-100 bg-slate-50">
-                          <td></td>
-                          <td colSpan={7} className="px-2 py-2">
-                            <table className="w-full text-xs">
-                              <thead className="text-left text-slate-500">
-                                <tr>
-                                  <th className="px-2 py-1">Nota fiscal</th>
-                                  <th className="px-2 py-1">Origem</th>
-                                  <th className="px-2 py-1">Cliente</th>
-                                  <th className="px-2 py-1">Produto</th>
-                                  <th className="px-2 py-1 text-right">Peso bruto (t)</th>
-                                  <th className="px-2 py-1 text-right">Peso líquido (t)</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {notas.map((n, ni) => (
-                                  <tr key={ni} className="border-t border-slate-200">
-                                    <td className="px-2 py-1 font-mono">{String(n.numeroMov ?? '—')}</td>
-                                    <td className="px-2 py-1">{String(n.origem ?? '—')}</td>
-                                    <td className="px-2 py-1">{String(n.cliente ?? '—')}</td>
-                                    <td className="px-2 py-1">{String(n.produto ?? '—')}</td>
-                                    <td className="px-2 py-1 text-right">
-                                      {fmt(Number(n.pesoBruto ?? 0) / 1000, 2)}
-                                    </td>
-                                    <td className="px-2 py-1 text-right">
-                                      {fmt(Number(n.pesoLiquido ?? 0) / 1000, 2)}
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </td>
+                    </thead>
+                    <tbody>
+                      {notas.map((n, ni) => (
+                        <tr key={ni} className="border-t border-slate-200">
+                          <td className="px-2 py-1 font-mono">{String(n.numeroMov ?? '—')}</td>
+                          <td className="px-2 py-1">{String(n.origem ?? '—')}</td>
+                          <td className="px-2 py-1">{String(n.cliente ?? '—')}</td>
+                          <td className="px-2 py-1">{String(n.produto ?? '—')}</td>
+                          <td className="px-2 py-1 text-right">{fmt(Number(n.pesoBruto ?? 0) / 1000, 2)}</td>
+                          <td className="px-2 py-1 text-right">{fmt(Number(n.pesoLiquido ?? 0) / 1000, 2)}</td>
                         </tr>
-                      )}
-                    </Fragment>
-                  )
-                })}
-              </tbody>
-            </table>
+                      ))}
+                    </tbody>
+                  </table>
+                )
+              }}
+              columns={[
+                { key: 'saida', label: 'Saída', sortValue: ({ t }) => String(t.DATASAIDA ?? ''), render: ({ t }) => <span className="whitespace-nowrap">{fmtDate(String(t.DATASAIDA ?? ''))}</span> },
+                { key: 'placa', label: 'Placa', sortValue: ({ t }) => String(t.PLACA ?? '—'), render: ({ t }) => <span className="font-mono">{String(t.PLACA ?? '—')}</span> },
+                { key: 'motorista', label: 'Motorista', sortValue: ({ t }) => String(t.MOTORISTA ?? '—'), render: ({ t }) => String(t.MOTORISTA ?? '—') },
+                { key: 'composicao', label: 'Composição cadastrada', sortValue: ({ t }) => String(t.COMPOSICAO_CADASTRADA ?? '—'), render: ({ t }) => String(t.COMPOSICAO_CADASTRADA ?? '—') },
+                { key: 'nota', label: 'Nota(s) fiscal(is)', sortValue: ({ t }) => String(t.NUMEROMOV ?? '—'), render: ({ t }) => <span className="font-mono text-xs">{String(t.NUMEROMOV ?? '—')}</span> },
+                { key: 'peso', label: 'Peso líq. (t)', align: 'right', sortValue: ({ t }) => Number(t.PESOLIQUIDO ?? 0), render: ({ t }) => fmt(Number(t.PESOLIQUIDO ?? 0) / 1000, 1) },
+                { key: 'motivo', label: 'Motivo', sortValue: (r) => r.motivo, render: (r) => <span className="text-xs text-slate-600">{r.motivo}</span> },
+              ]}
+            />
           </div>
         )}
       </div>

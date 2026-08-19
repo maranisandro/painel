@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { calcularDisponibilidadePlaca, type DisponibilidadePlaca } from '@/lib/fase1/disponibilidade'
+import { SortableTable } from '@/components/shared/SortableTable'
 
 const PRODUTOS_ESCOPO = new Set(['Carvão', 'Cavaco', 'Maravalha'])
 
@@ -183,51 +184,48 @@ export function Fase1Disponibilidade({
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-slate-600">
-            <tr>
-              <th className="px-3 py-2">Placa</th>
-              <th className="px-3 py-2 text-right">Horas disponíveis</th>
-              <th className="px-3 py-2 text-right">Disp. Mecânica</th>
-              <th className="px-3 py-2 text-right">Horas rodando</th>
-              <th className="px-3 py-2 text-right">Efic. 1</th>
-              <th className="px-3 py-2 text-right">KM real</th>
-              <th className="px-3 py-2 text-right">Efic. 2</th>
-              <th className="px-3 py-2 text-right">Viagens</th>
-              <th className="px-3 py-2 text-right">Efic. 3</th>
-            </tr>
-          </thead>
-          <tbody>
-            {linhas.map((l) => (
-              <tr key={l.placa} className="border-t border-slate-100">
-                <td className="px-3 py-2 font-mono font-medium">{l.placa}</td>
-                <td className="px-3 py-2 text-right">{fmt(l.horasDisponiveis)}</td>
-                <td className={`px-3 py-2 text-right font-medium ${corPct(l.disponibilidadeMecanicaPct)}`}>
-                  {fmtPct(l.disponibilidadeMecanicaPct)}
-                </td>
-                <td className="px-3 py-2 text-right">{l.horasRodando != null ? fmt(l.horasRodando, 1) : '—'}</td>
-                <td className={`px-3 py-2 text-right font-medium ${corPct(l.eficienciaHorasRodandoPct)}`}>
-                  {fmtPct(l.eficienciaHorasRodandoPct)}
-                </td>
-                <td className="px-3 py-2 text-right">{fmt(l.kmReal)}</td>
-                <td className={`px-3 py-2 text-right font-medium ${corPct(l.eficienciaKmRitmoPct)}`}>
-                  {fmtPct(l.eficienciaKmRitmoPct)}
-                </td>
-                <td className="px-3 py-2 text-right">{l.viagensReais}</td>
-                <td className={`px-3 py-2 text-right font-medium ${corPct(l.eficienciaViagensPct)}`}>
-                  {fmtPct(l.eficienciaViagensPct)}
-                </td>
-              </tr>
-            ))}
-            {linhas.length === 0 && (
-              <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
-                  Nenhuma placa com viagem ou manutenção no período.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+        <SortableTable
+          rows={linhas}
+          rowKey={(l) => l.placa}
+          defaultSortKey="placa"
+          defaultSortDir="asc"
+          emptyMessage="Nenhuma placa com viagem ou manutenção no período."
+          columns={[
+            { key: 'placa', label: 'Placa', sortValue: (l) => l.placa, render: (l) => <span className="font-mono font-medium">{l.placa}</span> },
+            { key: 'horasDisp', label: 'Horas disponíveis', align: 'right', sortValue: (l) => l.horasDisponiveis, render: (l) => fmt(l.horasDisponiveis) },
+            {
+              key: 'dispMecanica',
+              label: 'Disp. Mecânica',
+              align: 'right',
+              sortValue: (l) => l.disponibilidadeMecanicaPct ?? -1,
+              render: (l) => <span className={`font-medium ${corPct(l.disponibilidadeMecanicaPct)}`}>{fmtPct(l.disponibilidadeMecanicaPct)}</span>,
+            },
+            { key: 'horasRodando', label: 'Horas rodando', align: 'right', sortValue: (l) => l.horasRodando ?? -1, render: (l) => (l.horasRodando != null ? fmt(l.horasRodando, 1) : '—') },
+            {
+              key: 'efic1',
+              label: 'Efic. 1',
+              align: 'right',
+              sortValue: (l) => l.eficienciaHorasRodandoPct ?? -1,
+              render: (l) => <span className={`font-medium ${corPct(l.eficienciaHorasRodandoPct)}`}>{fmtPct(l.eficienciaHorasRodandoPct)}</span>,
+            },
+            { key: 'kmReal', label: 'KM real', align: 'right', sortValue: (l) => l.kmReal, render: (l) => fmt(l.kmReal) },
+            {
+              key: 'efic2',
+              label: 'Efic. 2',
+              align: 'right',
+              sortValue: (l) => l.eficienciaKmRitmoPct ?? -1,
+              render: (l) => <span className={`font-medium ${corPct(l.eficienciaKmRitmoPct)}`}>{fmtPct(l.eficienciaKmRitmoPct)}</span>,
+            },
+            { key: 'viagens', label: 'Viagens', align: 'right', sortValue: (l) => l.viagensReais, render: (l) => l.viagensReais },
+            {
+              key: 'efic3',
+              label: 'Efic. 3',
+              align: 'right',
+              sortValue: (l) => l.eficienciaViagensPct ?? -1,
+              render: (l) => <span className={`font-medium ${corPct(l.eficienciaViagensPct)}`}>{fmtPct(l.eficienciaViagensPct)}</span>,
+            },
+          ]}
+        />
       </div>
     </div>
   )

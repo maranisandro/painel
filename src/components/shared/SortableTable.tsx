@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useMemo, useState, type MouseEvent, type ReactNode } from 'react'
 
 export interface SortableColumn<T> {
   key: string
@@ -28,6 +28,9 @@ export function SortableTable<T>({
   defaultSortDir = 'desc',
   renderExpanded,
   emptyMessage = 'Nenhum registro.',
+  onRowClick,
+  rowClassName,
+  rowTitle,
 }: {
   columns: SortableColumn<T>[]
   rows: T[]
@@ -36,6 +39,11 @@ export function SortableTable<T>({
   defaultSortDir?: 'asc' | 'desc'
   renderExpanded?: (row: T) => ReactNode
   emptyMessage?: string
+  /** linha inteira clicável (ex.: abrir modal de detalhe) — opcional, além do `render` de cada coluna */
+  onRowClick?: (row: T, e: MouseEvent) => void
+  /** classes extras por linha (ex.: destacar em vermelho quando há um alerta) */
+  rowClassName?: (row: T) => string
+  rowTitle?: (row: T) => string | undefined
 }) {
   const [sortKey, setSortKey] = useState(defaultSortKey ?? columns[0]?.key)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(defaultSortDir)
@@ -114,7 +122,11 @@ export function SortableTable<T>({
           const aberta = expandido.has(key)
           return (
             <Fragment key={key}>
-              <tr className="border-t border-slate-100">
+              <tr
+                className={`border-t border-slate-100 ${onRowClick ? 'cursor-pointer hover:bg-slate-50' : ''} ${rowClassName?.(r) ?? ''}`}
+                onClick={onRowClick ? (e) => onRowClick(r, e) : undefined}
+                title={rowTitle?.(r)}
+              >
                 {renderExpanded && (
                   <td className="px-3 py-2">
                     <button
