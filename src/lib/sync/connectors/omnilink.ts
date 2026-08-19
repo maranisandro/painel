@@ -69,9 +69,19 @@ async function login(source: DataSource): Promise<string> {
   return body.token
 }
 
+// ACHADO REAL 2026-08-19: a API da Omnilink trabalha em horário de Brasília
+// (GMT-3), não UTC — confirmado ao vivo comparando o relógio UTC real no
+// momento da chamada com o `envio_recepcao` da posição mais recente
+// devolvida (diferença de ~3h, batendo exatamente com o fuso). Antes disso,
+// `inicio`/`fim` eram formatados em UTC (assumindo que a API também usava
+// UTC) e `parseEnvioRecepcao` (abaixo) tratava a resposta como se já fosse
+// UTC — os dois lados com o mesmo erro, fazendo toda posição gravada
+// parecer sistematicamente 3h mais antiga do que realmente é.
+const OFFSET_BRASILIA_MS = 3 * 3_600_000
+
 function fmtDataHora(d: Date): string {
-  // "YYYY-MM-DD HH:MM:SS" em UTC — formato do exemplo do usuário
-  return d.toISOString().slice(0, 19).replace('T', ' ')
+  // "YYYY-MM-DD HH:MM:SS" em horário de Brasília (GMT-3) — formato que a API espera.
+  return new Date(d.getTime() - OFFSET_BRASILIA_MS).toISOString().slice(0, 19).replace('T', ' ')
 }
 
 /**
@@ -107,13 +117,18 @@ export function parseLatLog(latLog: string): { lat: number; lng: number } | null
   return { lat, lng }
 }
 
-/** "30/07/2026 20:00:00 - 31/07/2026 16:07:31" → Date da PRIMEIRA data (envio do rastreador). */
+/**
+ * "30/07/2026 20:00:00 - 31/07/2026 16:07:31" → Date da PRIMEIRA data (envio
+ * do rastreador). O horário vem em GMT-3 (Brasília, ver achado 2026-08-19
+ * acima) — `-03:00` explícito faz o JS converter para o instante UTC certo,
+ * em vez do antigo `Z` (que tratava a hora local como se já fosse UTC).
+ */
 export function parseEnvioRecepcao(s: string): Date | null {
   const primeira = s.split(' - ')[0]?.trim()
   const m = primeira?.match(/^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2}):(\d{2})$/)
   if (!m) return null
   const [, dd, mm, yyyy, hh, mi, ss] = m
-  const d = new Date(`${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}Z`)
+  const d = new Date(`${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}-03:00`)
   return Number.isNaN(d.getTime()) ? null : d
 }
 
