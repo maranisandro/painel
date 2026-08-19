@@ -232,7 +232,13 @@ export async function processFase1VendasTransporte(rows: ExternalRow[]): Promise
   const primeiraDataNovaPorPlaca = new Map<string, string>()
   for (const row of rows) {
     const placa = String(row.PLACA ?? '').trim().toUpperCase()
-    const data = String(row.DATASAIDA ?? '').slice(0, 10)
+    // DATASAIDA chega aqui como Date nativo do Oracle (linhas cruas, antes do
+    // round-trip por JSON no dataset_rows) — String(date) usa
+    // Date.toString() ("Wed Aug 19 2026...") e não o formato ISO, quebrando o
+    // slice(0,10) que o resto do código assume. Achado real 2026-08-19: todo
+    // sync deste dataset falhava no pós-processamento por causa disso.
+    const raw = row.DATASAIDA
+    const data = raw instanceof Date ? raw.toISOString().slice(0, 10) : String(raw ?? '').slice(0, 10)
     if (!placa || !data) continue
     const atual = primeiraDataNovaPorPlaca.get(placa)
     if (!atual || data < atual) primeiraDataNovaPorPlaca.set(placa, data)
