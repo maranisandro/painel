@@ -126,6 +126,38 @@ export async function GET(req: NextRequest) {
     return c ? { ...row, ['TipoComposição']: c } : row
   })
 
+  // Composição vigente HOJE por placa — pedido do usuário 2026-08-19: placas
+  // transferidas para Tritrem Florestal (transporte de madeira, fora do
+  // escopo deste painel por enquanto) devem parar de contar como frota
+  // ativa do Transporte Rodoviário (sem mais "sem viagem no período"/atraso
+  // acumulando), mas continuam valendo normalmente nas estatísticas até o
+  // dia da mudança. Sem essa data de corte não dá pra saber, só pelas
+  // viagens (que somem do dataset assim que a placa vira Tritrem), se a
+  // placa "sumiu" porque parou de rodar ou porque mudou de composição.
+  const registrosComposicao = await prisma.plateComposition.findMany({
+    orderBy: { effectiveFrom: 'asc' },
+    select: { placa: true, effectiveFrom: true },
+  })
+  const composicoesAtuais: Record<string, { composicao: string; desde: string | null }> = {}
+  for (const placa of new Set(registrosComposicao.map((p) => p.placa.trim().toUpperCase()))) {
+    const composicao = resolveComposition(placa, todayStr)
+    if (!composicao) continue
+    // Data de vigência do registro atual — mesma lógica de resolução do
+    // resolver (o registro com effectiveFrom mais recente ainda <= hoje;
+    // null conta como "desde sempre", só perde pra qualquer data real) —
+    // usado só pra exibir "desde quando" ao usuário.
+    const registrosDaPlaca = registrosComposicao
+      .filter((r) => r.placa.trim().toUpperCase() === placa)
+      .map((r) => (r.effectiveFrom ? r.effectiveFrom.toISOString().slice(0, 10) : null))
+      .sort((a, b) => (a ?? '').localeCompare(b ?? ''))
+    let desde: string | null = null
+    for (const from of registrosDaPlaca) {
+      if (from === null || from <= todayStr) desde = from
+      else break
+    }
+    composicoesAtuais[placa] = { composicao, desde }
+  }
+
   // Devolve TODAS as viagens enriquecidas (desde a carga inicial): o cliente
   // aplica o período e os filtros de dimensão — assim o comparativo mensal
   // também responde à cross-filtragem do painel.
@@ -406,5 +438,6 @@ export async function GET(req: NextRequest) {
     abastecimento,
     manutencoes,
     ferias,
+    composicoesAtuais,
   })
 }

@@ -605,6 +605,43 @@ export function achadosPlacaSemComposicao(placasComViagem: Row[], placasComCompo
 }
 
 /**
+ * Nota fiscal de transporte rodoviário aparecendo para uma placa que, na
+ * data da viagem, já estava com composição Tritrem Florestal (transporte de
+ * madeira, fora do escopo do Fase1) — pedido do usuário 2026-08-19: "se
+ * alguma nota aparecer para estas placas que estão com composição de
+ * tritrem esta deve voltar para o painel como crítica". `tripsComComposicao`
+ * já deve trazer `TipoComposição` resolvido por data (ver
+ * `applyCompositionOverrides`/`buildCompositionResolver`) — qualquer viagem
+ * resolvida como Tritrem Florestal é a própria evidência do problema (esse
+ * implemento não deveria gerar nota de transporte rodoviário).
+ */
+export function achadosNotaAposTransferenciaTritrem(tripsComComposicao: Row[]): AchadoDetectado[] {
+  const porPlaca = new Map<string, { n: number; primeira: string; ultima: string }>()
+  for (const t of tripsComComposicao) {
+    if (String(t['TipoComposição'] ?? '') !== 'Tritrem Florestal') continue
+    const placa = String(t.PLACA ?? '').trim().toUpperCase()
+    const data = String(t.DATASAIDA ?? '').slice(0, 10)
+    if (!placa || !data) continue
+    const info = porPlaca.get(placa) ?? { n: 0, primeira: data, ultima: data }
+    info.n++
+    if (data < info.primeira) info.primeira = data
+    if (data > info.ultima) info.ultima = data
+    porPlaca.set(placa, info)
+  }
+
+  const out: AchadoDetectado[] = []
+  for (const [placa, info] of porPlaca.entries()) {
+    out.push({
+      categoria: 'nota_apos_tritrem',
+      chave: `nota-apos-tritrem-${placa}`,
+      titulo: `Placa ${placa} — nota de transporte rodoviário com a placa já em Tritrem Florestal`,
+      descricao: `${info.n} viagem(ns) de ${info.primeira} a ${info.ultima} apareceram no Transporte Rodoviário com a placa já cadastrada como Tritrem Florestal (transporte de madeira) na data da viagem — confira se a placa realmente voltou a fazer transporte rodoviário, ou se é um erro de nota/cadastro.`,
+    })
+  }
+  return out.sort((a, b) => a.chave.localeCompare(b.chave))
+}
+
+/**
  * Comparativo do nº de viagens de junho/2026 do painel (agregação por
  * DATASAIDA+PLACA+MOTORISTA+destino, ver `aggregateTrips`) contra a
  * referência externa colada pelo usuário — pedido 2026-08-13: "fazer um

@@ -114,6 +114,7 @@ interface SemComunicacaoInfo {
   localizacao: string | null
   minutosSemComunicacao: number | null
   ultimoStatusSincronizacao: string | null
+  ultimasLinhasRecebidas: number | null
   ultimaTentativaEm: string | null
 }
 
@@ -320,7 +321,16 @@ export function RastreamentoFrota({
   }
 
   function exportarSemComunicacaoCsv() {
-    const header = ['Placa', 'Situação', 'Última posição', 'Localização', 'Há quanto tempo', 'Último status de sincronização'].join(';')
+    const header = [
+      'Placa',
+      'Situação',
+      'Última posição',
+      'Localização',
+      'Há quanto tempo',
+      'Última consulta à Omnilink',
+      'Status da consulta',
+      'Posições novas recebidas',
+    ].join(';')
     const linhas = semComunicacaoFiltrada.map((r) =>
       [
         r.placa,
@@ -328,7 +338,9 @@ export function RastreamentoFrota({
         r.ultimaPosicaoEm ? fmtDataHora(r.ultimaPosicaoEm) : 'nunca',
         r.localizacao ?? '',
         r.minutosSemComunicacao != null ? fmtDuracao(r.minutosSemComunicacao) : '—',
+        r.ultimaTentativaEm ? fmtDataHora(r.ultimaTentativaEm) : '—',
         r.ultimoStatusSincronizacao ?? '—',
+        r.ultimasLinhasRecebidas ?? 0,
       ]
         .map((v) => String(v).replace(/;/g, ','))
         .join(';'),
@@ -912,7 +924,9 @@ export function RastreamentoFrota({
                   </th>
                   <th className="px-3 py-2">Última posição</th>
                   <th className="px-3 py-2">Localização</th>
-                  <th className="px-3 py-2">Última tentativa de sincronização</th>
+                  <th className="px-3 py-2" title="Confirma se conseguimos falar com a Omnilink — 'OK · 0 posições' significa que a consulta funcionou, só não veio dado novo do rastreador">
+                    Última consulta à Omnilink
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -936,7 +950,18 @@ export function RastreamentoFrota({
                       {r.localizacao ?? '—'}
                     </td>
                     <td className="px-3 py-2 text-slate-600">
-                      {r.ultimaTentativaEm ? `${fmtDataHora(r.ultimaTentativaEm)} (${r.ultimoStatusSincronizacao})` : '—'}
+                      {r.ultimaTentativaEm ? (
+                        <>
+                          {fmtDataHora(r.ultimaTentativaEm)} ·{' '}
+                          {r.ultimoStatusSincronizacao === 'NAO_LOCALIZADA'
+                            ? 'placa não localizada'
+                            : r.ultimoStatusSincronizacao === 'ERRO'
+                              ? 'erro na consulta'
+                              : `OK · ${r.ultimasLinhasRecebidas ?? 0} posição(ões) nova(s)`}
+                        </>
+                      ) : (
+                        '—'
+                      )}
                     </td>
                   </tr>
                 ))}

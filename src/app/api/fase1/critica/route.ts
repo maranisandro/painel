@@ -13,10 +13,12 @@ import {
   achadosComparativoViagensReferencia,
   achadosPlacaSemComposicao,
   achadosMovimentoDuranteManutencao,
+  achadosNotaAposTransferenciaTritrem,
   type AchadoDetectado,
   type PosicaoGps,
 } from '@/lib/fase1/critica'
 import { getAllTripsEnriched } from '@/lib/fase1/get-trips-simple'
+import { buildCompositionResolver } from '@/lib/fase1/composition'
 
 const MODULO = 'fase1_combustivel'
 const STATUS_VALIDOS = ['reconhecido', 'encaminhado_origem', 'resolvido']
@@ -80,6 +82,16 @@ export async function GET() {
   const composicoes = await prisma.plateComposition.findMany({ select: { placa: true } })
   const placasComComposicao = new Set(composicoes.map((c) => c.placa.trim().toUpperCase()))
 
+  // Composição vigente na DATA de cada viagem — pedido do usuário 2026-08-19:
+  // detectar nota de transporte rodoviário aparecendo pra placa que, na data
+  // da viagem, já estava cadastrada como Tritrem Florestal (fora do escopo
+  // do Fase1). Mesma resolução usada em /api/fase1/data.
+  const resolveComposition = await buildCompositionResolver()
+  const placasComViagemComComposicao = placasComViagem.map((t) => {
+    const c = resolveComposition(t.PLACA, String(t.DATASAIDA ?? '').slice(0, 10))
+    return c ? { ...t, ['TipoComposição']: c } : t
+  })
+
   const manutencoesAbertas = await prisma.vehicleMaintenance.findMany({
     where: { endDate: null },
     select: { placa: true, startDate: true },
@@ -100,6 +112,7 @@ export async function GET() {
     ...achadosComparativoViagensReferencia(placasComViagem),
     ...achadosPlacaSemComposicao(placasComViagem, placasComComposicao),
     ...achadosMovimentoDuranteManutencao(manutencoesAbertasFmt, posicoesGps),
+    ...achadosNotaAposTransferenciaTritrem(placasComViagemComComposicao),
   ]
 
   const registros = await prisma.criticaModeloAchado.findMany({ where: { modulo: MODULO } })

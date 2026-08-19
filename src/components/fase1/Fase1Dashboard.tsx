@@ -85,7 +85,18 @@ interface ApiData {
   ferias: { motorista: string; aberta: boolean; dias: number }[]
   /** Abastecimento (Officium) já filtrado à frota própria conhecida — usado no controle km/l */
   abastecimento: { PLACA: string; date: string; pedometer: number; amount: number; produto: string }[]
+  /**
+   * Composição vigente HOJE por placa (Cadastros → Composições) — pedido do
+   * usuário 2026-08-19: placas transferidas para Tritrem Florestal (fora do
+   * escopo do Transporte Rodoviário) devem parar de contar como frota ativa
+   * (sem mais "sem viagem"/atraso acumulando), mas continuam valendo
+   * normalmente nas estatísticas até o dia da mudança.
+   */
+  composicoesAtuais: Record<string, { composicao: string; desde: string | null }>
 }
+
+/** Composições que saíram do escopo do Transporte Rodoviário (Fase 1) — hoje só Tritrem Florestal (transporte de madeira, achado 2026-08-19). */
+const COMPOSICOES_FORA_DE_FASE1 = new Set(['Tritrem Florestal'])
 
 /**
  * "Ver cálculo" dos cards de Custo R$/km e R$/tonelada (pedido do usuário
@@ -638,6 +649,7 @@ export function Fase1Dashboard() {
     ausenciaLabel: 'manutenção' | 'férias'
     justificativa?: Justificativa
     consumo?: ConsumoPlaca
+    composicaoAtual?: { composicao: string; desde: string | null }
   } | null>(null)
   // Alertas no topo do painel começam recolhidos (só a linha-resumo) — clique
   // na seta expande a lista de itens. Pedido do usuário: reduzir o quanto a
@@ -926,6 +938,12 @@ export function Fase1Dashboard() {
   // frete Próprio em algum momento (histórico completo, não só o período) —
   // pedido do usuário: ignorar placas de terceiros só catalogadas no
   // cadastro de composição, considerar "sem viagem" só quem é frota própria.
+  // Exclui placas já transferidas para uma composição fora do Fase1 (ex.:
+  // Tritrem Florestal) — pedido do usuário 2026-08-19: "devem ter sua
+  // viagem encerrada na data da transferência... participar da estatística
+  // até o dia que compuseram a frota" — sem essa exclusão, elas continuam
+  // aparecendo como "sem viagem no período" pra sempre depois de mudarem de
+  // negócio, mesmo não fazendo mais parte do Transporte Rodoviário.
   const frotaPropriaConhecida = useMemo(() => {
     if (!data) return []
     const set = new Set<string>()
@@ -934,6 +952,9 @@ export function Fase1Dashboard() {
         const p = String(t.PLACA ?? '').trim()
         if (p) set.add(p)
       }
+    }
+    for (const [placa, info] of Object.entries(data.composicoesAtuais)) {
+      if (COMPOSICOES_FORA_DE_FASE1.has(info.composicao)) set.delete(placa)
     }
     return [...set]
   }, [data])
@@ -1250,6 +1271,7 @@ export function Fase1Dashboard() {
         ausenciaLabel: 'manutenção',
         justificativa: justificativas.get(tr.ultimaViagemKey),
         consumo: consumoPorPlaca.get(tr.key),
+        composicaoAtual: data?.composicoesAtuais[tr.key],
       })
     }
     router.replace('/dashboard/fase1', { scroll: false })
@@ -1956,6 +1978,11 @@ export function Fase1Dashboard() {
             {placaGroupsFull.map((tr) => {
               const st = STATUS_STYLE[tr.status]
               const emManutencaoTr = !!manutencaoPorPlaca.get(tr.key)?.aberta
+              // Placa transferida pra composição fora do Fase1 (ex.: Tritrem
+              // Florestal) — pedido do usuário 2026-08-19: "estatística
+              // encerrada na data da transferência", não mais "atrasada".
+              const composicaoAtualTr = data.composicoesAtuais[tr.key]
+              const emTritremTr = composicaoAtualTr && COMPOSICOES_FORA_DE_FASE1.has(composicaoAtualTr.composicao)
               const last = tr.trips[0]
               const destino = String(last?.NOMEFANTASIA ?? '—')
               const produto = String(last?.TipoProduto ?? '—')
@@ -1981,10 +2008,11 @@ export function Fase1Dashboard() {
                       ausenciaLabel: 'manutenção',
                       justificativa: justificativas.get(tr.ultimaViagemKey),
                       consumo: consumoPorPlaca.get(tr.key),
+                      composicaoAtual: composicaoAtualTr,
                     })
                   }}
-                  title={`${tr.key} · ${emManutencaoTr ? 'Em manutenção' : st.label} · ${destino}${consumoTr?.kmPorLitro != null ? ` · ${fmt(consumoTr.kmPorLitro, 2)} km/l` : ''} · clique para ver a viagem atual, Ctrl+clique para filtrar`}
-                  className={`rounded-xl border p-3 text-left ${emManutencaoTr ? 'border-violet-300 bg-violet-100 text-violet-800' : st.cls} ${anySelected && !isSelected ? 'opacity-30' : ''} ${isSelected ? 'ring-2 ring-emerald-600' : ''}`}
+                  title={`${tr.key} · ${emTritremTr ? 'Tritrem Florestal (fora do Fase1)' : emManutencaoTr ? 'Em manutenção' : st.label} · ${destino}${consumoTr?.kmPorLitro != null ? ` · ${fmt(consumoTr.kmPorLitro, 2)} km/l` : ''} · clique para ver a viagem atual, Ctrl+clique para filtrar`}
+                  className={`rounded-xl border p-3 text-left ${emTritremTr ? 'border-amber-300 bg-amber-100 text-amber-900' : emManutencaoTr ? 'border-violet-300 bg-violet-100 text-violet-800' : st.cls} ${anySelected && !isSelected ? 'opacity-30' : ''} ${isSelected ? 'ring-2 ring-emerald-600' : ''}`}
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-2xl">🚚</span>
@@ -1992,7 +2020,9 @@ export function Fase1Dashboard() {
                   </div>
                   <p className="mt-1 truncate font-mono text-sm font-semibold">{tr.key}</p>
                   <p className="truncate text-xs">{destino}</p>
-                  <p className="text-[11px] opacity-80">{emManutencaoTr ? '🔧 Em manutenção' : st.label}</p>
+                  <p className="text-[11px] opacity-80">
+                    {emTritremTr ? '🪵 Tritrem Florestal' : emManutencaoTr ? '🔧 Em manutenção' : st.label}
+                  </p>
                   {consumoTr?.kmPorLitro != null && (
                     <p
                       className={`text-[11px] font-semibold ${consumoTr.kmPorLitro < data.params.metaConsumoKmL ? 'text-red-700' : 'opacity-80'}`}
@@ -2136,6 +2166,7 @@ export function Fase1Dashboard() {
                     ausenciaLabel: 'manutenção',
                     justificativa: justificativas.get(truckMatch.ultimaViagemKey),
                     consumo: c,
+                    composicaoAtual: data.composicoesAtuais[c.placa],
                   })
                 } else {
                   toggleFilter('placa', c.placa, e.ctrlKey)
@@ -2200,6 +2231,7 @@ export function Fase1Dashboard() {
                     ausenciaLabel: 'manutenção',
                     justificativa: justificativas.get(truckMatch.ultimaViagemKey),
                     consumo: c,
+                    composicaoAtual: data.composicoesAtuais[c.placa],
                   })
                 } else {
                   toggleFilter('placa', c.placa, e.ctrlKey)
@@ -2345,6 +2377,7 @@ export function Fase1Dashboard() {
                   onJustificar={saveJustificativa}
                   consumoDisplay={aba === 'placa' ? consumoPorPlaca.get(tr.key) : consumoPorMotorista.get(tr.key)}
                   metaConsumoKmL={data.params.metaConsumoKmL}
+                  composicaoAtual={aba === 'placa' ? data.composicoesAtuais[tr.key] : undefined}
                   onDetalhar={() =>
                     setDetalheModal({
                       truck: tr,
@@ -2354,6 +2387,7 @@ export function Fase1Dashboard() {
                       ausenciaLabel: aba === 'motorista' ? 'férias' : 'manutenção',
                       justificativa: justificativas.get(tr.ultimaViagemKey),
                       consumo: aba === 'placa' ? consumoPorPlaca.get(tr.key) : undefined,
+                      composicaoAtual: aba === 'placa' ? data.composicoesAtuais[tr.key] : undefined,
                     })
                   }
                   isExpanded={isExpanded}
@@ -2617,6 +2651,7 @@ function FragmentRow({
   onToggleExpand,
   onSelect,
   onToggleManutencao,
+  composicaoAtual,
 }: {
   truck: TruckSummary
   /** Coluna alternativa no detalhe expandido: "Motorista" (aba Por Placa) ou "Placa" (aba Por Motorista) */
@@ -2625,6 +2660,8 @@ function FragmentRow({
   /** Manutenção (placa) ou férias (motorista) sobrepondo o período, se houver */
   ausencia?: { dias: number; aberta: boolean; motivo?: string | null }
   ausenciaLabel: 'manutenção' | 'férias'
+  /** Composição vigente hoje (só na aba Por Placa) — placa transferida pra fora do Fase1 (ex.: Tritrem Florestal) encerra sua estatística de atraso, pedido do usuário 2026-08-19 */
+  composicaoAtual?: { composicao: string; desde: string | null }
   /** Justificativa de atraso da última viagem (truck.ultimaViagemKey), se já registrada */
   justificativa?: Justificativa
   onJustificar: (tripKey: string, motivo: string, novaPrevisao: string | null) => Promise<boolean>
@@ -2655,6 +2692,13 @@ function FragmentRow({
   // usuário reportou que a placa continuava aparecendo como "Muito
   // atrasado" mesmo depois de entrar em manutenção.
   const emManutencao = ausenciaLabel === 'manutenção' && !!ausencia?.aberta
+  // Placa transferida pra uma composição fora do Fase1 (ex.: Tritrem
+  // Florestal, transporte de madeira) — mesma lógica da manutenção: o
+  // status de atraso da viagem deixa de ser o foco, já que a placa não faz
+  // mais parte da frota deste negócio. Pedido do usuário 2026-08-19: "devem
+  // ter sua viagem encerrada na data da transferência, e fechado sua
+  // estatística".
+  const emTritrem = !!composicaoAtual && COMPOSICOES_FORA_DE_FASE1.has(composicaoAtual.composicao)
 
   async function salvarJustificativa(e: React.FormEvent) {
     e.preventDefault()
@@ -2717,7 +2761,14 @@ function FragmentRow({
         </td>
         <td className="px-3 py-2 text-right">{fmt(truck.score)}</td>
         <td className="px-3 py-2 whitespace-nowrap">
-          {emManutencao ? (
+          {emTritrem ? (
+            <span
+              className="rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-900"
+              title={`Transferida para Tritrem Florestal${composicaoAtual?.desde ? ` em ${fmtDate(composicaoAtual.desde)}` : ''} — saiu do Transporte Rodoviário, estatística de atraso encerrada`}
+            >
+              🪵 Tritrem Florestal
+            </span>
+          ) : emManutencao ? (
             <span
               className="rounded bg-violet-100 px-2 py-0.5 text-xs text-violet-800"
               title="Atraso não avaliado enquanto a placa está em manutenção — ver Cadastros → Manutenção"
@@ -2804,13 +2855,15 @@ function FragmentRow({
             </span>
           )}
           <span className="block text-[11px] text-slate-500">
-            {emManutencao
-              ? `${fmt(truck.statusDays, 1)} dia(s) desde a última viagem — em manutenção`
-              : atrasado
-                ? `${fmt(truck.statusDays, 1)} dia(s) de atraso`
-                : `há ${fmt(truck.statusDays, 1)} dia(s) desde a saída`}
+            {emTritrem
+              ? `desde ${composicaoAtual?.desde ? fmtDate(composicaoAtual.desde) : '—'} — fora do Transporte Rodoviário`
+              : emManutencao
+                ? `${fmt(truck.statusDays, 1)} dia(s) desde a última viagem — em manutenção`
+                : atrasado
+                  ? `${fmt(truck.statusDays, 1)} dia(s) de atraso`
+                  : `há ${fmt(truck.statusDays, 1)} dia(s) desde a saída`}
           </span>
-          {atrasado && (
+          {!emTritrem && atrasado && (
             <div onClick={(e) => e.stopPropagation()} className="mt-1">
               {!justificando && justificativa && (
                 <span className="text-[11px] text-slate-600">
@@ -2959,6 +3012,7 @@ function PlacaDetailModal({
   ausenciaLabel,
   justificativa,
   consumo,
+  composicaoAtual,
   onClose,
 }: {
   truck: TruckSummary
@@ -2968,10 +3022,12 @@ function PlacaDetailModal({
   ausenciaLabel: 'manutenção' | 'férias'
   justificativa?: Justificativa
   consumo?: ConsumoPlaca
+  composicaoAtual?: { composicao: string; desde: string | null }
   onClose: () => void
 }) {
   const st = STATUS_STYLE[truck.status]
   const emManutencao = ausenciaLabel === 'manutenção' && !!ausencia?.aberta
+  const emTritrem = !!composicaoAtual && COMPOSICOES_FORA_DE_FASE1.has(composicaoAtual.composicao)
   // Linhas de abastecimento "fracionado" (soma de 2+ no mesmo hodômetro/dia)
   // que o usuário expandiu para ver os itens individuais por trás da soma —
   // pedido do usuário 2026-08-03: "pode fundir [por] data mas abrir as opções".
@@ -3050,7 +3106,14 @@ function PlacaDetailModal({
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          {emManutencao ? (
+          {emTritrem ? (
+            <span
+              className="rounded-full bg-amber-100 px-3 py-1 text-sm font-medium text-amber-900"
+              title={`Transferida para Tritrem Florestal${composicaoAtual?.desde ? ` em ${fmtDate(composicaoAtual.desde)}` : ''} — saiu do Transporte Rodoviário, estatística de atraso encerrada`}
+            >
+              🪵 Tritrem Florestal
+            </span>
+          ) : emManutencao ? (
             <span
               className="rounded-full bg-violet-100 px-3 py-1 text-sm font-medium text-violet-800"
               title="Atraso não avaliado enquanto a placa está em manutenção — ver Cadastros → Manutenção"

@@ -33,8 +33,8 @@ export async function GET() {
       FROM vehicle_positions
       ORDER BY placa, captured_at DESC
     `,
-    prisma.$queryRaw<{ placa: string; status: string; createdAt: Date }[]>`
-      SELECT DISTINCT ON (placa) placa, status, created_at AS "createdAt"
+    prisma.$queryRaw<{ placa: string; status: string; createdAt: Date; rowsRecebidas: number }[]>`
+      SELECT DISTINCT ON (placa) placa, status, created_at AS "createdAt", rows_recebidas AS "rowsRecebidas"
       FROM omnilink_sync_placa
       ORDER BY placa, created_at DESC
     `,
@@ -60,7 +60,13 @@ export async function GET() {
         ultimaPosicaoEm: posicao ? posicao.capturedAt.toISOString() : null,
         localizacao: posicao?.localizacao ?? null,
         minutosSemComunicacao,
+        // Pedido do usuário 2026-08-19: "o que significa 'sem comunicação'
+        // sem que houve comunicação e buscou posição?" — a sincronização
+        // pode ter respondido OK sem trazer NENHUMA posição nova (rastreador
+        // não gerou leitura, não é falha nossa). Sem o número de linhas
+        // recebidas, "OK" ao lado de "sem comunicação" parece contraditório.
         ultimoStatusSincronizacao: tentativa?.status ?? null,
+        ultimasLinhasRecebidas: tentativa?.rowsRecebidas ?? null,
         ultimaTentativaEm: tentativa ? tentativa.createdAt.toISOString() : null,
       }
     })
