@@ -15,14 +15,16 @@ interface LatestPositionRow {
 }
 
 /**
- * Lista combinada de placas "sem rastreador" (nunca tiveram nenhuma posição
- * — Omnilink não reconhece o equipamento) e "sem comunicação" (têm posição
- * antiga demais — rastreador parou de responder) — pedido do usuário
- * 2026-08-19: "podemos trabalhar junto com estes que certamente estão
- * travados, assim trabalhamos direto com o fornecedor". Uma lista só, pronta
- * pra levar pro suporte da Omnilink.
+ * Situação de comunicação de TODA a frota própria (não só as com problema) —
+ * "sem rastreador" (nunca tiveram nenhuma posição), "sem comunicação" (têm
+ * posição antiga demais) ou "OK". Pedido do usuário 2026-08-19: "podemos
+ * trabalhar junto com estes que certamente estão travados, assim trabalhamos
+ * direto com o fornecedor". A aba "Sem comunicação" do Rastreamento filtra
+ * pra fora as "OK" no cliente (`?situacao=todas` devolve tudo, usado pelo
+ * acompanhamento de Tritrem Florestal, que precisa saber a última posição
+ * mesmo de quem está em dia).
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
   const user = await getSessionUser()
   if (!hasModuleAccess(user, 'fase1')) return NextResponse.json({ error: 'acesso negado' }, { status: 403 })
 
@@ -70,9 +72,8 @@ export async function GET() {
         ultimaTentativaEm: tentativa ? tentativa.createdAt.toISOString() : null,
       }
     })
-    // só as com problema — a lista existe pra escalar pro fornecedor, não pra auditar a frota toda
-    .filter((r) => r.situacao !== 'OK')
     .sort((a, b) => (b.minutosSemComunicacao ?? Infinity) - (a.minutosSemComunicacao ?? Infinity))
 
-  return NextResponse.json(resultado)
+  const incluirOk = req.nextUrl.searchParams.get('situacao') === 'todas'
+  return NextResponse.json(incluirOk ? resultado : resultado.filter((r) => r.situacao !== 'OK'))
 }

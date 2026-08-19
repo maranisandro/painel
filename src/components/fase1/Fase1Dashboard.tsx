@@ -10,6 +10,7 @@ import { SortableTable } from '@/components/shared/SortableTable'
 import { CriticaModeloTab } from './CriticaModeloTab'
 import { Fase1Estrategico } from './Fase1Estrategico'
 import { Fase1Disponibilidade } from './Fase1Disponibilidade'
+import { Fase1Tritrem } from './Fase1Tritrem'
 
 type Trip = Record<string, unknown>
 
@@ -238,7 +239,7 @@ const DIM_LABELS: Record<DimKey, string> = {
 // valer para as duas — a lógica abaixo é parametrizada por groupField
 // exatamente para isso. "board" é o acompanhamento simples (ícones por
 // caminhão) — não segue essa regra de espelhamento, tem estrutura própria.
-type Aba = 'placa' | 'motorista' | 'board' | 'atrasados' | 'combustivel' | 'critica' | 'estrategico' | 'disponibilidade'
+type Aba = 'placa' | 'motorista' | 'board' | 'atrasados' | 'combustivel' | 'critica' | 'estrategico' | 'disponibilidade' | 'tritrem'
 
 // Ícone por classificação de produto no acompanhamento simples
 function produtoIcone(tipo: string): string {
@@ -1939,7 +1940,7 @@ export function Fase1Dashboard() {
       )}
 
       <div id="secao-tabela" className="flex flex-wrap gap-2 border-b border-slate-200">
-        {(['placa', 'estrategico', 'disponibilidade', 'motorista', 'board', 'atrasados', 'combustivel', 'critica'] as Aba[]).map((a) => (
+        {(['placa', 'estrategico', 'disponibilidade', 'motorista', 'board', 'atrasados', 'combustivel', 'critica', 'tritrem'] as Aba[]).map((a) => (
           <button
             key={a}
             onClick={() => setAba(a)}
@@ -1959,7 +1960,9 @@ export function Fase1Dashboard() {
                         ? 'Crítica ao modelo'
                         : a === 'disponibilidade'
                           ? 'Disponibilidade & Eficiência'
-                          : 'Painel estratégico (ano)'}
+                          : a === 'tritrem'
+                            ? '🪵 Tritrem Florestal'
+                            : 'Painel estratégico (ano)'}
           </button>
         ))}
       </div>
@@ -2291,6 +2294,15 @@ export function Fase1Dashboard() {
           to={to}
           metaKm={data?.params.metaKm ?? 8000}
           metaKmPorComposicao={data?.params.metaKmPorComposicao ?? {}}
+        />
+      ) : aba === 'tritrem' ? (
+        <Fase1Tritrem
+          placas={Object.entries(data?.composicoesAtuais ?? {})
+            .filter(([, info]) => COMPOSICOES_FORA_DE_FASE1.has(info.composicao))
+            .map(([placa, info]) => ({ placa, desde: info.desde }))}
+          trips={data?.trips ?? []}
+          abastecimento={data?.abastecimento ?? []}
+          metaConsumoKmL={data?.params.metaConsumoKmL ?? 2}
         />
       ) : (
         <>
