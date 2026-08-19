@@ -56,7 +56,7 @@ async function sessionLoginCookie(source: DataSource, config: { baseUrl?: string
 }
 
 export const webserviceConnector: Connector = {
-  async fetchRows(source: DataSource, dataset: Dataset, watermark: string | null): Promise<ExternalRow[]> {
+  async fetchRows(source: DataSource, dataset: Dataset, watermark: string | null, syncRunId?: string): Promise<ExternalRow[]> {
     const config = (source.config ?? {}) as {
       baseUrl?: string
       authType?: string
@@ -71,7 +71,15 @@ export const webserviceConnector: Connector = {
     // no header x-access-token → consulta POST paginada por "parte") — foge
     // demais do modelo "GET + rowsPath" genérico abaixo para caber nele.
     if (config.connectorMode === 'omnilink-turbo') {
-      return fetchOmnilinkPosicoes(source, dataset, watermark)
+      // ACHADO REAL 2026-08-19: esta implementação nunca repassava
+      // `syncRunId` pra fetchOmnilinkPosicoes (o parâmetro simplesmente não
+      // existia na assinatura aqui até agora) — o log por placa
+      // (OmnilinkSyncPlaca) nunca era gravado nas sincronizações normais
+      // (só nas buscas individuais via "buscar agora", que chamam
+      // fetchPosicoesDaPlaca direto, sem passar por este dispatcher). Sem o
+      // log, o rodízio de placas por execução também nunca tinha como saber
+      // quais placas já tinham sido tentadas — sempre repetia o mesmo lote.
+      return fetchOmnilinkPosicoes(source, dataset, watermark, syncRunId)
     }
 
     if (!config.baseUrl) throw new Error(`DataSource ${source.name}: config.baseUrl ausente`)
