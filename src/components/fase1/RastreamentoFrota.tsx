@@ -274,6 +274,15 @@ export function RastreamentoFrota({
   const [motivoInput, setMotivoInput] = useState('')
   const [salvandoReconhecimento, setSalvandoReconhecimento] = useState(false)
 
+  // Reconhecimento em lote (pedido do usuário 2026-08-19: "limpar o excesso
+  // de velocidade anterior a 17/08 para acompanhamento") — mesma exigência
+  // de motivo do reconhecimento individual, só que aplicado a todos os
+  // abertos antes de uma data de corte de uma vez.
+  const [reconhecendoLote, setReconhecendoLote] = useState(false)
+  const [loteAntesDe, setLoteAntesDe] = useState('')
+  const [loteMotivo, setLoteMotivo] = useState('')
+  const [salvandoLote, setSalvandoLote] = useState(false)
+
   const loadSpeedAlerts = async () => {
     const res = await fetch('/api/fase1/speed-alerts')
     if (res.ok) setSpeedAlerts(await res.json())
@@ -295,6 +304,23 @@ export function RastreamentoFrota({
     if (res.ok) {
       setReconhecendoId(null)
       setMotivoInput('')
+      await loadSpeedAlerts()
+    }
+  }
+
+  async function reconhecerLote() {
+    if (!loteAntesDe || loteMotivo.trim().length < 3) return
+    setSalvandoLote(true)
+    const res = await fetch('/api/fase1/speed-alerts/reconhecer-lote', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ antesDe: loteAntesDe, motivo: loteMotivo.trim() }),
+    })
+    setSalvandoLote(false)
+    if (res.ok) {
+      setReconhecendoLote(false)
+      setLoteAntesDe('')
+      setLoteMotivo('')
       await loadSpeedAlerts()
     }
   }
@@ -377,9 +403,55 @@ export function RastreamentoFrota({
 
       {alertasAbertos.length > 0 && (
         <div className="mb-4 space-y-2 rounded-xl border border-red-300 bg-red-50 p-3">
-          <p className="text-sm font-semibold text-red-900">
-            ⚠ {alertasAbertos.length} excesso(s) de velocidade sem reconhecimento
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-red-900">
+              ⚠ {alertasAbertos.length} excesso(s) de velocidade sem reconhecimento
+            </p>
+            {!reconhecendoLote && (
+              <button
+                onClick={() => {
+                  setReconhecendoLote(true)
+                  setLoteMotivo('')
+                }}
+                className="shrink-0 rounded border border-red-300 bg-white px-3 py-1 text-xs font-medium text-red-800 hover:bg-red-50"
+              >
+                Reconhecer em lote…
+              </button>
+            )}
+          </div>
+          {reconhecendoLote && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-2">
+              <label className="text-xs text-slate-600">
+                Antes de
+                <input
+                  type="date"
+                  value={loteAntesDe}
+                  onChange={(e) => setLoteAntesDe(e.target.value)}
+                  className="ml-1 rounded-md border border-slate-300 px-2 py-1 text-xs"
+                />
+              </label>
+              <input
+                autoFocus
+                value={loteMotivo}
+                onChange={(e) => setLoteMotivo(e.target.value)}
+                placeholder="Motivo (ex.: período anterior, fora do acompanhamento atual)"
+                className="min-w-[280px] flex-1 rounded-md border border-slate-300 px-2 py-1 text-xs"
+              />
+              <button
+                onClick={reconhecerLote}
+                disabled={salvandoLote || !loteAntesDe || loteMotivo.trim().length < 3}
+                className="rounded bg-red-700 px-3 py-1 text-xs font-medium text-white hover:bg-red-800 disabled:opacity-50"
+              >
+                {salvandoLote ? 'Salvando…' : `Reconhecer todos antes de ${loteAntesDe || '…'}`}
+              </button>
+              <button
+                onClick={() => setReconhecendoLote(false)}
+                className="rounded border border-slate-300 px-3 py-1 text-xs hover:bg-slate-100"
+              >
+                Cancelar
+              </button>
+            </div>
+          )}
           {alertasAbertos.map((a) => (
             <div key={a.id} className="rounded-lg border border-red-200 bg-white px-3 py-2">
               <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
@@ -711,12 +783,26 @@ export function RastreamentoFrota({
                           usuário 2026-08-17: "clicar e ir para o mapa identificar
                           o local para o devido cadastro" */}
                       {r.latitude != null && r.longitude != null && (
-                        <button
-                          onClick={() => verCoordenadaNoMapa(r.latitude!, r.longitude!)}
-                          className="whitespace-nowrap rounded bg-violet-100 px-2 py-1 text-xs font-medium text-violet-800 hover:bg-violet-200"
-                        >
-                          📍 ver no mapa
-                        </button>
+                        <div className="flex flex-wrap gap-1">
+                          <button
+                            onClick={() => verCoordenadaNoMapa(r.latitude!, r.longitude!)}
+                            className="whitespace-nowrap rounded bg-violet-100 px-2 py-1 text-xs font-medium text-violet-800 hover:bg-violet-200"
+                          >
+                            📍 ver no mapa
+                          </button>
+                          {/* pedido do usuário 2026-08-19: "não me deixa cadastrar
+                              o local, preciso desta opção" — depois de identificar
+                              visualmente no mapa, precisa de um caminho direto pra
+                              cadastrar (Cadastros → Locais já com lat/lng prontos). */}
+                          <a
+                            href={`/dashboard/admin/locais?lat=${r.latitude}&lng=${r.longitude}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="whitespace-nowrap rounded bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-200"
+                          >
+                            ➕ cadastrar local
+                          </a>
+                        </div>
                       )}
                     </td>
                   </tr>

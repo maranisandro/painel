@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { ExcelButtons } from '@/components/admin/ExcelButtons'
 import { LocationShapeMap } from '@/components/admin/LocationShapeMap'
 
@@ -144,6 +145,43 @@ export default function LocaisPage() {
     setError('')
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
+
+  /**
+   * Pré-preenche o formulário a partir de uma coordenada avulsa (ex.: "ver no
+   * mapa" na aba Pernoite do Rastreamento) — pedido do usuário 2026-08-19:
+   * "não me deixa cadastrar o local, preciso desta opção". Tipo fica em
+   * aberto (usuário escolhe depois de identificar visualmente no mapa o que
+   * tem naquele ponto — diferente da Oficina, aqui não sabemos o tipo ainda).
+   */
+  function startFromCoordinate(lat: number, lng: number) {
+    setEditingId(null)
+    setForm({
+      name: '',
+      officialName: '',
+      type: 'UNIDADE',
+      matchColigada: '',
+      matchFilial: '',
+      matchClientePattern: '',
+      motoristaNome: '',
+      latitude: lat.toFixed(6),
+      longitude: lng.toFixed(6),
+      raioMetros: '300',
+      polygon: null,
+    })
+    setError('')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  // Chega aqui via link "➕ cadastrar local" na aba Pernoite do Rastreamento
+  // (RastreamentoFrota.tsx) — só faz sentido rodar uma vez, ao entrar na
+  // página com os parâmetros na URL.
+  const searchParams = useSearchParams()
+  useEffect(() => {
+    const lat = searchParams.get('lat')
+    const lng = searchParams.get('lng')
+    if (lat && lng) startFromCoordinate(Number(lat), Number(lng))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   /** Pré-preenche o formulário a partir de um cluster de GPS candidato a Oficina. */
   function startFromPendingOficina(p: PendingOficina) {
