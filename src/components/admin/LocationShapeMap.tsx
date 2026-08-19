@@ -13,6 +13,14 @@ export interface LocationShapeValue {
 interface LocationShapeMapProps {
   value: LocationShapeValue
   onChange: (value: LocationShapeValue) => void
+  /**
+   * Marcador informativo (não editável) de onde um evento aconteceu — ex.:
+   * o pernoite que motivou a associação a este Local — pedido do usuário
+   * 2026-08-19: "preciso da opção de associar um local existente". Ajuda a
+   * ver visualmente se o raio/polígono atual já cobre o ponto ou precisa
+   * ser ajustado.
+   */
+  referencePoint?: { lat: number; lng: number } | null
 }
 
 type Modo = 'idle' | 'circulo' | 'poligono'
@@ -29,7 +37,7 @@ type Modo = 'idle' | 'circulo' | 'poligono'
  * centro (raio inicial 500m, depois arraste as alças pra ajustar); modo
  * "polígono" = clique para cada vértice, botão "Concluir" fecha a forma.
  */
-export function LocationShapeMap({ value, onChange }: LocationShapeMapProps) {
+export function LocationShapeMap({ value, onChange, referencePoint }: LocationShapeMapProps) {
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
   const mapRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
@@ -127,14 +135,41 @@ export function LocationShapeMap({ value, onChange }: LocationShapeMapProps) {
         ? { lat: value.latitude!, lng: value.longitude! }
         : hasPolygon
           ? value.polygon![0]
-          : { lat: -18.5, lng: -44 }
+          : (referencePoint ?? { lat: -18.5, lng: -44 })
 
       const map = new maps.Map(mapRef.current, {
         center,
-        zoom: hasPoint || hasPolygon ? 15 : 6,
+        zoom: hasPoint || hasPolygon || referencePoint ? (referencePoint ? 17 : 15) : 6,
         mapTypeId: 'hybrid',
       })
       stateRef.current.map = map
+
+      // Marcador de referência (ex.: pernoite que motivou associar este
+      // Local) — se o ponto existente do Local não cobre a referência, dá
+      // pra ver isso de cara e ajustar o raio/polígono. Enquadra os dois
+      // pontos juntos (fitBounds) quando o Local já tem centro definido.
+      if (referencePoint) {
+        new maps.Marker({
+          position: referencePoint,
+          map,
+          title: 'Ponto de referência (ex.: pernoite)',
+          icon: {
+            path: maps.SymbolPath.BACKWARD_CLOSED_ARROW,
+            scale: 6,
+            rotation: 180,
+            fillColor: '#be123c',
+            fillOpacity: 1,
+            strokeColor: '#fff',
+            strokeWeight: 2,
+          },
+        })
+        if (hasPoint) {
+          const bounds = new maps.LatLngBounds()
+          bounds.extend(center)
+          bounds.extend(referencePoint)
+          map.fitBounds(bounds, 80)
+        }
+      }
 
       if (hasPoint) {
         const circle = new maps.Circle({

@@ -172,6 +172,14 @@ export default function LocaisPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
+  // Coordenada de referência (pernoite/oficina) — mostrada como alfinete no
+  // mapa independente de estar cadastrando um Local novo ou associando a um
+  // já existente (ver associarLocalExistente abaixo). Pedido do usuário
+  // 2026-08-19: "preciso da opção de associar um local existente" — às
+  // vezes o ponto "sem cadastro" só ficou fora do raio de um Local que já
+  // existe (raio pequeno demais), não precisa de um Local novo.
+  const [referenceCoord, setReferenceCoord] = useState<{ lat: number; lng: number } | null>(null)
+
   // Chega aqui via link "➕ cadastrar local" na aba Pernoite do Rastreamento
   // (RastreamentoFrota.tsx) — só faz sentido rodar uma vez, ao entrar na
   // página com os parâmetros na URL.
@@ -179,9 +187,18 @@ export default function LocaisPage() {
   useEffect(() => {
     const lat = searchParams.get('lat')
     const lng = searchParams.get('lng')
-    if (lat && lng) startFromCoordinate(Number(lat), Number(lng))
+    if (lat && lng) {
+      setReferenceCoord({ lat: Number(lat), lng: Number(lng) })
+      startFromCoordinate(Number(lat), Number(lng))
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  /** Carrega um Local já existente no formulário de edição, mantendo o alfinete de referência visível pra ajustar o raio/polígono. */
+  function associarLocalExistente(locationId: string) {
+    const location = locations.find((l) => l.id === locationId)
+    if (location) startEdit(location)
+  }
 
   /** Pré-preenche o formulário a partir de um cluster de GPS candidato a Oficina. */
   function startFromPendingOficina(p: PendingOficina) {
@@ -320,6 +337,27 @@ export default function LocaisPage() {
         </p>
       </div>
 
+      {referenceCoord && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-violet-200 bg-violet-50 p-3">
+          <p className="text-sm text-violet-900">
+            📍 Coordenada recebida do Rastreamento ({referenceCoord.lat.toFixed(4)}, {referenceCoord.lng.toFixed(4)}) — cadastre como
+            novo local abaixo, ou associe a um já existente:
+          </p>
+          <select
+            value=""
+            onChange={(e) => e.target.value && associarLocalExistente(e.target.value)}
+            className="rounded-md border border-violet-300 bg-white px-2 py-1.5 text-sm"
+          >
+            <option value="">Associar a um local existente…</option>
+            {locations.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name} ({TYPE_LABEL[l.type]})
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       <form onSubmit={save} className="rounded-xl border border-slate-200 bg-white p-4">
         <h2 className="font-medium">{editingId ? 'Editar local' : 'Novo local'}</h2>
         <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-6">
@@ -450,6 +488,7 @@ export default function LocaisPage() {
                 polygon: v.polygon,
               }))
             }
+            referencePoint={referenceCoord}
           />
         </div>
         {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
