@@ -102,6 +102,16 @@ interface ResumoPernoiteInfo {
   longitude?: number
 }
 
+interface SemComunicacaoInfo {
+  placa: string
+  situacao: 'SEM_RASTREADOR' | 'SEM_COMUNICACAO'
+  ultimaPosicaoEm: string | null
+  localizacao: string | null
+  minutosSemComunicacao: number | null
+  ultimoStatusSincronizacao: string | null
+  ultimaTentativaEm: string | null
+}
+
 function fmtDuracao(min: number | null): string {
   if (min == null) return 'em andamento'
   if (min < 60) return `${min} min`
@@ -193,7 +203,7 @@ export function RastreamentoFrota({
   locations: LocationMarker[]
   positions: VehiclePositionInfo[]
 }) {
-  const [tab, setTab] = useState<'mapa' | 'lista' | 'permanencia' | 'pernoite'>('mapa')
+  const [tab, setTab] = useState<'mapa' | 'lista' | 'permanencia' | 'pernoite' | 'sem-comunicacao'>('mapa')
   const [historicoPlaca, setHistoricoPlaca] = useState<string | null>(null)
   const [historico, setHistorico] = useState<HistoricoPonto[]>([])
   const [carregandoHistorico, setCarregandoHistorico] = useState(false)
@@ -260,6 +270,72 @@ export function RastreamentoFrota({
       setResumoPernoite([])
     }
     setCarregandoPernoite(false)
+  }
+
+  // Lista combinada de placas sem rastreador/sem comunicação (pedido do
+  // usuário 2026-08-19: "gere uma lista junto com a última posição das
+  // placas que não estou encontrando o rastreador... trabalhar junto com
+  // estes que certamente estão travados, assim trabalhamos direto com o
+  // fornecedor") — ver /api/fase1/rastreamento/sem-comunicacao.
+  const [semComunicacao, setSemComunicacao] = useState<SemComunicacaoInfo[]>([])
+  const [carregandoSemComunicacao, setCarregandoSemComunicacao] = useState(false)
+  const [filtroSemComunicacao, setFiltroSemComunicacao] = useState('')
+  const [ordenacaoSemComunicacao, setOrdenacaoSemComunicacao] = useState<{ campo: 'placa' | 'minutos'; asc: boolean }>({
+    campo: 'minutos',
+    asc: false,
+  })
+
+  const loadSemComunicacao = async () => {
+    setCarregandoSemComunicacao(true)
+    const res = await fetch('/api/fase1/rastreamento/sem-comunicacao')
+    setSemComunicacao(res.ok ? await res.json() : [])
+    setCarregandoSemComunicacao(false)
+  }
+
+  useEffect(() => {
+    if (tab === 'sem-comunicacao') void loadSemComunicacao()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab])
+
+  const semComunicacaoFiltrada = useMemo(() => {
+    const f = filtroSemComunicacao.trim().toUpperCase()
+    const lista = f ? semComunicacao.filter((r) => r.placa.includes(f)) : semComunicacao
+    const { campo, asc } = ordenacaoSemComunicacao
+    const ordenada = [...lista].sort((a, b) => {
+      const va = campo === 'placa' ? a.placa : (a.minutosSemComunicacao ?? Infinity)
+      const vb = campo === 'placa' ? b.placa : (b.minutosSemComunicacao ?? Infinity)
+      const cmp = typeof va === 'string' ? va.localeCompare(String(vb)) : va - (vb as number)
+      return asc ? cmp : -cmp
+    })
+    return ordenada
+  }, [semComunicacao, filtroSemComunicacao, ordenacaoSemComunicacao])
+
+  function alternarOrdenacaoSemComunicacao(campo: 'placa' | 'minutos') {
+    setOrdenacaoSemComunicacao((prev) => (prev.campo === campo ? { campo, asc: !prev.asc } : { campo, asc: true }))
+  }
+
+  function exportarSemComunicacaoCsv() {
+    const header = ['Placa', 'Situação', 'Última posição', 'Localização', 'Há quanto tempo', 'Último status de sincronização'].join(';')
+    const linhas = semComunicacaoFiltrada.map((r) =>
+      [
+        r.placa,
+        r.situacao === 'SEM_RASTREADOR' ? 'Sem rastreador' : 'Sem comunicação',
+        r.ultimaPosicaoEm ? fmtDataHora(r.ultimaPosicaoEm) : 'nunca',
+        r.localizacao ?? '',
+        r.minutosSemComunicacao != null ? fmtDuracao(r.minutosSemComunicacao) : '—',
+        r.ultimoStatusSincronizacao ?? '—',
+      ]
+        .map((v) => String(v).replace(/;/g, ','))
+        .join(';'),
+    )
+    const csv = '﻿' + [header, ...linhas].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `placas_sem_comunicacao_${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   useEffect(() => {
@@ -521,7 +597,7 @@ export function RastreamentoFrota({
       )}
 
       <div className="mb-4 flex gap-1 border-b border-slate-200">
-        {(['mapa', 'lista', 'permanencia', 'pernoite'] as const).map((t) => (
+        {(['mapa', 'lista', 'permanencia', 'pernoite', 'sem-comunicacao'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -531,7 +607,15 @@ export function RastreamentoFrota({
                 : 'border-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-700'
             }`}
           >
-            {t === 'mapa' ? 'Mapa' : t === 'lista' ? 'Última posição' : t === 'permanencia' ? 'Permanência' : 'Pernoite'}
+            {t === 'mapa'
+              ? 'Mapa'
+              : t === 'lista'
+                ? 'Última posição'
+                : t === 'permanencia'
+                  ? 'Permanência'
+                  : t === 'pernoite'
+                    ? 'Pernoite'
+                    : 'Sem comunicação'}
           </button>
         ))}
       </div>
@@ -729,7 +813,7 @@ export function RastreamentoFrota({
             </table>
           </div>
         </div>
-      ) : (
+      ) : tab === 'pernoite' ? (
         <div>
           <div className="mb-3 flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-3">
             <div>
@@ -852,6 +936,90 @@ export function RastreamentoFrota({
                   <tr>
                     <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
                       Nenhum pernoite identificado no período.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3">
+            <div>
+              <p className="text-sm text-slate-600">
+                {carregandoSemComunicacao
+                  ? 'carregando…'
+                  : `${semComunicacaoFiltrada.length} placa(s) sem rastreador ou sem comunicação`}
+              </p>
+              <p className="text-xs text-slate-500">
+                Lista pronta pra levar direto ao suporte da Omnilink — placas nunca localizadas ou com posição parada há mais de 2h.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                value={filtroSemComunicacao}
+                onChange={(e) => setFiltroSemComunicacao(e.target.value)}
+                placeholder="Filtrar por placa…"
+                className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+              />
+              <button
+                onClick={exportarSemComunicacaoCsv}
+                className="rounded-md border border-slate-300 px-3 py-1.5 text-xs hover:bg-slate-50"
+              >
+                Exportar CSV
+              </button>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-left text-slate-600">
+                <tr>
+                  <th className="cursor-pointer px-3 py-2 hover:bg-slate-100" onClick={() => alternarOrdenacaoSemComunicacao('placa')}>
+                    Placa {ordenacaoSemComunicacao.campo === 'placa' ? (ordenacaoSemComunicacao.asc ? '▲' : '▼') : ''}
+                  </th>
+                  <th className="px-3 py-2">Situação</th>
+                  <th
+                    className="cursor-pointer px-3 py-2 hover:bg-slate-100"
+                    onClick={() => alternarOrdenacaoSemComunicacao('minutos')}
+                  >
+                    Há quanto tempo {ordenacaoSemComunicacao.campo === 'minutos' ? (ordenacaoSemComunicacao.asc ? '▲' : '▼') : ''}
+                  </th>
+                  <th className="px-3 py-2">Última posição</th>
+                  <th className="px-3 py-2">Localização</th>
+                  <th className="px-3 py-2">Última tentativa de sincronização</th>
+                </tr>
+              </thead>
+              <tbody>
+                {semComunicacaoFiltrada.map((r) => (
+                  <tr key={r.placa} className="border-t border-slate-100">
+                    <td className="px-3 py-2 font-mono font-medium">{r.placa}</td>
+                    <td className="px-3 py-2">
+                      {r.situacao === 'SEM_RASTREADOR' ? (
+                        <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700">sem rastreador</span>
+                      ) : (
+                        <span className="rounded bg-red-100 px-2 py-0.5 text-xs text-red-800">sem comunicação</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2">
+                      {r.minutosSemComunicacao != null ? fmtDuracao(r.minutosSemComunicacao) : 'nunca'}
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap" title={r.ultimaPosicaoEm ? fmtDataHora(r.ultimaPosicaoEm) : ''}>
+                      {r.ultimaPosicaoEm ? fmtDataHora(r.ultimaPosicaoEm) : '—'}
+                    </td>
+                    <td className="max-w-xs truncate px-3 py-2 text-slate-600" title={r.localizacao ?? ''}>
+                      {r.localizacao ?? '—'}
+                    </td>
+                    <td className="px-3 py-2 text-slate-600">
+                      {r.ultimaTentativaEm ? `${fmtDataHora(r.ultimaTentativaEm)} (${r.ultimoStatusSincronizacao})` : '—'}
+                    </td>
+                  </tr>
+                ))}
+                {!carregandoSemComunicacao && semComunicacaoFiltrada.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
+                      Nenhuma placa sem rastreador ou sem comunicação — tudo em dia.
                     </td>
                   </tr>
                 )}

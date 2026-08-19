@@ -74,8 +74,13 @@ function fmtDataHora(d: Date): string {
   return d.toISOString().slice(0, 19).replace('T', ' ')
 }
 
-/** Placas da frota própria conhecida (mesmo critério do controle de combustível: já teve frete Próprio). */
-async function placasProprias(): Promise<string[]> {
+/**
+ * Placas da frota própria conhecida (mesmo critério do controle de
+ * combustível: já teve frete Próprio) — exportada para reuso pela lista de
+ * "sem comunicação" (`/api/fase1/rastreamento/sem-comunicacao`), que precisa
+ * do universo completo de placas, não só das que já têm posição.
+ */
+export async function placasProprias(): Promise<string[]> {
   const view = await getDatasetView('fase1_vendas_transporte')
   const set = new Set<string>()
   for (const r of view as Record<string, unknown>[]) {
