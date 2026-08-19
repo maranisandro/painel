@@ -178,9 +178,14 @@ export function MapaFrota({ locations, positions, selectedPlaca, focusCoord }: M
       .then(() => {
         if (cancelled || !mapRef.current || !window.google) return
         const { maps } = window.google
+        // ACHADO REAL 2026-08-19: `panTo`/`setZoom` chamados logo após `new
+        // maps.Map(...)`, antes do mapa ter uma projeção pronta, podem não
+        // ter efeito no centro (o zoom chega a aplicar, mas o centro fica
+        // no valor do construtor) — passar o centro/zoom já prontos na
+        // criação do mapa evita depender de um pan pós-construção funcionar.
         const map = new maps.Map(mapRef.current, {
-          center: { lat: -18.5, lng: -44 }, // centro provisório (região de operação) até ter marcadores
-          zoom: 6,
+          center: focusCoord ?? { lat: -18.5, lng: -44 }, // centro provisório (região de operação) até ter marcadores
+          zoom: focusCoord ? 18 : 6,
           mapTypeId: 'roadmap',
         })
         mapInstanceRef.current = map
@@ -316,9 +321,21 @@ export function MapaFrota({ locations, positions, selectedPlaca, focusCoord }: M
           hasBounds = true
         }
 
-        if (hasBounds) map.fitBounds(bounds)
+        // ACHADO REAL 2026-08-19: `fitBounds` recalcula o zoom de forma
+        // assíncrona internamente (o efeito só se aplica depois do mapa
+        // ficar "idle") — chamar panTo/setZoom logo em seguida, de forma
+        // síncrona, corria risco de ser sobrescrito pelo fitBounds atrasado,
+        // mesmo com a nossa chamada vindo depois no código (tentativa
+        // anterior com `addListenerOnce(map, 'idle', ...)` não bastou).
+        // Mais simples e robusto: quando há uma coordenada específica pra
+        // focar, nem chama fitBounds — a visão da frota inteira não importa
+        // nesse caso, elimina a corrida por completo em vez de tentar vencê-la.
+        if (focusCoord) {
+          focarCoordenada(focusCoord)
+        } else if (hasBounds) {
+          map.fitBounds(bounds)
+        }
         if (selectedPlaca) focarPlaca(selectedPlaca)
-        if (focusCoord) focarCoordenada(focusCoord)
       })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
 

@@ -197,6 +197,7 @@ export function RastreamentoFrota({
   const [historicoPlaca, setHistoricoPlaca] = useState<string | null>(null)
   const [historico, setHistorico] = useState<HistoricoPonto[]>([])
   const [carregandoHistorico, setCarregandoHistorico] = useState(false)
+  const [erroHistorico, setErroHistorico] = useState<string | null>(null)
 
   // Placa selecionada fora do mapa (painel ao lado ou tabela) — centraliza e
   // abre o balão desse caminhão no mapa (pedido do usuário 2026-08-03:
@@ -301,9 +302,32 @@ export function RastreamentoFrota({
   async function abrirHistorico(placa: string) {
     setHistoricoPlaca(placa)
     setCarregandoHistorico(true)
-    const res = await fetch(`/api/fase1/rastreamento/historico?placa=${encodeURIComponent(placa)}`)
-    setHistorico(res.ok ? await res.json() : [])
-    setCarregandoHistorico(false)
+    setErroHistorico(null)
+    try {
+      // Timeout de 15s — sem isso, uma resposta do servidor que nunca chega
+      // (não só um erro explícito) também deixaria "Carregando…" pra sempre.
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 15_000)
+      const res = await fetch(`/api/fase1/rastreamento/historico?placa=${encodeURIComponent(placa)}`, {
+        signal: controller.signal,
+      }).finally(() => clearTimeout(timeoutId))
+      if (!res.ok) throw new Error(`Falha ao carregar histórico (status ${res.status})`)
+      setHistorico(await res.json())
+    } catch (err) {
+      // ACHADO REAL 2026-08-19: sem isso, uma falha no fetch/JSON (rede,
+      // erro 500, resposta inesperada) deixava "Carregando…" pra sempre —
+      // nada nunca desligava o loading nesse caminho.
+      setHistorico([])
+      setErroHistorico(
+        err instanceof Error && err.name === 'AbortError'
+          ? 'O servidor demorou demais para responder (15s) — tente de novo.'
+          : err instanceof Error
+            ? err.message
+            : 'Falha ao carregar histórico',
+      )
+    } finally {
+      setCarregandoHistorico(false)
+    }
   }
 
   const alertasAbertos = speedAlerts.filter((a) => !a.acknowledgedAt)
@@ -770,6 +794,8 @@ export function RastreamentoFrota({
             </div>
             {carregandoHistorico ? (
               <p className="text-sm text-slate-500">Carregando…</p>
+            ) : erroHistorico ? (
+              <p className="text-sm text-red-700">⚠ {erroHistorico}</p>
             ) : historico.length === 0 ? (
               <p className="text-sm text-slate-500">Sem histórico nos últimos 60 dias.</p>
             ) : (
