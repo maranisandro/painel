@@ -92,6 +92,20 @@ async function syncDatasetUnlocked(datasetId: string): Promise<{ rowsUpserted: n
     include: { dataSource: true },
   })
 
+  // Marca como órfão qualquer SyncRun ainda "RUNNING" deste dataset — só
+  // chegamos aqui já com o advisory lock do dataset (`withDatasetAdvisoryLock`),
+  // ou seja, nenhum outro processo pode estar de fato rodando esta
+  // sincronização agora; um registro "RUNNING" nesse ponto só pode ser de um
+  // processo anterior que morreu no meio (reinício do servidor/container)
+  // sem chegar no catch que atualiza o status. Achado real 2026-08-17: 167
+  // SyncRuns do Omnilink presos em "RUNNING" desde 2026-08-12, todos de
+  // reinícios do dev — sem essa limpeza, cada um fica "RUNNING" para sempre,
+  // poluindo o histórico de sincronizações.
+  await prisma.syncRun.updateMany({
+    where: { datasetId: dataset.id, status: 'RUNNING' },
+    data: { status: 'ERROR', finishedAt: new Date(), error: 'Processo interrompido antes de terminar (ex.: reinício do servidor) — marcado automaticamente ao iniciar a próxima sincronização.' },
+  })
+
   const run = await prisma.syncRun.create({
     data: { datasetId: dataset.id, watermarkBefore: dataset.watermark },
   })

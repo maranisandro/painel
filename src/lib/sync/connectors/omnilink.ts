@@ -153,6 +153,29 @@ export type ResultadoPlacaOmnilink = {
  * — pedido do usuário 2026-08-17: "tentar os que estão a muito tempo parado
  * individualmente".
  */
+type RespostaPagina = { res: Response; body: { dados?: { tabela?: ExternalRow[] } | string; mensagem?: string } | null }
+
+async function consultarPagina(baseUrl: string, token: string, placa: string, parte: number, inicio: Date, fim: Date): Promise<RespostaPagina> {
+  const res = await fetch(`${baseUrl}/api/omniturbo/relatorios/posicoes`, {
+    method: 'POST',
+    headers: { 'x-access-token': token, accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      inicio: fmtDataHora(inicio),
+      fim: fmtDataHora(fim),
+      placas: [placa],
+      withSinalVida: false,
+      parte,
+    }),
+  })
+  const body = (await res.json().catch(() => null)) as RespostaPagina['body']
+  return { res, body }
+}
+
+/** true quando a resposta indica que o token em cache não é mais válido no lado da Omnilink (independente do nosso TTL local de 23h ainda não ter vencido). */
+function tokenInvalido(body: RespostaPagina['body']): boolean {
+  return typeof body?.dados === 'string' && body.dados.includes('Token inválido')
+}
+
 export async function fetchPosicoesDaPlaca(
   source: DataSource,
   placa: string,
@@ -160,22 +183,24 @@ export async function fetchPosicoesDaPlaca(
   fim: Date,
 ): Promise<ResultadoPlacaOmnilink> {
   const baseUrl = baseUrlDe(source)
-  const token = await login(source)
+  let token = await login(source)
   const linhas: ExternalRow[] = []
   try {
     for (let parte = 1; parte <= MAX_PARTES; parte++) {
-      const res = await fetch(`${baseUrl}/api/omniturbo/relatorios/posicoes`, {
-        method: 'POST',
-        headers: { 'x-access-token': token, accept: 'application/json', 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          inicio: fmtDataHora(inicio),
-          fim: fmtDataHora(fim),
-          placas: [placa],
-          withSinalVida: false,
-          parte,
-        }),
-      })
-      const body = (await res.json().catch(() => null)) as { dados?: { tabela?: ExternalRow[] } | string; mensagem?: string } | null
+      let { res, body } = await consultarPagina(baseUrl, token, placa, parte, inicio, fim)
+
+      // ACHADO REAL 2026-08-17: o sync automático ficou dias travado com
+      // "Token inválido" repetido — a Omnilink pode invalidar o token do
+      // lado dela antes do nosso cache local (TTL de 23h) achar que venceu,
+      // e sem essa detecção o conector simplesmente abortava a sincronização
+      // inteira toda vez, para sempre, até o processo reiniciar. Um retry
+      // (forçando novo login) resolve sem precisar reiniciar nada.
+      if (res.status === 401 && tokenInvalido(body)) {
+        tokenCache = null
+        token = await login(source)
+        ;({ res, body } = await consultarPagina(baseUrl, token, placa, parte, inicio, fim))
+      }
+
       if (!res.ok) {
         // IMPORTANTE (achado ao vivo 2026-07-30): "placa não localizada" não é
         // um erro de sincronização — é essa placa específica sem rastreador
@@ -207,21 +232,72 @@ export async function fetchPosicoesDaPlaca(
   }
 }
 
+// Teto de janela por execução — achado real 2026-08-17/18: com o schedule
+// parado por dias (ou o servidor de produção reiniciando por OOM, já
+// registrado antes), a marca d'água pode ficar dias/semanas atrasada; puxar
+// o atraso inteiro de uma vez (potencialmente centenas de milhares de linhas,
+// já que o dataset tem 700 mil+ linhas e cresce rápido) é o que historicamente
+// estourou a memória do container em produção — o processo cai, a
+// sincronização nunca termina, a marca d'água nunca avança, e o atraso só
+// cresce. Limitando a janela, cada execução processa no máximo esse período;
+// se o atraso for maior, as execuções seguintes (a cada 30 min) recuperam o
+// resto aos poucos, sem nunca segurar mais que ~1 dia de dados em memória.
+const JANELA_MAXIMA_MS = 24 * 3_600_000
+
+// Placas por execução — pedido do usuário 2026-08-18: "fazer as consultas
+// com um agrupamento menor de placas". Em vez de tentar a frota inteira
+// (~35-40 placas) a cada execução, cada ciclo processa só um lote; o resto
+// fica pra próxima execução (schedule de 30 min). Reduz a duração de cada
+// sincronização e, mais importante, o "estrago" de um erro real numa placa
+// (que ainda aborta a execução inteira) — com lote menor, o máximo que se
+// perde é esse lote, não a frota toda.
+const PLACAS_POR_EXECUCAO = 15
+
 export async function fetchOmnilinkPosicoes(
   source: DataSource,
   _dataset: Dataset,
   watermark: string | null,
   syncRunId?: string,
 ): Promise<ExternalRow[]> {
-  const fim = new Date()
-  // Sem marca d'água ainda (1ª sincronização): última hora, para não puxar
-  // um histórico enorme de uma vez (mesmo sem sinal de vida, o volume é
-  // considerável). Sincronizações seguintes usam a última posição já
-  // sincronizada como início.
-  const inicio = watermark ? new Date(watermark) : new Date(fim.getTime() - 3_600_000)
+  const agora = new Date()
+  // Piso padrão: marca d'água do dataset inteiro, ou última hora se ainda
+  // não houver nenhuma (1ª sincronização) — usado só como fallback para
+  // placas sem nenhuma posição própria conhecida ainda.
+  const inicioPadrao = watermark ? new Date(watermark) : new Date(agora.getTime() - 3_600_000)
 
-  const placas = await placasProprias()
-  if (placas.length === 0) return []
+  const todasPlacas = await placasProprias()
+  if (todasPlacas.length === 0) return []
+
+  // Rodízio: prioriza as placas que estão há mais tempo sem NENHUMA tentativa
+  // de sincronização (incluindo buscas individuais via "buscar agora") — uma
+  // placa nunca tentada (sem registro em OmnilinkSyncPlaca) tem prioridade
+  // máxima. Sem precisar de nenhum estado novo: cada execução naturalmente
+  // continua de onde a anterior parou, e placas com erro/exceção também são
+  // repriorizadas (não ficam pra trás só porque falharam da última vez).
+  const ultimasTentativas = await prisma.omnilinkSyncPlaca.groupBy({
+    by: ['placa'],
+    where: { placa: { in: todasPlacas } },
+    _max: { createdAt: true },
+  })
+  const ultimaTentativaPorPlaca = new Map(ultimasTentativas.map((p) => [p.placa, p._max.createdAt]))
+  const placas = [...todasPlacas]
+    .sort((a, b) => (ultimaTentativaPorPlaca.get(a)?.getTime() ?? 0) - (ultimaTentativaPorPlaca.get(b)?.getTime() ?? 0))
+    .slice(0, PLACAS_POR_EXECUCAO)
+
+  // Início por placa (pedido do usuário 2026-08-18: "para cada caminhão
+  // podemos pegar os dados a partir da última viagem/posição, na tentativa
+  // de buscar menos dados") — em vez de toda placa recomeçar da MESMA marca
+  // d'água única do dataset (que fica presa no atraso da placa mais
+  // parada/problemática), cada placa busca a partir da SUA PRÓPRIA última
+  // posição já persistida. Uma placa já em dia (ex.: atualizada por "buscar
+  // agora") só busca o intervalo pequeno que falta, em vez de reprocessar
+  // dias de dados que já tem — reduz bastante o volume por execução.
+  const ultimasPosicoes = await prisma.vehiclePosition.groupBy({
+    by: ['placa'],
+    where: { placa: { in: placas } },
+    _max: { capturedAt: true },
+  })
+  const ultimaPosicaoPorPlaca = new Map(ultimasPosicoes.map((p) => [p.placa, p._max.capturedAt]))
 
   // IMPORTANTE (achado ao vivo 2026-07-30): se UMA única placa do array não
   // for reconhecida pela conta Omnilink, a API rejeita a consulta INTEIRA
@@ -232,6 +308,9 @@ export async function fetchOmnilinkPosicoes(
   // (token, rede, etc.) continua interrompendo a sincronização.
   const linhas: ExternalRow[] = []
   for (const placa of placas) {
+    const ultimaConhecida = ultimaPosicaoPorPlaca.get(placa)
+    const inicio = ultimaConhecida && ultimaConhecida > inicioPadrao ? ultimaConhecida : inicioPadrao
+    const fim = new Date(Math.min(agora.getTime(), inicio.getTime() + JANELA_MAXIMA_MS))
     const resultado = await fetchPosicoesDaPlaca(source, placa, inicio, fim)
     linhas.push(...resultado.linhas)
 
