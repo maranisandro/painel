@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { ExcelButtons } from '@/components/admin/ExcelButtons'
+import { formatBRInput, parseBRToIso, fmtDateBR, MiniCalendarButton } from '@/components/shared/DateRangeInputs'
 
 interface CompositionRecord {
   id: string
@@ -92,6 +93,15 @@ export default function ComposicoesPage() {
   const [bulkForm, setBulkForm] = useState(BULK_EMPTY)
   const [bulkSaving, setBulkSaving] = useState(false)
   const [bulkMsg, setBulkMsg] = useState('')
+
+  // Máscara dd/mm/aaaa pro campo de data — o input nativo type="date" segue
+  // o locale do navegador/SO (pode exibir mm/dd/aaaa mesmo com <html
+  // lang="pt-BR">), achado real 2026-08-20: "no cadastro de composição a
+  // data não esta dd/mm/aaaa". Mesmo padrão já usado em DateRangeInputs.
+  const [effectiveFromText, setEffectiveFromText] = useState('')
+  const [bulkEffectiveFromText, setBulkEffectiveFromText] = useState('')
+  useEffect(() => setEffectiveFromText(form.effectiveFrom ? fmtDateBR(form.effectiveFrom) : ''), [form.effectiveFrom])
+  useEffect(() => setBulkEffectiveFromText(bulkForm.effectiveFrom ? fmtDateBR(bulkForm.effectiveFrom) : ''), [bulkForm.effectiveFrom])
 
   const [specs, setSpecs] = useState<CompositionSpecRecord[]>([])
   const [specForm, setSpecForm] = useState(SPEC_EMPTY)
@@ -422,12 +432,33 @@ export default function ComposicoesPage() {
                 <label className="block text-xs font-medium text-slate-600">
                   Data da mudança (vazio = cadastro)
                 </label>
-                <input
-                  type="date"
-                  value={form.effectiveFrom}
-                  onChange={(e) => setForm({ ...form, effectiveFrom: e.target.value })}
-                  className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-                />
+                <div className="mt-1 flex items-center gap-1">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={effectiveFromText}
+                    onChange={(e) => {
+                      const formatted = formatBRInput(e.target.value)
+                      setEffectiveFromText(formatted)
+                      if (formatted === '') {
+                        setForm({ ...form, effectiveFrom: '' })
+                        return
+                      }
+                      const iso = parseBRToIso(formatted)
+                      if (iso) setForm({ ...form, effectiveFrom: iso })
+                    }}
+                    placeholder="dd/mm/aaaa"
+                    maxLength={10}
+                    className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                  />
+                  <MiniCalendarButton
+                    valueIso={form.effectiveFrom}
+                    onSelect={(iso) => {
+                      setForm({ ...form, effectiveFrom: iso })
+                      setEffectiveFromText(fmtDateBR(iso))
+                    }}
+                  />
+                </div>
               </div>
               <div className="flex items-end gap-2">
                 <button
@@ -522,12 +553,33 @@ export default function ComposicoesPage() {
                   <label className="block text-xs font-medium text-slate-600">
                     Data (vazio = cadastro)
                   </label>
-                  <input
-                    type="date"
-                    value={bulkForm.effectiveFrom}
-                    onChange={(e) => setBulkForm({ ...bulkForm, effectiveFrom: e.target.value })}
-                    className="mt-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-                  />
+                  <div className="mt-1 flex items-center gap-1">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={bulkEffectiveFromText}
+                      onChange={(e) => {
+                        const formatted = formatBRInput(e.target.value)
+                        setBulkEffectiveFromText(formatted)
+                        if (formatted === '') {
+                          setBulkForm({ ...bulkForm, effectiveFrom: '' })
+                          return
+                        }
+                        const iso = parseBRToIso(formatted)
+                        if (iso) setBulkForm({ ...bulkForm, effectiveFrom: iso })
+                      }}
+                      placeholder="dd/mm/aaaa"
+                      maxLength={10}
+                      className="w-28 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                    />
+                    <MiniCalendarButton
+                      valueIso={bulkForm.effectiveFrom}
+                      onSelect={(iso) => {
+                        setBulkForm({ ...bulkForm, effectiveFrom: iso })
+                        setBulkEffectiveFromText(fmtDateBR(iso))
+                      }}
+                    />
+                  </div>
                 </div>
                 <button
                   type="submit"
