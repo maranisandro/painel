@@ -68,6 +68,17 @@ function metaParamCode(composition: string): string {
   return `META_KM_${slug}`
 }
 
+/** Código do parâmetro de fator de conversão TON->MDC por produto, ex.: "Carvão" -> "FATOR_MDC_CARVAO" */
+function fatorMdcParamCode(produto: string): string {
+  const slug = produto
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  return `FATOR_MDC_${slug}`
+}
+
 /**
  * Dados do painel Fase 1 — Transporte Rodoviário.
  * Query: from/to (YYYY-MM-DD, default mês atual). Devolve as viagens
@@ -195,6 +206,17 @@ export async function GET(req: NextRequest) {
   const metaKmPorComposicao: Record<string, number> = {}
   for (const spec of compositionSpecs) {
     metaKmPorComposicao[spec.composition] = paramNumber(all, metaParamCode(spec.composition), metaKm, calendar)
+  }
+
+  // Fator de conversão TON → MDC por produto (pedido do usuário 2026-08-20:
+  // "Para as notas de carvão que a quantidade esta em TON vamos precisar
+  // converter em MDC pois por T vamos usar o peso... para cada produto pode
+  // criar um parametro de conversão"). Parâmetro FATOR_MDC_<PRODUTO>
+  // (Cadastros → Parâmetros); sem parâmetro cadastrado, 0 = não converte
+  // (mantém a quantidade separada por unidade, como já era).
+  const fatorConversaoMdc: Record<string, number> = {}
+  for (const produto of ['Carvão', 'Cavaco', 'Maravalha']) {
+    fatorConversaoMdc[produto] = paramNumber(all, fatorMdcParamCode(produto), 0, calendar)
   }
 
   // Custo do período (pedido do usuário: "o custo é mensal, preciso digitar
@@ -388,6 +410,7 @@ export async function GET(req: NextRequest) {
       diasDoMesAtual,
       agora: new Date().toISOString(),
       metaKmPorComposicao,
+      fatorConversaoMdc,
       custoPeriodo,
       custoPorMes,
       custoMesRegistrado,

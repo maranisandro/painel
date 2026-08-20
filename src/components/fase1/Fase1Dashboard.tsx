@@ -31,6 +31,7 @@ interface ApiData {
     agora: string
     /** Meta de km/mês por composição (Cadastros → Parâmetros, META_KM_<COMPOSIÇÃO>) — sem entrada, usa metaKm */
     metaKmPorComposicao: Record<string, number>
+    fatorConversaoMdc: Record<string, number>
     /** Custo já prorateado para o período selecionado (soma por mês, cada um com seu parâmetro CUSTO_MES_<AAAAMM>) */
     custoPeriodo: number
     /** Detalhe mês a mês do custo do período (pedido do usuário 2026-08-13: mostrar o cálculo de acordo com o filtro, proporcional aos dias quando o mês fechado só entra parcialmente) */
@@ -1221,9 +1222,21 @@ export function Fase1Dashboard() {
       const entry = porProduto.get(produto) ?? { pesoT: 0, porUnidade: new Map<string, number>() }
       entry.pesoT += (Number(t.PESOLIQUIDO) || 0) / 1000
       const notas = (t.NOTAS as { quantidade: number; unidade: string }[] | undefined) ?? []
+      const fatorMdc = data?.params.fatorConversaoMdc[produto] ?? 0
       for (const n of notas) {
-        const unidade = n.unidade || '—'
-        entry.porUnidade.set(unidade, (entry.porUnidade.get(unidade) ?? 0) + (Number(n.quantidade) || 0))
+        let unidade = n.unidade || '—'
+        let quantidade = Number(n.quantidade) || 0
+        // Nota em TON convertida pra MDC (pedido do usuário 2026-08-20: "Para
+        // as notas de carvão que a quantidade esta em TON vamos precisar
+        // converter em MDC pois por T vamos usar o peso") — só converte
+        // quando o produto tem um fator cadastrado (Cadastros → Parâmetros,
+        // FATOR_MDC_<PRODUTO>); sem fator, mantém separado por unidade como
+        // antes (nunca mistura TON com MDC sem conversão explícita).
+        if (unidade === 'TON' && fatorMdc > 0) {
+          quantidade = quantidade * fatorMdc
+          unidade = 'MDC'
+        }
+        entry.porUnidade.set(unidade, (entry.porUnidade.get(unidade) ?? 0) + quantidade)
       }
       porProduto.set(produto, entry)
     }
@@ -1874,6 +1887,12 @@ export function Fase1Dashboard() {
                     <p className="text-amber-700">
                       Este produto tem notas em mais de uma unidade de medida (campo CODUND do ERP) — a quantidade de
                       cada unidade nunca é somada com a de outra, senão o resultado mistura {p.unidades.map((u) => u.unidade).join(' com ')}.
+                    </p>
+                  )}
+                  {(data?.params.fatorConversaoMdc[p.produto] ?? 0) > 0 && (
+                    <p className="text-slate-500">
+                      Notas em TON convertidas pra MDC: quantidade (t) × {fmt(data?.params.fatorConversaoMdc[p.produto] ?? 0, 2)}{' '}
+                      (fator FATOR_MDC_{p.produto.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').toUpperCase()}, cadastrado em Parâmetros).
                     </p>
                   )}
                 </div>
