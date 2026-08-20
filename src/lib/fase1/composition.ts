@@ -84,20 +84,31 @@ export async function composicoesAtuaisComDesde(
 
 type Row = Record<string, unknown>
 
+// Composições que legitimamente puxam 2+ semirreboques (logo, geram 2+ notas
+// fiscais agrupadas na mesma viagem) — achado real 2026-08-20, caso TAK5C13:
+// "iniciou como LS 4 eixos e alterou para tri trem, no entanto quando altero
+// ele esta gerando inconsistência". A regra abaixo nasceu quando só existia
+// RodoTrem (2 reboques) na frota; com o Tritrem Florestal (3 unidades) agora
+// cadastrado, ele também é multi-nota legítimo — sem essa lista, qualquer
+// placa recém-migrada pra Tritrem passava a ser sinalizada como inconsistente
+// (e tinha seu TipoComposição sobrescrito de volta pra "RodoTrem", errado).
+const COMPOSICOES_MULTI_REBOQUE = new Set(['RodoTrem', 'Tritrem Florestal'])
+
 /**
  * Sobrepõe a composição resolvida (cadastro de placa / coluna condicional)
  * com duas fontes mais fortes de evidência:
  *  1. Rota com composição fixa (ex.: trecho interno sempre feito de Tritrem) —
  *     um fato operacional da rota, cadastrado em Rotas.
- *  2. Viagem com 2+ notas fiscais agrupadas (MOVIMENTOS >= 2): sempre
- *     RodoTrem, pois só este implemento puxa dois semirreboques na mesma
- *     viagem — é a evidência mais concreta (o que realmente rodou naquele
- *     dia), por isso tem a palavra final mesmo sobre a rota fixa.
+ *  2. Viagem com 2+ notas fiscais agrupadas (MOVIMENTOS >= 2): evidência de
+ *     um implemento multi-reboque (RodoTrem ou Tritrem Florestal) — a
+ *     evidência mais concreta (o que realmente rodou naquele dia), por isso
+ *     tem a palavra final mesmo sobre a rota fixa. Quando o cadastro já diz
+ *     qual dos dois é, usa o cadastro (não força RodoTrem por padrão).
  *
  * Além de resolver a composição, marca COMPOSICAO_INCONSISTENTE quando a
  * evidência das notas não bate com o cadastro: 3+ notas no mesmo agrupamento
- * (nem o RodoTrem, que só tem 2 reboques, justifica isso) ou 2 notas numa
- * placa cadastrada com outra composição.
+ * (nenhum implemento cadastrado hoje justifica isso) ou 2 notas numa placa
+ * cadastrada com uma composição de reboque único.
  */
 export function applyCompositionOverrides(
   trips: Row[],
@@ -107,28 +118,32 @@ export function applyCompositionOverrides(
     const route = matchRoute(trip)
     // Composição que a viagem teria SEM a evidência das 2+ notas — cadastro
     // de placa ou composição fixa da rota. Serve para detectar inconsistência
-    // logo abaixo (placa que não é RodoTrem, mas apareceu com 2+ notas).
+    // logo abaixo (placa que não é multi-reboque, mas apareceu com 2+ notas).
     const composicaoCadastrada = route?.fixedComposition || trip['TipoComposição']
     let composition = composicaoCadastrada
     const numNotas = Number(trip.MOVIMENTOS ?? 1)
     const duasOuMaisNotas = numNotas >= 2
-    if (duasOuMaisNotas) composition = 'RodoTrem'
+    const cadastradaEhMultiReboque = !!composicaoCadastrada && COMPOSICOES_MULTI_REBOQUE.has(composicaoCadastrada as string)
+    // Só sobrescreve pra "RodoTrem" quando o cadastro NÃO é nenhum dos
+    // multi-reboque conhecidos (sem cadastro, ou cadastro de reboque único) —
+    // se já é Tritrem Florestal, mantém Tritrem Florestal.
+    if (duasOuMaisNotas && !cadastradaEhMultiReboque) composition = 'RodoTrem'
     // Inconsistência quando:
     //  - 3+ notas no mesmo dia/placa/motorista/destino: SEMPRE suspeito,
-    //    mesmo que a placa já seja RodoTrem — o RodoTrem só puxa 2
-    //    semirreboques, então uma 3ª nota não pode ser a mesma viagem física
+    //    nenhum implemento cadastrado hoje puxa 3+ reboques na mesma viagem
     //    (pedido do usuário 2026-07-29, caso SES5B33: 3 notas, 72,4t).
     //  - exatamente 2 notas mas o cadastro diz que a placa TEM uma composição
-    //    diferente de RodoTrem — sem cadastro (null/undefined), não dá para
-    //    afirmar nada, então não marca.
+    //    de reboque único (não é RodoTrem nem Tritrem Florestal) — sem
+    //    cadastro (null/undefined), não dá para afirmar nada, então não marca.
     //  - só 1 nota, mas a placa está cadastrada como RodoTrem: o RodoTrem
     //    sempre puxa dois semirreboques, então sempre precisa emitir duas
     //    notas na mesma viagem — 1 nota é evidência de que o cadastro está
     //    desatualizado ou a viagem não usou de fato o RodoTrem (pedido do
-    //    usuário 2026-08-03).
+    //    usuário 2026-08-03). Não se aplica ao Tritrem Florestal — sem
+    //    confirmação de que ele sempre emite mais de 1 nota, não assume.
     const inconsistente =
       numNotas >= 3 ||
-      (duasOuMaisNotas && !!composicaoCadastrada && composicaoCadastrada !== 'RodoTrem') ||
+      (duasOuMaisNotas && !!composicaoCadastrada && !cadastradaEhMultiReboque) ||
       (!duasOuMaisNotas && composicaoCadastrada === 'RodoTrem')
     return {
       ...trip,
