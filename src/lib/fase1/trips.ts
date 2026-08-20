@@ -59,6 +59,13 @@ function notaSummary(row: Row): Row {
     produto: String(row.PRODUTO ?? ''),
     pesoBruto: num(row.PESOBRUTO),
     pesoLiquido: num(row.PESOLIQUIDO),
+    // Quantidade + unidade de medida (CODUND, ex.: MDC/M3/TON) — pedido do
+    // usuário 2026-08-20: "na nota fiscal deve ter uma quantidade do item".
+    // A unidade varia por NOTA, não só por produto (a mesma "Carvão" aparece
+    // com CODUND "TON" ou "MDC" dependendo do lançamento), por isso fica
+    // junto de cada nota em vez de assumida por produto.
+    quantidade: num(row.QUANTIDADE),
+    unidade: String(row.CODUND ?? '').trim().toUpperCase(),
   }
 }
 

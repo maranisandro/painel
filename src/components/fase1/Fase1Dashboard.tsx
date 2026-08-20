@@ -1004,13 +1004,18 @@ export function Fase1Dashboard() {
       origem: string
       cliente: string
       pesoLiquido: number
+      quantidade: number
+      unidade: string
       composicao: string
       kmRodado: number
       consumoKmL: number | null
     }[] = []
     for (const t of filteredTrips) {
       const placa = String(t.PLACA ?? '').trim().toUpperCase()
-      const notas = (t.NOTAS as { numeroMov: string; origem: string; cliente: string; produto: string; pesoBruto: number; pesoLiquido: number }[] | undefined) ?? []
+      const notas =
+        (t.NOTAS as
+          | { numeroMov: string; origem: string; cliente: string; produto: string; pesoBruto: number; pesoLiquido: number; quantidade: number; unidade: string }[]
+          | undefined) ?? []
       const consumoKmL = consumoPorPlaca.get(placa)?.kmPorLitro ?? null
       const dataSaida = String(t.DATASAIDA ?? '').slice(0, 10)
       const composicao = String(t['TipoComposição'] ?? '')
@@ -1026,6 +1031,8 @@ export function Fase1Dashboard() {
           origem: n.origem,
           cliente: n.cliente,
           pesoLiquido: n.pesoLiquido,
+          quantidade: n.quantidade,
+          unidade: n.unidade,
           composicao,
           kmRodado,
           consumoKmL,
@@ -1195,6 +1202,53 @@ export function Fase1Dashboard() {
       viagensComReferencia: comReferencia.length,
     }
   }, [filteredTrips, placaGroups, data])
+
+  // Custo por produto (Carvão/Cavaco/Maravalha), proporcionalizado por PESO —
+  // pedido do usuário 2026-08-20: "tenho um custo de 2 milhoes, tendo
+  // transportado 2000T, sendo 80% carvão, 15% cavaco e 5% maravalha pegamos
+  // o custo total aplicamos a proporcionalidade por peso e depois deste
+  // custo proporcionalizado vamos o custo por quantidade". O custo cadastrado
+  // (Controladoria) não vem separado por produto — só dá pra ratear pelo
+  // peso transportado de cada um (única grandeza comum a todos, já que a
+  // "quantidade" tem unidade diferente por nota, ver abaixo). Depois de
+  // ratear, divide pela quantidade (MDC/M3/TON — a unidade vem de cada nota,
+  // `CODUND` do ERP, não é fixa por produto) para chegar no custo/unidade.
+  const custoPorProduto = useMemo(() => {
+    const porProduto = new Map<string, { pesoT: number; porUnidade: Map<string, number> }>()
+    for (const t of filteredTrips) {
+      const produto = String(t.TipoProduto ?? '')
+      if (!DEFAULT_FILTERS.tipoProduto.includes(produto)) continue
+      const entry = porProduto.get(produto) ?? { pesoT: 0, porUnidade: new Map<string, number>() }
+      entry.pesoT += (Number(t.PESOLIQUIDO) || 0) / 1000
+      const notas = (t.NOTAS as { quantidade: number; unidade: string }[] | undefined) ?? []
+      for (const n of notas) {
+        const unidade = n.unidade || '—'
+        entry.porUnidade.set(unidade, (entry.porUnidade.get(unidade) ?? 0) + (Number(n.quantidade) || 0))
+      }
+      porProduto.set(produto, entry)
+    }
+    const pesoTotalGeral = [...porProduto.values()].reduce((s, e) => s + e.pesoT, 0)
+    const custoPeriodo = data?.params.custoPeriodo ?? 0
+    return [...porProduto.entries()]
+      .map(([produto, entry]) => {
+        const pctPeso = pesoTotalGeral > 0 ? entry.pesoT / pesoTotalGeral : 0
+        const custoProporcional = custoPeriodo * pctPeso
+        // Quando um produto tem notas em mais de uma unidade (achado real:
+        // "Carvão" aparece ora em TON, ora em MDC), mostra o custo/unidade
+        // pra CADA uma separadamente — nunca soma quantidades de unidades
+        // diferentes, senão o resultado mistura MDC com tonelada.
+        const unidades = [...entry.porUnidade.entries()]
+          .filter(([, qtd]) => qtd > 0)
+          .sort((a, b) => b[1] - a[1])
+          .map(([unidade, quantidade]) => ({
+            unidade,
+            quantidade,
+            custoPorUnidade: custoProporcional / quantidade,
+          }))
+        return { produto, pesoT: entry.pesoT, pctPeso, custoProporcional, unidades }
+      })
+      .sort((a, b) => b.pesoT - a.pesoT)
+  }, [filteredTrips, data])
 
   // "Sumidos": placas/motoristas com viagem nos últimos 30 dias (mesmos
   // filtros de dimensão) mas nenhuma no período selecionado — pode indicar
@@ -1776,6 +1830,58 @@ export function Fase1Dashboard() {
           />
         </div>
       </div>
+
+      {/* Custo por produto, proporcionalizado por peso — pedido do usuário 2026-08-20 */}
+      {custoPorProduto.length > 0 && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {custoPorProduto.map((p) => (
+            <div key={p.produto} className="rounded-xl border border-slate-200 bg-white p-4">
+              <p className="text-sm text-slate-500">
+                Custo — {p.produto}
+                <span className="ml-1 text-xs text-slate-400">({fmt(p.pctPeso * 100, 1)}% do peso)</span>
+              </p>
+              <p className="mt-1 text-2xl font-semibold text-slate-700">R$ {fmt(p.custoProporcional, 2)}</p>
+              <p className="text-[11px] text-slate-400">{fmt(p.pesoT, 1)} t transportadas</p>
+              <div className="mt-2 space-y-0.5 border-t border-slate-100 pt-2">
+                {p.unidades.length === 0 && <p className="text-xs text-slate-400">sem quantidade cadastrada nas notas</p>}
+                {p.unidades.map((u) => (
+                  <p key={u.unidade} className="text-sm">
+                    <span className="font-medium text-slate-700">R$ {fmt(u.custoPorUnidade, 2)}/{u.unidade}</span>
+                    <span className="ml-1 text-xs text-slate-400">
+                      ({fmt(u.quantidade, 2)} {u.unidade})
+                    </span>
+                  </p>
+                ))}
+              </div>
+              <details className="mt-2">
+                <summary className="cursor-pointer text-xs text-emerald-700 hover:underline">Ver cálculo</summary>
+                <div className="mt-2 space-y-1 rounded-md bg-slate-50 p-2 text-[11px] leading-relaxed text-slate-600">
+                  <p>
+                    <strong>Peso do produto:</strong> {fmt(p.pesoT, 1)} t de {fmt(kpis.pesoT, 1)} t no total (Carvão +
+                    Cavaco + Maravalha) = {fmt(p.pctPeso * 100, 1)}%.
+                  </p>
+                  <p>
+                    <strong>Custo proporcionalizado:</strong> R$ {fmt(data?.params.custoPeriodo ?? 0, 2)} (custo do
+                    período) × {fmt(p.pctPeso * 100, 1)}% = R$ {fmt(p.custoProporcional, 2)}.
+                  </p>
+                  {p.unidades.map((u) => (
+                    <p key={u.unidade}>
+                      <strong>Custo por {u.unidade}:</strong> R$ {fmt(p.custoProporcional, 2)} ÷ {fmt(u.quantidade, 2)}{' '}
+                      {u.unidade} = R$ {fmt(u.custoPorUnidade, 2)}/{u.unidade}.
+                    </p>
+                  ))}
+                  {p.unidades.length > 1 && (
+                    <p className="text-amber-700">
+                      Este produto tem notas em mais de uma unidade de medida (campo CODUND do ERP) — a quantidade de
+                      cada unidade nunca é somada com a de outra, senão o resultado mistura {p.unidades.map((u) => u.unidade).join(' com ')}.
+                    </p>
+                  )}
+                </div>
+              </details>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Cards com explicação (número + como é calculado) — precisam de mais espaço */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
@@ -2373,6 +2479,13 @@ export function Fase1Dashboard() {
             { key: 'origem', label: 'Origem', sortValue: (n) => n.origem, render: (n) => n.origem || '—' },
             { key: 'cliente', label: 'Cliente/destino', sortValue: (n) => n.cliente, render: (n) => n.cliente || '—' },
             { key: 'pesoLiquido', label: 'Peso líq. (t)', align: 'right', sortValue: (n) => n.pesoLiquido, render: (n) => fmt(n.pesoLiquido / 1000, 1) },
+            {
+              key: 'quantidade',
+              label: 'Quantidade',
+              align: 'right',
+              sortValue: (n) => n.quantidade,
+              render: (n) => (n.quantidade > 0 ? `${fmt(n.quantidade, 2)}${n.unidade ? ` ${n.unidade}` : ''}` : '—'),
+            },
             { key: 'km', label: 'KM rodado (viagem)', align: 'right', sortValue: (n) => n.kmRodado, render: (n) => (n.kmRodado > 0 ? fmt(n.kmRodado) : '—') },
             {
               key: 'consumo',
@@ -2469,6 +2582,7 @@ export function Fase1Dashboard() {
                   consumoDisplay={aba === 'placa' ? consumoPorPlaca.get(tr.key) : consumoPorMotorista.get(tr.key)}
                   metaConsumoKmL={data.params.metaConsumoKmL}
                   composicaoAtual={aba === 'placa' ? data.composicoesAtuais[tr.key] : undefined}
+                  referenceNow={referenceNow}
                   onDetalhar={() =>
                     setDetalheModal({
                       truck: tr,
@@ -2743,6 +2857,7 @@ function FragmentRow({
   onSelect,
   onToggleManutencao,
   composicaoAtual,
+  referenceNow,
 }: {
   truck: TruckSummary
   /** Coluna alternativa no detalhe expandido: "Motorista" (aba Por Placa) ou "Placa" (aba Por Motorista) */
@@ -2755,6 +2870,8 @@ function FragmentRow({
   composicaoAtual?: { composicao: string; desde: string | null }
   /** Justificativa de atraso da última viagem (truck.ultimaViagemKey), se já registrada */
   justificativa?: Justificativa
+  /** Usado pra saber se `justificativa.novaPrevisao` já venceu — pedido do usuário 2026-08-20 */
+  referenceNow: number
   onJustificar: (tripKey: string, motivo: string, novaPrevisao: string | null) => Promise<boolean>
   /** Valor exibido na coluna "Consumo (km/l)" da linha — placa (ConsumoPlaca) ou motorista (ConsumoMotorista, atribuído pela data da nota); bug 2026-07-30: a linha usava só `consumo`, que nunca vem preenchido na aba Por Motorista */
   consumoDisplay?: { kmPorLitro: number | null; temAlerta: boolean }
@@ -2790,6 +2907,8 @@ function FragmentRow({
   // ter sua viagem encerrada na data da transferência, e fechado sua
   // estatística".
   const emTritrem = !!composicaoAtual && COMPOSICOES_FORA_DE_FASE1.has(composicaoAtual.composicao)
+  const previsaoVencida =
+    !!justificativa?.novaPrevisao && referenceNow > new Date(`${justificativa.novaPrevisao.slice(0, 10)}T23:59:59`).getTime()
 
   async function salvarJustificativa(e: React.FormEvent) {
     e.preventDefault()
@@ -2960,12 +3079,22 @@ function FragmentRow({
                 <span className="text-[11px] text-slate-600">
                   Motivo: {justificativa.motivo}
                   {justificativa.novaPrevisao && (
-                    <> · nova previsão: {fmtDate(justificativa.novaPrevisao)}</>
+                    <>
+                      {' '}
+                      · nova previsão: {fmtDate(justificativa.novaPrevisao)}
+                      {previsaoVencida && <span className="font-medium text-red-700"> (vencida)</span>}
+                    </>
                   )}{' '}
                   <button
                     onClick={() => {
                       setMotivoInput(justificativa.motivo)
-                      setPrevisaoInput(justificativa.novaPrevisao?.slice(0, 10) ?? '')
+                      // Previsão já vencida: NÃO pré-preenche a data antiga —
+                      // achado real 2026-08-20: o usuário editava só o motivo
+                      // e resalvava sem perceber, sem querer, a MESMA data
+                      // vencida (o form vinha com ela pré-preenchida), e o
+                      // alerta "promessa vencida" continuava voltando. Força
+                      // escolher uma data nova (ou deixar em branco).
+                      setPrevisaoInput(previsaoVencida ? '' : (justificativa.novaPrevisao?.slice(0, 10) ?? ''))
                       setJustificando(true)
                     }}
                     className="text-emerald-700 hover:underline"
@@ -2999,8 +3128,12 @@ function FragmentRow({
                     type="date"
                     value={previsaoInput}
                     onChange={(e) => setPrevisaoInput(e.target.value)}
-                    title="Nova previsão de retorno (opcional)"
-                    className="rounded border border-slate-300 px-1.5 py-0.5 text-[11px]"
+                    title={
+                      previsaoVencida
+                        ? 'A previsão anterior venceu sem correção — informe uma nova data (ou deixe em branco)'
+                        : 'Nova previsão de retorno (opcional)'
+                    }
+                    className={`rounded border px-1.5 py-0.5 text-[11px] ${previsaoVencida ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
                   />
                   <button
                     type="submit"
