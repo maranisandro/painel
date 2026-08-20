@@ -1,9 +1,31 @@
 import { prisma } from '@/lib/prisma'
 import { logAudit } from '@/lib/audit'
 import { getAllTripsBasic } from '@/lib/fase1/get-trips-simple'
-import { recognizeTicket } from './index'
+import { recognizeTicket, type OcrOutcome } from './index'
 import { appendOcrLog } from './log'
+import { enfileirarOcr } from './queue'
 import type { OcrLogFn } from './types'
+
+// Achado real 2026-08-19/20: um Tesseract travado nunca resolve nem rejeita
+// — sem timeout, ocuparia pra sempre uma das vagas da fila de concorrência
+// limitada (`enfileirarOcr`), entupindo o processamento de todo mundo atrás.
+const OCR_TIMEOUT_MS = 90_000
+
+async function recognizeTicketComTimeout(
+  fileBuffer: Buffer,
+  mime: string,
+  onLog: OcrLogFn,
+): Promise<OcrOutcome> {
+  return Promise.race([
+    recognizeTicket(fileBuffer, mime, onLog),
+    new Promise<OcrOutcome>((resolve) => {
+      setTimeout(() => {
+        onLog('OCR não respondeu em 90s — marcando como falha, preencha manualmente.', 100)
+        resolve({ status: 'falhou', placa: null, pesoAproximadoTon: null, dataTicket: null, textoBruto: null })
+      }, OCR_TIMEOUT_MS)
+    }),
+  ])
+}
 
 // Tolerância para conciliar sozinho: peso do ticket muito próximo do peso
 // líquido da viagem (a NF já soma o peso de todas as notas do agrupamento).
@@ -65,11 +87,31 @@ export async function ingestTicketFile(fileBuffer: Buffer, fileName: string, mim
   return created
 }
 
+/**
+ * Reprocessa um ticket já existente (ex.: preso em "processando" desde um
+ * travamento anterior, ou "falhou" que o usuário quer tentar de novo com
+ * outro motor de OCR) — busca o arquivo já salvo no banco, zera o log/status
+ * e roda o mesmo pipeline de `ingestTicketFile`, sem duplicar o upload.
+ */
+export async function reprocessarTicket(ticketId: string, author: IngestAuthor) {
+  const ticket = await prisma.tripTicket.findUniqueOrThrow({
+    where: { id: ticketId },
+    select: { fileData: true, fileMime: true },
+  })
+  await prisma.tripTicket.update({
+    where: { id: ticketId },
+    data: { ocrStatus: 'processando', ocrLog: ['Reprocessando…'], ocrProgress: 0 },
+  })
+  processarEmSegundoPlano(ticketId, Buffer.from(ticket.fileData), ticket.fileMime, author).catch((err) =>
+    console.error('[trip-tickets] falha ao reprocessar', err),
+  )
+}
+
 async function processarEmSegundoPlano(ticketId: string, fileBuffer: Buffer, mime: string, author: IngestAuthor) {
   const onLog: OcrLogFn = (msg, progress) => {
     void appendOcrLog(ticketId, msg, progress)
   }
-  const ocr = await recognizeTicket(fileBuffer, mime, onLog)
+  const ocr = await enfileirarOcr(() => recognizeTicketComTimeout(fileBuffer, mime, onLog))
 
   const updated = await prisma.tripTicket.update({
     where: { id: ticketId },

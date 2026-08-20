@@ -1,4 +1,5 @@
 import OpenAI from 'openai'
+import type { ChatCompletion } from 'openai/resources/chat/completions'
 import type { ParsedTicket } from './parse'
 import type { OcrLogFn } from './types'
 
@@ -54,20 +55,41 @@ export async function extractWithOpenAI(
   const dataUrl = `data:${mime};base64,${fileBuffer.toString('base64')}`
 
   onLog?.(`Enviando imagem para a OpenAI (${OPENAI_MODEL})…`, 30)
-  const completion = await client.chat.completions.create({
-    model: OPENAI_MODEL,
-    tools: [EXTRACT_TOOL],
-    tool_choice: { type: 'function', function: { name: EXTRACT_TOOL.function.name } },
-    messages: [
-      {
-        role: 'user',
-        content: [
-          { type: 'text', text: 'Este é um ticket de pesagem/viagem de transporte rodoviário. Leia a placa do caminhão, o peso e a data e registre com a ferramenta.' },
-          { type: 'image_url', image_url: { url: dataUrl } },
+  // Retry com backoff em 429 (rate limit) — achado real 2026-08-20: reprocessar
+  // muitos tickets de uma vez (210+) esgota o limite de tokens/minuto da
+  // organização, e cada chamada de imagem consome bastante token. Sem retry,
+  // todo o lote além do limite falhava na hora, exigindo reprocessar de novo
+  // manualmente. Usa o header `retry-after` da própria OpenAI quando vem.
+  const MAX_TENTATIVAS = 3
+  let ultimoErro: unknown
+  let completion: ChatCompletion | null = null
+  for (let tentativa = 1; tentativa <= MAX_TENTATIVAS; tentativa++) {
+    try {
+      completion = await client.chat.completions.create({
+        model: OPENAI_MODEL,
+        tools: [EXTRACT_TOOL],
+        tool_choice: { type: 'function', function: { name: EXTRACT_TOOL.function.name } },
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Este é um ticket de pesagem/viagem de transporte rodoviário. Leia a placa do caminhão, o peso e a data e registre com a ferramenta.' },
+              { type: 'image_url', image_url: { url: dataUrl } },
+            ],
+          },
         ],
-      },
-    ],
-  })
+      })
+      break
+    } catch (err) {
+      ultimoErro = err
+      const status = (err as { status?: number })?.status
+      if (status !== 429 || tentativa === MAX_TENTATIVAS) throw err
+      const retryAfterMs = Number((err as { headers?: Headers })?.headers?.get?.('retry-after-ms')) || 5000
+      onLog?.(`Rate limit da OpenAI — tentativa ${tentativa}/${MAX_TENTATIVAS}, aguardando ${Math.round(retryAfterMs / 1000)}s…`, 30)
+      await new Promise((resolve) => setTimeout(resolve, retryAfterMs))
+    }
+  }
+  if (!completion) throw ultimoErro instanceof Error ? ultimoErro : new Error('Falha desconhecida na chamada à OpenAI')
 
   onLog?.('Resposta recebida, interpretando placa/peso/data…', 90)
   const call = completion.choices[0]?.message.tool_calls?.[0]

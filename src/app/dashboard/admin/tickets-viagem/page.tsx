@@ -69,6 +69,7 @@ export default function TicketsViagemPage() {
   const [manualForms, setManualForms] = useState<Record<string, typeof EMPTY_MANUAL>>({})
   const [selecionadas, setSelecionadas] = useState<Record<string, Set<string>>>({})
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [reprocessando, setReprocessando] = useState(false)
 
   const loadTickets = useCallback(async () => {
     const res = await fetch('/api/admin/trip-tickets')
@@ -79,6 +80,24 @@ export default function TicketsViagemPage() {
     const res = await fetch('/api/admin/trip-tickets/trips')
     if (res.ok) setTrips(await res.json())
   }, [])
+
+  // Reprocessa tickets presos em "processando" (achado real 2026-08-19/20:
+  // subir muitos arquivos de uma vez trava o Tesseract em ~5% pra sempre,
+  // sem erro nenhum) — reprocessa todos com o motor de OCR atual (ex.: já
+  // trocado pra OpenAI), protegido pela fila de concorrência limitada.
+  async function reprocessarTravados() {
+    setReprocessando(true)
+    await fetch('/api/admin/trip-tickets/reprocessar-travados', { method: 'POST' })
+    setReprocessando(false)
+    await loadTickets()
+  }
+
+  async function reprocessarUm(id: string) {
+    setBusyId(id)
+    await fetch(`/api/admin/trip-tickets/${id}/reprocessar`, { method: 'POST' })
+    setBusyId(null)
+    await loadTickets()
+  }
 
   useEffect(() => {
     void loadTickets()
@@ -282,8 +301,16 @@ export default function TicketsViagemPage() {
 
       {processando.length > 0 && (
         <div className="rounded-xl border border-sky-300 bg-sky-50">
-          <div className="border-b border-sky-200 px-4 py-3 font-medium text-sky-900">
-            Processando OCR ({processando.length})
+          <div className="flex items-center justify-between border-b border-sky-200 px-4 py-3">
+            <span className="font-medium text-sky-900">Processando OCR ({processando.length})</span>
+            <button
+              onClick={reprocessarTravados}
+              disabled={reprocessando}
+              title="Tickets presos em 'processando' há mais de 10 minutos travaram (achado real: Tesseract concorrente demais trava sem erro) — reprocessa todos com o motor de OCR atual"
+              className="rounded-md border border-sky-600 px-3 py-1 text-xs text-sky-700 hover:bg-sky-100 disabled:opacity-50"
+            >
+              {reprocessando ? 'Reprocessando…' : 'Reprocessar travados (10+ min)'}
+            </button>
           </div>
           <div className="divide-y divide-sky-200">
             {processando.map((ticket) => (
@@ -329,9 +356,16 @@ export default function TicketsViagemPage() {
                       ver ticket ({ticket.fileName})
                     </a>
                     <button
+                      onClick={() => reprocessarUm(ticket.id)}
+                      disabled={busyId === ticket.id}
+                      className="ml-auto text-xs text-emerald-700 hover:underline"
+                    >
+                      reprocessar OCR
+                    </button>
+                    <button
                       onClick={() => remove(ticket.id)}
                       disabled={busyId === ticket.id}
-                      className="ml-auto text-xs text-red-600 hover:underline"
+                      className="text-xs text-red-600 hover:underline"
                     >
                       excluir
                     </button>
