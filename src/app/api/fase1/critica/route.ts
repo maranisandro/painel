@@ -12,6 +12,7 @@ import {
   achadosDesvioRotaGps,
   achadosComparativoViagensReferencia,
   achadosPlacaSemComposicao,
+  achadosCadastroNaoAjustado,
   achadosMovimentoDuranteManutencao,
   achadosNotaAposTransferenciaTritrem,
   type AchadoDetectado,
@@ -111,6 +112,7 @@ export async function GET() {
     ...achadosDesvioRotaGps(tripsEnriquecidas, posicoesGps),
     ...achadosComparativoViagensReferencia(placasComViagem),
     ...achadosPlacaSemComposicao(placasComViagem, placasComComposicao),
+    ...achadosCadastroNaoAjustado(placasComViagem, placasComComposicao, resolveComposition),
     ...achadosMovimentoDuranteManutencao(manutencoesAbertasFmt, posicoesGps),
     ...achadosNotaAposTransferenciaTritrem(placasComViagemComComposicao),
   ]

@@ -605,6 +605,49 @@ export function achadosPlacaSemComposicao(placasComViagem: Row[], placasComCompo
 }
 
 /**
+ * Placa TEM cadastro de composição, mas nenhum registro cobre a data da
+ * viagem (o mais antigo começa depois da viagem acontecer) — diferente de
+ * `achadosPlacaSemComposicao` (placa sem NENHUM registro). Pedido do usuário
+ * 2026-08-20: "placa com viagem sem cadastro ajustado" — o cadastro existe,
+ * só não foi ajustado (effectiveFrom) pra cobrir esse período, geralmente
+ * porque a composição mudou e ninguém lançou a data de vigência mais antiga
+ * (ou lançou tarde demais). `resolveComposition` retorna null quando nenhum
+ * registro (nem o de cadastro "desde sempre") se aplica à data.
+ */
+export function achadosCadastroNaoAjustado(
+  placasComViagem: Row[],
+  placasComComposicao: Set<string>,
+  resolveComposition: (placa: unknown, dateYmd: string) => string | null,
+): AchadoDetectado[] {
+  const infoPorPlaca = new Map<string, { n: number; primeira: string; ultima: string; produtos: Set<string> }>()
+  for (const t of placasComViagem) {
+    const placa = String(t.PLACA ?? '').trim().toUpperCase()
+    if (!placa || !placasComComposicao.has(placa)) continue
+    const data = String(t.DATASAIDA ?? '').slice(0, 10)
+    if (!data) continue
+    if (resolveComposition(placa, data) !== null) continue
+    const info = infoPorPlaca.get(placa) ?? { n: 0, primeira: data, ultima: data, produtos: new Set<string>() }
+    info.n++
+    if (data < info.primeira) info.primeira = data
+    if (data > info.ultima) info.ultima = data
+    const produto = String(t.TipoProduto ?? '').trim()
+    if (produto) info.produtos.add(produto)
+    infoPorPlaca.set(placa, info)
+  }
+
+  const out: AchadoDetectado[] = []
+  for (const [placa, info] of infoPorPlaca.entries()) {
+    out.push({
+      categoria: 'cadastro_nao_ajustado',
+      chave: `cadastro-nao-ajustado-${placa}`,
+      titulo: `Placa ${placa} — viagem antes da vigência do cadastro de composição`,
+      descricao: `${info.n} viagem(ns) registrada(s) de ${info.primeira} a ${info.ultima} (produto: ${[...info.produtos].join(', ') || 'não identificado'}) aconteceram numa data anterior ao primeiro registro de composição da placa — o cadastro existe, mas a data de vigência (desde quando) não foi ajustada pra cobrir esse período. Confira se falta um registro mais antigo em Cadastros → Composições, ou se a data do registro atual está certa.`,
+    })
+  }
+  return out.sort((a, b) => a.chave.localeCompare(b.chave))
+}
+
+/**
  * Nota fiscal de transporte rodoviário aparecendo para uma placa que, na
  * data da viagem, já estava com composição Tritrem Florestal (transporte de
  * madeira, fora do escopo do Fase1) — pedido do usuário 2026-08-19: "se
