@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { MapaFrota } from './MapaFrota'
 import { DateRangeInputs, formatBRInput, parseBRToIso, fmtDateBR, MiniCalendarButton } from '@/components/shared/DateRangeInputs'
 import { SortableTable } from '@/components/shared/SortableTable'
@@ -209,6 +210,7 @@ export function RastreamentoFrota({
   locations: LocationMarker[]
   positions: VehiclePositionInfo[]
 }) {
+  const searchParams = useSearchParams()
   const [tab, setTab] = useState<'mapa' | 'lista' | 'permanencia' | 'pernoite' | 'sem-comunicacao'>('mapa')
   const [historicoPlaca, setHistoricoPlaca] = useState<string | null>(null)
   const [historico, setHistorico] = useState<HistoricoPonto[]>([])
@@ -234,6 +236,19 @@ export function RastreamentoFrota({
     setFocusCoord({ lat, lng })
     setTab('mapa')
   }
+
+  // Foco vindo de outra tela via link (ex.: "ver no mapa" da lista de
+  // possíveis oficinas em Cadastros → Locais) — pedido do usuário 2026-08-20:
+  // "nesta tela precisamos ter uma opção de identificar o local no mapa e
+  // não somente a opção de cadastro".
+  useEffect(() => {
+    const lat = Number(searchParams.get('lat'))
+    const lng = Number(searchParams.get('lng'))
+    if (Number.isFinite(lat) && Number.isFinite(lng) && searchParams.get('lat') !== null) {
+      verCoordenadaNoMapa(lat, lng)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
 
   // Permanência por local (chegada/saída) — pedido do usuário 2026-08-03:
   // "relatórios do tempo que ficou em cada local, hora de chegada e saída".

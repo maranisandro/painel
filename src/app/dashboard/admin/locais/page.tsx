@@ -588,12 +588,22 @@ export default function LocaisPage() {
                   </span>
                   <span className="ml-2 text-xs text-slate-500">placa(s): {p.placas.join(', ')}</span>
                 </span>
-                <button
-                  onClick={() => startFromPendingOficina(p)}
-                  className="rounded-md border border-violet-600 px-3 py-1 text-xs text-violet-700 hover:bg-violet-50"
-                >
-                  Cadastrar como Oficina
-                </button>
+                <span className="flex shrink-0 gap-2">
+                  <a
+                    href={`/dashboard/fase1/mapa?lat=${p.latitude}&lng=${p.longitude}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-md border border-slate-300 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                  >
+                    📍 ver no mapa
+                  </a>
+                  <button
+                    onClick={() => startFromPendingOficina(p)}
+                    className="rounded-md border border-violet-600 px-3 py-1 text-xs text-violet-700 hover:bg-violet-50"
+                  >
+                    Cadastrar como Oficina
+                  </button>
+                </span>
               </div>
             ))}
           </div>
