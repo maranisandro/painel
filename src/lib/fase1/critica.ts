@@ -648,6 +648,57 @@ export function achadosCadastroNaoAjustado(
 }
 
 /**
+ * Abastecimento via TICKET (posto externo) perto (D-1, D ou D+1) de uma
+ * viagem da mesma placa — pedido do usuário 2026-08-20: "quero critica caso
+ * tenha abastecimento na ticket no mesmo dia ou dia + 1 ou dia -1 de uma NF,
+ * pois este poderia ter abastecido no CTA". O posto interno (CTA) é o
+ * esperado pra frota própria; um ticket externo (`source = 'TK'`) tão perto
+ * da viagem é indício de que o motorista poderia ter usado o CTA em vez de
+ * abastecer fora (ou de um lançamento duplicado/indevido).
+ */
+export function achadosAbastecimentoTicketPertoDeNota(
+  abastecimento: Row[],
+  placasComViagem: Row[],
+): AchadoDetectado[] {
+  const ticketsPorPlaca = new Map<string, { date: string; amount: number }[]>()
+  for (const a of abastecimento) {
+    if (String(a.source ?? '').toUpperCase() !== 'TK') continue
+    const placa = String(a.PLACA ?? '').trim().toUpperCase()
+    if (!placa) continue
+    const list = ticketsPorPlaca.get(placa) ?? []
+    list.push({ date: String(a.date ?? '').slice(0, 10), amount: Number(a.amount) || 0 })
+    ticketsPorPlaca.set(placa, list)
+  }
+  if (ticketsPorPlaca.size === 0) return []
+
+  const out: AchadoDetectado[] = []
+  const vistos = new Set<string>()
+  for (const t of placasComViagem) {
+    const placa = String(t.PLACA ?? '').trim().toUpperCase()
+    const dataSaida = String(t.DATASAIDA ?? '').slice(0, 10)
+    if (!placa || !dataSaida) continue
+    const tickets = ticketsPorPlaca.get(placa)
+    if (!tickets) continue
+    const dNota = new Date(`${dataSaida}T00:00:00`).getTime()
+    for (const ticket of tickets) {
+      const dTicket = new Date(`${ticket.date}T00:00:00`).getTime()
+      const diffDias = Math.round((dTicket - dNota) / 86_400_000)
+      if (Math.abs(diffDias) > 1) continue
+      const chave = `ticket-perto-nota-${placa}-${dataSaida}-${ticket.date}`
+      if (vistos.has(chave)) continue
+      vistos.add(chave)
+      out.push({
+        categoria: 'abastecimento_ticket_perto_nota',
+        chave,
+        titulo: `Placa ${placa} — abastecimento por ticket (externo) perto de uma viagem`,
+        descricao: `Abastecimento via ticket (posto externo) em ${ticket.date} (R$ ${ticket.amount.toFixed(2)}), a ${Math.abs(diffDias)} dia(s) da viagem de ${dataSaida} — confira se o veículo poderia ter abastecido no CTA (posto interno) em vez de pagar fora.`,
+      })
+    }
+  }
+  return out.sort((a, b) => a.chave.localeCompare(b.chave))
+}
+
+/**
  * Nota fiscal de transporte rodoviário aparecendo para uma placa que, na
  * data da viagem, já estava com composição Tritrem Florestal (transporte de
  * madeira, fora do escopo do Fase1) — pedido do usuário 2026-08-19: "se

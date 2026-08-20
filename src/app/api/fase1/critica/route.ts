@@ -15,6 +15,7 @@ import {
   achadosCadastroNaoAjustado,
   achadosMovimentoDuranteManutencao,
   achadosNotaAposTransferenciaTritrem,
+  achadosAbastecimentoTicketPertoDeNota,
   type AchadoDetectado,
   type PosicaoGps,
 } from '@/lib/fase1/critica'
@@ -51,6 +52,7 @@ export async function GET() {
         pedometer: Number(r.pedometer) || 0,
         amount: Number(r.amount) || 0,
         produto: String(r.PRODUTO_ABASTECIMENTO ?? '').trim(),
+        source: String(r.SOURCE ?? '').trim().toUpperCase(),
       }))
   } catch {
     abastecimento = []
@@ -115,6 +117,7 @@ export async function GET() {
     ...achadosCadastroNaoAjustado(placasComViagem, placasComComposicao, resolveComposition),
     ...achadosMovimentoDuranteManutencao(manutencoesAbertasFmt, posicoesGps),
     ...achadosNotaAposTransferenciaTritrem(placasComViagemComComposicao),
+    ...achadosAbastecimentoTicketPertoDeNota(abastecimento, placasComViagem),
   ]
 
   const registros = await prisma.criticaModeloAchado.findMany({ where: { modulo: MODULO } })
