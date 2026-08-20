@@ -139,14 +139,34 @@ export default function TicketsViagemPage() {
     return map
   }, [trips])
 
-  function candidatesFor(ticket: TripTicket): (Trip & { diffTon: number })[] {
+  // Nº da nota fiscal no nome do arquivo (ex.: "TICKET NF-e 10700.jpeg") —
+  // quando bate exatamente com o NUMEROMOV de uma viagem da mesma placa, é
+  // uma identificação muito mais forte que a proximidade de peso (que pode
+  // falhar se o OCR leu o peso errado, ou a nota é só uma perna de uma
+  // viagem maior) — achado real 2026-08-20: ticket com NF 10700 no nome não
+  // aparecia entre as candidatas porque o peso lido (50,88t) batia mal com
+  // o peso real da nota (27,69t), mas a NF batia certinho.
+  function nfDoNomeArquivo(fileName: string): string | null {
+    const m = fileName.match(/NF-?e?\s*(\d{3,})/i)
+    return m ? m[1].replace(/^0+/, '') : null
+  }
+
+  function candidatesFor(ticket: TripTicket): (Trip & { diffTon: number; nfMatch: boolean })[] {
     if (!ticket.placa || ticket.pesoAproximadoTon == null) return []
     const list = tripsByPlaca.get(normPlaca(ticket.placa)) ?? []
     const pesoTicket = Number(ticket.pesoAproximadoTon)
-    return list
-      .map((t) => ({ ...t, diffTon: Math.abs((Number(t.PESOLIQUIDO) || 0) / 1000 - pesoTicket) }))
+    const nfTicket = nfDoNomeArquivo(ticket.fileName)
+    const comDiff = list.map((t) => ({
+      ...t,
+      diffTon: Math.abs((Number(t.PESOLIQUIDO) || 0) / 1000 - pesoTicket),
+      nfMatch: !!nfTicket && t.NUMEROMOV.replace(/^0+/, '') === nfTicket,
+    }))
+    const matchNf = comDiff.filter((t) => t.nfMatch)
+    const semMatch = comDiff
+      .filter((t) => !t.nfMatch)
       .sort((a, b) => a.diffTon - b.diffTon)
-      .slice(0, 5)
+      .slice(0, 5 - matchNf.length)
+    return [...matchNf, ...semMatch]
   }
 
   function tripByKey(key: string): Trip | undefined {
@@ -460,7 +480,11 @@ export default function TicketsViagemPage() {
                           <label
                             key={c.VIAGEM_KEY}
                             className={`flex cursor-pointer items-start gap-2 rounded-md border px-3 py-1.5 text-left text-xs ${
-                              marcada ? 'border-emerald-500 bg-emerald-50' : 'border-slate-300 hover:bg-slate-50'
+                              marcada
+                                ? 'border-emerald-500 bg-emerald-50'
+                                : c.nfMatch
+                                  ? 'border-cyan-400 bg-cyan-50 hover:bg-cyan-100'
+                                  : 'border-slate-300 hover:bg-slate-50'
                             }`}
                           >
                             <input
@@ -472,6 +496,11 @@ export default function TicketsViagemPage() {
                             <div>
                               <div className="font-medium">
                                 {fmtDate(c.DATASAIDA)} · NF {c.NUMEROMOV} · {((Number(c.PESOLIQUIDO) || 0) / 1000).toLocaleString('pt-BR')} t
+                                {c.nfMatch && (
+                                  <span className="ml-1 rounded bg-cyan-600 px-1 py-0.5 text-[10px] font-normal text-white" title="Número da nota fiscal bate com o nome do arquivo do ticket">
+                                    NF do ticket
+                                  </span>
+                                )}
                               </div>
                               <div className="text-slate-500">
                                 {c.NOMEFANTASIA} · {c.MOTORISTA} · diferença {c.diffTon.toLocaleString('pt-BR')} t
