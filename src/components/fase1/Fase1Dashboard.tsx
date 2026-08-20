@@ -2342,7 +2342,11 @@ export function Fase1Dashboard() {
       ) : aba === 'critica' ? (
         <CriticaModeloTab />
       ) : aba === 'estrategico' ? (
-        <Fase1Estrategico trips={data?.trips ?? []} custoMesRegistrado={data?.params.custoMesRegistrado ?? {}} />
+        <Fase1Estrategico
+          trips={data?.trips ?? []}
+          custoMesRegistrado={data?.params.custoMesRegistrado ?? {}}
+          custoMesAtual={data?.params.custoMesAtual ?? null}
+        />
       ) : aba === 'disponibilidade' ? (
         <Fase1Disponibilidade
           trips={data?.trips ?? []}

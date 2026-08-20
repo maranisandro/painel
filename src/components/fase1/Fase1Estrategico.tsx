@@ -27,6 +27,16 @@ function variacaoPct(atual: number, anterior: number | null): number | null {
   return ((atual - anterior) / anterior) * 100
 }
 
+interface CustoMesAtual {
+  ym: string
+  lancado: number
+  ateHoje: number
+  projetadoFechamento: number
+  custoDiaBase: number
+  diasDecorridos: number
+  diasDoMes: number
+}
+
 interface MesEstrategico {
   mes: string
   ym: string
@@ -39,6 +49,18 @@ interface MesEstrategico {
   variacaoCustoPct: number | null
   variacaoCustoPorKmPct: number | null
   variacaoCustoPorToneladaPct: number | null
+  /** Mês em andamento — pedido do usuário 2026-08-20: "utilizem um proporcional
+   * com o ritmo para que não fique uma variação grande de valor parcial...
+   * poderia ter o numero real e as informações de proporção e ritmo". Quando
+   * true, `custoCadastrado` já é a PROJEÇÃO de fechamento (comparável aos
+   * meses fechados), não o valor parcial lançado — o valor real fica em
+   * `custoReal`.
+   */
+  isMesAtual: boolean
+  custoReal: number
+  ritmoDiario: number | null
+  diasDecorridos: number | null
+  diasDoMes: number | null
 }
 
 /**
@@ -53,9 +75,11 @@ interface MesEstrategico {
 export function Fase1Estrategico({
   trips,
   custoMesRegistrado,
+  custoMesAtual,
 }: {
   trips: Record<string, unknown>[]
   custoMesRegistrado: Record<string, number>
+  custoMesAtual: CustoMesAtual | null
 }) {
   const anosDisponiveis = useMemo(() => {
     const anos = new Set<string>()
@@ -82,9 +106,19 @@ export function Fase1Estrategico({
       )
       const kmTotal = doMes.reduce((s, t) => s + (Number(t.KM_RODADO) || 0), 0)
       const pesoT = doMes.reduce((s, t) => s + (Number(t.PESOLIQUIDO) || 0), 0) / 1000
-      const custoCadastrado = custoMesRegistrado[ym] ?? 0
-      const custoPorKm = kmTotal > 0 ? custoCadastrado / kmTotal : null
-      const custoPorTonelada = pesoT > 0 ? custoCadastrado / pesoT : null
+      const isMesAtual = custoMesAtual !== null && ym === custoMesAtual.ym
+      // Mês em andamento: o valor lançado até agora é parcial (poucos dias
+      // do mês) e, contra meses já fechados, gera uma variação % enorme e
+      // enganosa. Usa a MESMA projeção de fechamento (ritmo R$/dia, com
+      // fallback pra média histórica quando o lançamento está atrasado) já
+      // calculada para o painel tático — pedido do usuário 2026-08-20. Pro
+      // R$/km e R$/tonelada, usa o custo "até hoje" no ritmo (mesma janela de
+      // dias que o KM/peso já apurado), não o lançado bruto nem o projetado
+      // do mês inteiro (que infla o card ao dividir por só alguns dias de KM).
+      const custoCadastrado = isMesAtual ? custoMesAtual!.projetadoFechamento : (custoMesRegistrado[ym] ?? 0)
+      const custoParaRazao = isMesAtual ? custoMesAtual!.ateHoje : custoCadastrado
+      const custoPorKm = kmTotal > 0 ? custoParaRazao / kmTotal : null
+      const custoPorTonelada = pesoT > 0 ? custoParaRazao / pesoT : null
       // Comparação só dentro do ano selecionado — janeiro nunca tem variação
       // (não busca dezembro do ano anterior, que está fora do escopo `trips`
       // atual do componente).
@@ -100,12 +134,18 @@ export function Fase1Estrategico({
         variacaoCustoPct: variacaoPct(custoCadastrado, anterior?.custoCadastrado ?? null),
         variacaoCustoPorKmPct: custoPorKm !== null ? variacaoPct(custoPorKm, anterior?.custoPorKm ?? null) : null,
         variacaoCustoPorToneladaPct: custoPorTonelada !== null ? variacaoPct(custoPorTonelada, anterior?.custoPorTonelada ?? null) : null,
+        isMesAtual,
+        custoReal: isMesAtual ? custoMesAtual!.lancado : custoCadastrado,
+        ritmoDiario: isMesAtual ? custoMesAtual!.custoDiaBase : null,
+        diasDecorridos: isMesAtual ? custoMesAtual!.diasDecorridos : null,
+        diasDoMes: isMesAtual ? custoMesAtual!.diasDoMes : null,
       })
     }
     return out
-  }, [trips, custoMesRegistrado, ano])
+  }, [trips, custoMesRegistrado, custoMesAtual, ano])
 
   const temAlgumDado = dadosPorMes.some((m) => m.custoCadastrado > 0 || m.kmTotal > 0)
+  const mesAtualNoAno = dadosPorMes.find((m) => m.isMesAtual) ?? null
 
   return (
     <div className="space-y-6">
@@ -136,8 +176,20 @@ export function Fase1Estrategico({
         </div>
       )}
 
+      {mesAtualNoAno && (
+        <div className="rounded-lg border border-sky-300 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+          <strong>{mesAtualNoAno.mes}/{ano} em andamento</strong> ({mesAtualNoAno.diasDecorridos}/{mesAtualNoAno.diasDoMes} dias) —
+          gráficos e variação usam a projeção de fechamento no ritmo atual (R$ {fmt(mesAtualNoAno.custoCadastrado)}, ritmo R${' '}
+          {fmt(mesAtualNoAno.ritmoDiario ?? 0)}/dia), pra não distorcer a comparação com meses fechados. Real lançado até agora: R${' '}
+          {fmt(mesAtualNoAno.custoReal)}.
+        </div>
+      )}
+
       <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <p className="mb-2 text-xs font-medium text-slate-600">Custo do mês cadastrado (R$) e variação % vs. mês anterior</p>
+        <p className="mb-2 text-xs font-medium text-slate-600">
+          Custo do mês cadastrado (R$) e variação % vs. mês anterior
+          {mesAtualNoAno && <span className="ml-1 font-normal text-sky-700">— {mesAtualNoAno.mes} usa projeção de fechamento (ritmo)</span>}
+        </p>
         <ResponsiveContainer width="100%" height={280}>
           <ComposedChart data={dadosPorMes} margin={{ top: 20, right: 8, left: 8, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
@@ -227,8 +279,45 @@ export function Fase1Estrategico({
           defaultSortKey="mes"
           defaultSortDir="asc"
           columns={[
-            { key: 'mes', label: 'Mês', sortValue: (m) => m.ym, render: (m) => m.mes },
-            { key: 'custo', label: 'Custo cadastrado', align: 'right', sortValue: (m) => m.custoCadastrado, render: (m) => fmtMoeda(m.custoCadastrado) },
+            {
+              key: 'mes',
+              label: 'Mês',
+              sortValue: (m) => m.ym,
+              render: (m) => (
+                <span>
+                  {m.mes}
+                  {m.isMesAtual && (
+                    <span
+                      className="ml-1 rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium text-sky-800"
+                      title={`Em andamento: ${m.diasDecorridos}/${m.diasDoMes} dias`}
+                    >
+                      em andamento
+                    </span>
+                  )}
+                </span>
+              ),
+            },
+            {
+              key: 'custo',
+              label: 'Custo (projeção no mês atual)',
+              align: 'right',
+              sortValue: (m) => m.custoCadastrado,
+              render: (m) => fmtMoeda(m.custoCadastrado),
+            },
+            {
+              key: 'custoReal',
+              label: 'Real lançado (mês atual)',
+              align: 'right',
+              sortValue: (m) => (m.isMesAtual ? m.custoReal : -1),
+              render: (m) => (m.isMesAtual ? fmtMoeda(m.custoReal) : '—'),
+            },
+            {
+              key: 'ritmo',
+              label: 'Ritmo R$/dia (mês atual)',
+              align: 'right',
+              sortValue: (m) => m.ritmoDiario ?? -1,
+              render: (m) => (m.ritmoDiario != null ? `${fmtMoeda(m.ritmoDiario)}/dia` : '—'),
+            },
             { key: 'varCusto', label: 'Var. custo %', align: 'right', sortValue: (m) => m.variacaoCustoPct ?? -Infinity, render: (m) => fmtPct(m.variacaoCustoPct) },
             { key: 'km', label: 'KM rodado', align: 'right', sortValue: (m) => m.kmTotal, render: (m) => fmt(m.kmTotal) },
             { key: 'peso', label: 'Peso (t)', align: 'right', sortValue: (m) => m.pesoT, render: (m) => fmt(m.pesoT, 1) },
