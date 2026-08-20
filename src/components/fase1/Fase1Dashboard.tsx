@@ -1178,14 +1178,20 @@ export function Fase1Dashboard() {
   const atrasadosJustificados = useMemo(
     () =>
       placaGroupsFull
-        .filter(
-          (g) =>
-            (g.status === 'ATRASADO' || g.status === 'MUITO_ATRASADO') &&
-            justificativas.has(g.ultimaViagemKey),
-        )
+        .filter((g) => {
+          // Placa já transferida para Tritrem Florestal (ou outra composição
+          // fora do Fase1) não deve mais aparecer aqui — a justificativa era
+          // de quando ainda rodava no Transporte Rodoviário, não faz sentido
+          // cobrar atraso de uma viagem que não vai mais acontecer. Achado
+          // real 2026-08-20: TBH2B96/TAK5C13/TAK5C10 continuavam presos
+          // nesta aba mesmo já com a composição Tritrem Florestal cadastrada.
+          const composicaoAtual = data?.composicoesAtuais[g.key]
+          if (composicaoAtual && COMPOSICOES_FORA_DE_FASE1.has(composicaoAtual.composicao)) return false
+          return (g.status === 'ATRASADO' || g.status === 'MUITO_ATRASADO') && justificativas.has(g.ultimaViagemKey)
+        })
         .map((g) => ({ group: g, justificativa: justificativas.get(g.ultimaViagemKey)! }))
         .sort((a, b) => b.group.statusDays - a.group.statusDays),
-    [placaGroupsFull, justificativas],
+    [placaGroupsFull, justificativas, data],
   )
 
   // "Promessa vencida": a nova previsão informada na justificativa já passou
