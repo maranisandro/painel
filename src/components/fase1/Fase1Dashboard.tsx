@@ -237,7 +237,7 @@ const DIM_LABELS: Record<DimKey, string> = {
 // valer para as duas — a lógica abaixo é parametrizada por groupField
 // exatamente para isso. "board" é o acompanhamento simples (ícones por
 // caminhão) — não segue essa regra de espelhamento, tem estrutura própria.
-type Aba = 'placa' | 'motorista' | 'board' | 'atrasados' | 'combustivel' | 'critica' | 'estrategico' | 'disponibilidade'
+type Aba = 'placa' | 'motorista' | 'nota' | 'board' | 'atrasados' | 'combustivel' | 'critica' | 'estrategico' | 'disponibilidade'
 
 // Ícone por classificação de produto no acompanhamento simples
 function produtoIcone(tipo: string): string {
@@ -982,6 +982,59 @@ export function Fase1Dashboard() {
     }
   }, [consumoPlacas, data])
   const consumoPorPlaca = useMemo(() => new Map(consumoPlacas.map((c) => [c.placa, c])), [consumoPlacas])
+
+  // Aba "Por Nota": uma linha por NOTA FISCAL, não por viagem agrupada —
+  // pedido do usuário 2026-08-20: "hoje temos por placa e por motorista mas
+  // precisa de uma por nota com uma das colunas sendo o produto". Cada
+  // viagem (`filteredTrips`) já carrega `NOTAS` (o detalhe pré-agrupamento
+  // de `aggregateTrips`, usado até aqui só no drill-down de conformidade de
+  // peso) — desagrega de volta pra 1 linha por nota, herdando da viagem os
+  // indicadores que fazem sentido num nível de nota isolada (composição, KM
+  // rodado da viagem, consumo da placa); indicadores de acúmulo por período
+  // (ritmo, ocupação, atraso) não existem numa nota isolada, só na placa/
+  // motorista ao longo do tempo, por isso ficam de fora aqui.
+  const notasFlat = useMemo(() => {
+    const out: {
+      key: string
+      numeroMov: string
+      placa: string
+      motorista: string
+      dataSaida: string
+      produto: string
+      origem: string
+      cliente: string
+      pesoLiquido: number
+      composicao: string
+      kmRodado: number
+      consumoKmL: number | null
+    }[] = []
+    for (const t of filteredTrips) {
+      const placa = String(t.PLACA ?? '').trim().toUpperCase()
+      const notas = (t.NOTAS as { numeroMov: string; origem: string; cliente: string; produto: string; pesoBruto: number; pesoLiquido: number }[] | undefined) ?? []
+      const consumoKmL = consumoPorPlaca.get(placa)?.kmPorLitro ?? null
+      const dataSaida = String(t.DATASAIDA ?? '').slice(0, 10)
+      const composicao = String(t['TipoComposição'] ?? '')
+      const kmRodado = Number(t.KM_RODADO) || 0
+      for (const n of notas) {
+        out.push({
+          key: `${n.numeroMov}-${placa}-${dataSaida}`,
+          numeroMov: n.numeroMov,
+          placa,
+          motorista: String(t.MOTORISTA ?? ''),
+          dataSaida,
+          produto: n.produto,
+          origem: n.origem,
+          cliente: n.cliente,
+          pesoLiquido: n.pesoLiquido,
+          composicao,
+          kmRodado,
+          consumoKmL,
+        })
+      }
+    }
+    return out
+  }, [filteredTrips, consumoPorPlaca])
+
   // Linha do tempo de motorista por placa (pedido do usuário 2026-07-30):
   // "equivalência da data do abastecimento com o período entre duas notas —
   // emite nota hoje, todo abastecimento até aparecer nota de outro motorista
@@ -1944,7 +1997,7 @@ export function Fase1Dashboard() {
       )}
 
       <div id="secao-tabela" className="flex flex-wrap gap-2 border-b border-slate-200">
-        {(['placa', 'estrategico', 'disponibilidade', 'motorista', 'board', 'atrasados', 'combustivel', 'critica'] as Aba[]).map((a) => (
+        {(['placa', 'estrategico', 'disponibilidade', 'motorista', 'nota', 'board', 'atrasados', 'combustivel', 'critica'] as Aba[]).map((a) => (
           <button
             key={a}
             onClick={() => setAba(a)}
@@ -1954,7 +2007,9 @@ export function Fase1Dashboard() {
               ? 'Por Placa'
               : a === 'motorista'
                 ? 'Por Motorista'
-                : a === 'board'
+                : a === 'nota'
+                  ? 'Por Nota'
+                  : a === 'board'
                   ? 'Acompanhamento'
                   : a === 'atrasados'
                     ? 'Atrasados justificados'
@@ -2296,6 +2351,33 @@ export function Fase1Dashboard() {
           to={to}
           metaKm={data?.params.metaKm ?? 8000}
           metaKmPorComposicao={data?.params.metaKmPorComposicao ?? {}}
+        />
+      ) : aba === 'nota' ? (
+        <SortableTable
+          rows={notasFlat}
+          rowKey={(n) => n.key}
+          defaultSortKey="dataSaida"
+          defaultSortDir="desc"
+          emptyMessage="Nenhuma nota fiscal no período/filtros selecionados."
+          columns={[
+            { key: 'nota', label: 'Nota fiscal', sortValue: (n) => n.numeroMov, render: (n) => <span className="font-mono text-xs">{n.numeroMov}</span> },
+            { key: 'dataSaida', label: 'Saída', sortValue: (n) => n.dataSaida, render: (n) => fmtDate(n.dataSaida) },
+            { key: 'placa', label: 'Placa', sortValue: (n) => n.placa, render: (n) => <span className="font-mono font-medium">{n.placa}</span> },
+            { key: 'motorista', label: 'Motorista', sortValue: (n) => n.motorista, render: (n) => n.motorista },
+            { key: 'composicao', label: 'Composição', sortValue: (n) => n.composicao, render: (n) => n.composicao || '—' },
+            { key: 'produto', label: 'Produto', sortValue: (n) => n.produto, render: (n) => n.produto || '—' },
+            { key: 'origem', label: 'Origem', sortValue: (n) => n.origem, render: (n) => n.origem || '—' },
+            { key: 'cliente', label: 'Cliente/destino', sortValue: (n) => n.cliente, render: (n) => n.cliente || '—' },
+            { key: 'pesoLiquido', label: 'Peso líq. (t)', align: 'right', sortValue: (n) => n.pesoLiquido, render: (n) => fmt(n.pesoLiquido / 1000, 1) },
+            { key: 'km', label: 'KM rodado (viagem)', align: 'right', sortValue: (n) => n.kmRodado, render: (n) => (n.kmRodado > 0 ? fmt(n.kmRodado) : '—') },
+            {
+              key: 'consumo',
+              label: 'Consumo (km/l)',
+              align: 'right',
+              sortValue: (n) => n.consumoKmL ?? -1,
+              render: (n) => (n.consumoKmL != null ? fmt(n.consumoKmL, 2) : '—'),
+            },
+          ]}
         />
       ) : (
         <>
