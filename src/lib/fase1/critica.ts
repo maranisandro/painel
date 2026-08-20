@@ -15,6 +15,18 @@ import { aggregateTrips } from './trips'
 
 type Row = Record<string, unknown>
 
+// Padrão de exibição do painel inteiro é dd/mm/aaaa — achado real 2026-08-20:
+// várias descrições de achado interpolavam a data ISO (yyyy-mm-dd) direto no
+// texto. Aceita qualquer string com o dia YYYY-MM-DD no começo (com ou sem
+// hora/timezone); string vazia ou fora desse formato volta como veio, sem
+// quebrar o achado por causa de um formato inesperado.
+function fmtDateBR(iso: string): string {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!m) return iso
+  const [, y, mo, d] = m
+  return `${d}/${mo}/${y}`
+}
+
 export interface AchadoDetectado {
   categoria: string
   chave: string
@@ -103,7 +115,7 @@ export function achadosHodometroTravado(rows: Row[], placasConhecidas: Set<strin
           // e reconhecível separadamente.
           chave: `${placa}|${sorted[inicioSerie].pedometer}|${sorted[inicioSerie].data}`,
           titulo: `Placa ${placa} — hodômetro parado em ${sorted[inicioSerie].pedometer.toLocaleString('pt-BR')} km`,
-          descricao: `${ocorrencias} abastecimentos de diesel seguidos com o MESMO hodômetro (${sorted[inicioSerie].pedometer.toLocaleString('pt-BR')} km), de ${sorted[inicioSerie].data.slice(0, 10)} a ${sorted[i - 1].data.slice(0, 10)} — sensor/telemetria provavelmente travado, ou há uma segunda fonte de hodômetro conflitante para a mesma placa na Officium.`,
+          descricao: `${ocorrencias} abastecimentos de diesel seguidos com o MESMO hodômetro (${sorted[inicioSerie].pedometer.toLocaleString('pt-BR')} km), de ${fmtDateBR(sorted[inicioSerie].data)} a ${fmtDateBR(sorted[i - 1].data)} — sensor/telemetria provavelmente travado, ou há uma segunda fonte de hodômetro conflitante para a mesma placa na Officium.`,
         })
       }
       inicioSerie = i
@@ -152,7 +164,7 @@ export function achadosHodometroRegrediu(rows: Row[], placasConhecidas: Set<stri
         categoria: 'hodometro_regrediu',
         chave: `${placa}|${anterior.data}|${anterior.pedometer}|${atual.data}|${atual.pedometer}`,
         titulo: `Placa ${placa} — hodômetro caiu de ${anterior.pedometer.toLocaleString('pt-BR')} para ${atual.pedometer.toLocaleString('pt-BR')} km`,
-        descricao: `Em ${anterior.data.slice(0, 10)} o hodômetro registrado era ${anterior.pedometer.toLocaleString('pt-BR')} km; no abastecimento seguinte, em ${atual.data.slice(0, 10)}, caiu para ${atual.pedometer.toLocaleString('pt-BR')} km — hodômetro nunca pode reduzir com o tempo, a não ser que o equipamento tenha sido trocado (cadastro de troca de hodômetro ainda não existe no sistema). Confira se houve troca de equipamento, erro de digitação, ou mistura de duas placas com o mesmo cadastro.`,
+        descricao: `Em ${fmtDateBR(anterior.data)} o hodômetro registrado era ${anterior.pedometer.toLocaleString('pt-BR')} km; no abastecimento seguinte, em ${fmtDateBR(atual.data)}, caiu para ${atual.pedometer.toLocaleString('pt-BR')} km — hodômetro nunca pode reduzir com o tempo, a não ser que o equipamento tenha sido trocado (cadastro de troca de hodômetro ainda não existe no sistema). Confira se houve troca de equipamento, erro de digitação, ou mistura de duas placas com o mesmo cadastro.`,
       })
     }
   }
@@ -198,7 +210,7 @@ export function achadosSemAbastecimentoProlongado(rows: Row[], placasConhecidas:
         categoria: 'sem_abastecimento_prolongado',
         chave: `${placa}|${ultima}`,
         titulo: `Placa ${placa} — ${dias} dias sem abastecer`,
-        descricao: `Último abastecimento de diesel registrado em ${ultima.slice(0, 10)} — ${dias} dias atrás. Confira se o veículo está parado (manutenção/férias do motorista) ou se o abastecimento está sendo feito fora do sistema (posto não integrado à Officium).`,
+        descricao: `Último abastecimento de diesel registrado em ${fmtDateBR(ultima)} — ${dias} dias atrás. Confira se o veículo está parado (manutenção/férias do motorista) ou se o abastecimento está sendo feito fora do sistema (posto não integrado à Officium).`,
       })
     }
   }
@@ -382,8 +394,8 @@ export function achadosMovimentoSemAbastecimento(
       chave: `${placa}|${primeiraData}|${ultimaData}`,
       titulo: `Placa ${placa} — ${Math.round(kmRodado)} km rodados (GPS) sem abastecimento no período`,
       descricao: ultimoAbastecimento
-        ? `Rastreamento (Omnilink) mostra ~${Math.round(kmRodado)} km percorridos entre ${primeiraData} e ${ultimaData}, mas o último abastecimento de diesel registrado é de ${ultimoAbastecimento.slice(0, 10)} (antes do início do período rastreado) — confira se abasteceu fora do sistema.`
-        : `Rastreamento (Omnilink) mostra ~${Math.round(kmRodado)} km percorridos entre ${primeiraData} e ${ultimaData}, sem NENHUM abastecimento de diesel registrado no histórico desta placa — confira se abasteceu fora do sistema ou se falta sincronizar dados de combustível.`,
+        ? `Rastreamento (Omnilink) mostra ~${Math.round(kmRodado)} km percorridos entre ${fmtDateBR(primeiraData)} e ${fmtDateBR(ultimaData)}, mas o último abastecimento de diesel registrado é de ${fmtDateBR(ultimoAbastecimento)} (antes do início do período rastreado) — confira se abasteceu fora do sistema.`
+        : `Rastreamento (Omnilink) mostra ~${Math.round(kmRodado)} km percorridos entre ${fmtDateBR(primeiraData)} e ${fmtDateBR(ultimaData)}, sem NENHUM abastecimento de diesel registrado no histórico desta placa — confira se abasteceu fora do sistema ou se falta sincronizar dados de combustível.`,
     })
   }
   return out
@@ -463,7 +475,7 @@ export function achadosDesvioRotaGps(tripsEnriquecidas: Row[], posicoesGps: Posi
     out.push({
       categoria: 'desvio_rota_gps',
       chave: `${placa}|${saida}`,
-      titulo: `Placa ${placa} (${saida}) — rota cadastrada ${Math.round(kmEsperado)} km, GPS mostra ${Math.round(kmGps)} km`,
+      titulo: `Placa ${placa} (${fmtDateBR(saida)}) — rota cadastrada ${Math.round(kmEsperado)} km, GPS mostra ${Math.round(kmGps)} km`,
       descricao: `A rota cadastrada para esta viagem prevê ${Math.round(kmEsperado)} km (ida+volta), mas o rastreamento GPS (Omnilink) mostra ~${Math.round(kmGps)} km percorridos na janela da viagem (${desvioPercentual > 0 ? '+' : ''}${Math.round(desvioPercentual * 100)}%) — confira se houve desvio de rota, trecho não cadastrado corretamente, ou viagem não totalmente realizada.`,
     })
   }
@@ -598,7 +610,7 @@ export function achadosPlacaSemComposicao(placasComViagem: Row[], placasComCompo
       categoria: 'placa_sem_composicao',
       chave: `composicao-ausente-${placa}`,
       titulo: `Placa ${placa} — sem composição cadastrada, mas com viagem registrada`,
-      descricao: `${info.n} viagem(ns) registrada(s) de ${info.primeira} a ${info.ultima} (produto: ${[...info.produtos].join(', ') || 'não identificado'}), mas a placa não tem NENHUM registro de composição — pode ser uma carreta (reboque sem motor, não é uma composição válida sozinha) removida do cadastro, ou um cadastro faltando. Confira se a viagem foi feita por outro veículo (erro de digitação da placa na NF) ou se a placa precisa de um cadastro de composição.`,
+      descricao: `${info.n} viagem(ns) registrada(s) de ${fmtDateBR(info.primeira)} a ${fmtDateBR(info.ultima)} (produto: ${[...info.produtos].join(', ') || 'não identificado'}), mas a placa não tem NENHUM registro de composição — pode ser uma carreta (reboque sem motor, não é uma composição válida sozinha) removida do cadastro, ou um cadastro faltando. Confira se a viagem foi feita por outro veículo (erro de digitação da placa na NF) ou se a placa precisa de um cadastro de composição.`,
     })
   }
   return out.sort((a, b) => a.chave.localeCompare(b.chave))
@@ -641,7 +653,7 @@ export function achadosCadastroNaoAjustado(
       categoria: 'cadastro_nao_ajustado',
       chave: `cadastro-nao-ajustado-${placa}`,
       titulo: `Placa ${placa} — viagem antes da vigência do cadastro de composição`,
-      descricao: `${info.n} viagem(ns) registrada(s) de ${info.primeira} a ${info.ultima} (produto: ${[...info.produtos].join(', ') || 'não identificado'}) aconteceram numa data anterior ao primeiro registro de composição da placa — o cadastro existe, mas a data de vigência (desde quando) não foi ajustada pra cobrir esse período. Confira se falta um registro mais antigo em Cadastros → Composições, ou se a data do registro atual está certa.`,
+      descricao: `${info.n} viagem(ns) registrada(s) de ${fmtDateBR(info.primeira)} a ${fmtDateBR(info.ultima)} (produto: ${[...info.produtos].join(', ') || 'não identificado'}) aconteceram numa data anterior ao primeiro registro de composição da placa — o cadastro existe, mas a data de vigência (desde quando) não foi ajustada pra cobrir esse período. Confira se falta um registro mais antigo em Cadastros → Composições, ou se a data do registro atual está certa.`,
     })
   }
   return out.sort((a, b) => a.chave.localeCompare(b.chave))
@@ -691,7 +703,7 @@ export function achadosAbastecimentoTicketPertoDeNota(
         categoria: 'abastecimento_ticket_perto_nota',
         chave,
         titulo: `Placa ${placa} — abastecimento por ticket (externo) perto de uma viagem`,
-        descricao: `Abastecimento via ticket (posto externo) em ${ticket.date} (R$ ${ticket.amount.toFixed(2)}), a ${Math.abs(diffDias)} dia(s) da viagem de ${dataSaida} — confira se o veículo poderia ter abastecido no CTA (posto interno) em vez de pagar fora.`,
+        descricao: `Abastecimento via ticket (posto externo) em ${fmtDateBR(ticket.date)} (R$ ${ticket.amount.toFixed(2)}), a ${Math.abs(diffDias)} dia(s) da viagem de ${fmtDateBR(dataSaida)} — confira se o veículo poderia ter abastecido no CTA (posto interno) em vez de pagar fora.`,
       })
     }
   }
@@ -729,7 +741,7 @@ export function achadosNotaAposTransferenciaTritrem(tripsComComposicao: Row[]): 
       categoria: 'nota_apos_tritrem',
       chave: `nota-apos-tritrem-${placa}`,
       titulo: `Placa ${placa} — nota de transporte rodoviário com a placa já em Tritrem Florestal`,
-      descricao: `${info.n} viagem(ns) de ${info.primeira} a ${info.ultima} apareceram no Transporte Rodoviário com a placa já cadastrada como Tritrem Florestal (transporte de madeira) na data da viagem — confira se a placa realmente voltou a fazer transporte rodoviário, ou se é um erro de nota/cadastro.`,
+      descricao: `${info.n} viagem(ns) de ${fmtDateBR(info.primeira)} a ${fmtDateBR(info.ultima)} apareceram no Transporte Rodoviário com a placa já cadastrada como Tritrem Florestal (transporte de madeira) na data da viagem — confira se a placa realmente voltou a fazer transporte rodoviário, ou se é um erro de nota/cadastro.`,
     })
   }
   return out.sort((a, b) => a.chave.localeCompare(b.chave))
