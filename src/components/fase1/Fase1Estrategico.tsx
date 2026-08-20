@@ -1,8 +1,10 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { SortableTable } from '@/components/shared/SortableTable'
+import { horasCalendarioUtilNoIntervalo } from '@/lib/fase1/calendario-util'
+import { classificarMotivoManutencao, classificarMotivoAtraso } from '@/lib/fase1/motivo-classificacao'
 
 const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 
@@ -146,6 +148,69 @@ export function Fase1Estrategico({
 
   const temAlgumDado = dadosPorMes.some((m) => m.custoCadastrado > 0 || m.kmTotal > 0)
   const mesAtualNoAno = dadosPorMes.find((m) => m.isMesAtual) ?? null
+
+  // Principais motivos de falta de Disponibilidade Mecânica (manutenção) e
+  // de Eficiência (atraso justificado) — pedido do usuário 2026-08-20: "os
+  // motivos são digitação aberta, tentar consolidar os descritivos com
+  // motivos mais objetivos". Busca à parte (não vem em `trips`/`custoMesAtual`
+  // — o ano estratégico é independente do período tático De/Até).
+  const [motivosData, setMotivosData] = useState<{
+    manutencoes: { placa: string; startDate: string; endDate: string | null; motivo: string }[]
+    justificativas: { tripKey: string; motivo: string }[]
+  } | null>(null)
+  useEffect(() => {
+    let cancelado = false
+    fetch(`/api/fase1/estrategico/motivos?ano=${ano}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!cancelado) setMotivosData(d)
+      })
+    return () => {
+      cancelado = true
+    }
+  }, [ano])
+
+  const motivosManutencao = useMemo(() => {
+    if (!motivosData) return []
+    const inicioAno = `${ano}-01-01`
+    const fimAno = `${ano}-12-31`
+    const hoje = new Date().toISOString().slice(0, 10)
+    const porCategoria = new Map<string, { horas: number; ocorrencias: number; exemplos: Set<string> }>()
+    for (const m of motivosData.manutencoes) {
+      const horas = horasCalendarioUtilNoIntervalo(m.startDate, m.endDate ?? hoje, inicioAno, fimAno)
+      if (horas <= 0) continue
+      const categoria = classificarMotivoManutencao(m.motivo)
+      const entry = porCategoria.get(categoria) ?? { horas: 0, ocorrencias: 0, exemplos: new Set<string>() }
+      entry.horas += horas
+      entry.ocorrencias += 1
+      if (m.motivo) entry.exemplos.add(m.motivo)
+      porCategoria.set(categoria, entry)
+    }
+    return [...porCategoria.entries()]
+      .map(([categoria, e]) => ({ categoria, horas: e.horas, ocorrencias: e.ocorrencias, exemplos: [...e.exemplos] }))
+      .sort((a, b) => b.horas - a.horas)
+  }, [motivosData, ano])
+
+  const motivosAtraso = useMemo(() => {
+    if (!motivosData) return []
+    const justPorKey = new Map(motivosData.justificativas.map((j) => [j.tripKey, j.motivo]))
+    const porCategoria = new Map<string, { ocorrencias: number; exemplos: Set<string> }>()
+    for (const t of trips) {
+      const dataSaida = String(t.DATASAIDA ?? '').slice(0, 10)
+      if (dataSaida.slice(0, 4) !== ano) continue
+      const key = String(t.VIAGEM_KEY ?? '')
+      const motivo = justPorKey.get(key)
+      if (!motivo) continue
+      const categoria = classificarMotivoAtraso(motivo)
+      const entry = porCategoria.get(categoria) ?? { ocorrencias: 0, exemplos: new Set<string>() }
+      entry.ocorrencias += 1
+      entry.exemplos.add(motivo)
+      porCategoria.set(categoria, entry)
+    }
+    return [...porCategoria.entries()]
+      .map(([categoria, e]) => ({ categoria, ocorrencias: e.ocorrencias, exemplos: [...e.exemplos] }))
+      .sort((a, b) => b.ocorrencias - a.ocorrencias)
+  }, [motivosData, trips, ano])
 
   return (
     <div className="space-y-6">
@@ -327,6 +392,60 @@ export function Fase1Estrategico({
             { key: 'varRst', label: 'Var. R$/tonelada %', align: 'right', sortValue: (m) => m.variacaoCustoPorToneladaPct ?? -Infinity, render: (m) => fmtPct(m.variacaoCustoPorToneladaPct) },
           ]}
         />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-4">
+          <p className="mb-1 text-sm font-medium text-slate-700">Principais motivos de indisponibilidade mecânica — {ano}</p>
+          <p className="mb-2 text-xs text-slate-500">
+            Motivo digitado na manutenção, consolidado em categorias objetivas. Clique numa linha pra ver as
+            descrições originais.
+          </p>
+          <SortableTable
+            rows={motivosManutencao}
+            rowKey={(m) => m.categoria}
+            defaultSortKey="horas"
+            defaultSortDir="desc"
+            emptyMessage="Nenhuma manutenção registrada no ano."
+            renderExpanded={(m) => (
+              <ul className="list-inside list-disc space-y-0.5 text-xs text-slate-600">
+                {m.exemplos.map((ex, i) => (
+                  <li key={i}>{ex}</li>
+                ))}
+              </ul>
+            )}
+            columns={[
+              { key: 'categoria', label: 'Motivo (consolidado)', sortValue: (m) => m.categoria, render: (m) => m.categoria },
+              { key: 'horas', label: 'Horas úteis perdidas', align: 'right', sortValue: (m) => m.horas, render: (m) => fmt(m.horas) },
+              { key: 'ocorrencias', label: 'Ocorrências', align: 'right', sortValue: (m) => m.ocorrencias, render: (m) => m.ocorrencias },
+            ]}
+          />
+        </div>
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-4">
+          <p className="mb-1 text-sm font-medium text-slate-700">Principais motivos de baixa eficiência (atraso) — {ano}</p>
+          <p className="mb-2 text-xs text-slate-500">
+            Motivo digitado ao justificar o atraso, consolidado em categorias objetivas. Clique numa linha pra ver as
+            descrições originais.
+          </p>
+          <SortableTable
+            rows={motivosAtraso}
+            rowKey={(m) => m.categoria}
+            defaultSortKey="ocorrencias"
+            defaultSortDir="desc"
+            emptyMessage="Nenhuma justificativa de atraso no ano."
+            renderExpanded={(m) => (
+              <ul className="list-inside list-disc space-y-0.5 text-xs text-slate-600">
+                {m.exemplos.map((ex, i) => (
+                  <li key={i}>{ex}</li>
+                ))}
+              </ul>
+            )}
+            columns={[
+              { key: 'categoria', label: 'Motivo (consolidado)', sortValue: (m) => m.categoria, render: (m) => m.categoria },
+              { key: 'ocorrencias', label: 'Ocorrências', align: 'right', sortValue: (m) => m.ocorrencias, render: (m) => m.ocorrencias },
+            ]}
+          />
+        </div>
       </div>
     </div>
   )
