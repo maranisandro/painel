@@ -11,6 +11,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const admin = isAdmin(user)
   const canSeeFase1 = hasModuleAccess(user, 'fase1')
   const canSeeFase3 = hasModuleAccess(user, 'fase3')
+  const canSeeFase5 = hasModuleAccess(user, 'fase5')
   const canSeeRh = hasModuleAccess(user, 'rh')
   // Acesso granular por tela de Cadastro (pedido do usuário 2026-08-14) — o
   // link "Cadastros" aparece se o usuário tem pelo menos UM recurso
@@ -37,6 +38,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
               )}
               {canSeeFase3 && (
                 <Link href="/dashboard/fase3" className="hover:text-emerald-700">Venda Madeira Tratada</Link>
+              )}
+              {canSeeFase5 && (
+                <Link href="/dashboard/fase5" className="hover:text-emerald-700">Transporte de Madeira</Link>
               )}
               {canSeeRh && (
                 <Link href="/dashboard/rh" className="hover:text-emerald-700">Recursos Humanos</Link>

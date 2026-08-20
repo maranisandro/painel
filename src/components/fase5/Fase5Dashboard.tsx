@@ -17,6 +17,13 @@ interface SemComunicacaoInfo {
   minutosSemComunicacao: number | null
 }
 
+interface FaseData {
+  placas: PlacaTritrem[]
+  trips: Record<string, unknown>[]
+  abastecimento: { PLACA: string; date: string; pedometer: number; amount: number; produto: string }[]
+  metaConsumoKmL: number
+}
+
 interface LinhaTritrem {
   placa: string
   desde: string | null
@@ -47,45 +54,59 @@ function fmtDuracao(min: number): string {
 }
 
 /**
- * Acompanhamento das placas transferidas para Tritrem Florestal (transporte
- * de madeira, fora do escopo de negócio do Fase1) — pedido do usuário
- * 2026-08-19: "caso queira já criar uma aba para acompanharmos deslocamento
- * pelo rastreador, abastecimento podemos criar só não teremos as
- * informações de notas por enquanto. se aparecer nota de madeira pode
- * incluir" + "pode montar assim acompanhamos todas as placas".
+ * Fase 5 — Transporte Interno de Madeira: acompanhamento das placas
+ * transferidas para composições fora do Transporte Rodoviário (hoje: Tritrem
+ * Florestal). Pedido do usuário 2026-08-20: "o desenvolvimento do Tri-Trem
+ * Florestal vai entrar como uma fase do projeto transporte de madeira e não
+ * como uma aba dentro do transporte rodoviário" — antes era a aba
+ * "🪵 Tritrem Florestal" dentro do Fase1Dashboard, agora é módulo próprio
+ * (mesma origem: pedido 2026-08-19 de acompanhar deslocamento/combustível
+ * dessas placas).
  *
  * Sem dataset de vendas de madeira ainda (fase futura) — só GPS
  * (reaproveita a mesma lista de última posição/comunicação do Rastreamento)
- * e combustível (mesmo cálculo km/l já usado no resto do Fase1). Se alguma
- * nota de transporte aparecer pra essas placas no dataset atual, ela já é
- * sinalizada como crítica (achado "nota_apos_tritrem") — aqui só mostra o
- * resumo (viagens/km/peso), sem duplicar a lógica de crítica.
+ * e combustível (mesmo cálculo km/l já usado no Fase1). Se alguma nota de
+ * transporte rodoviário aparecer pra essas placas no dataset do Fase1, ela
+ * já é sinalizada como crítica por lá (achado "nota_apos_tritrem") — aqui só
+ * mostra o resumo (viagens/km/peso), sem duplicar a lógica de crítica.
  */
-export function Fase1Tritrem({
-  placas,
-  trips,
-  abastecimento,
-  metaConsumoKmL,
-}: {
-  placas: PlacaTritrem[]
-  trips: Record<string, unknown>[]
-  abastecimento: { PLACA: string; date: string; pedometer: number; amount: number; produto: string }[]
-  metaConsumoKmL: number
-}) {
+export function Fase5Dashboard() {
+  const [data, setData] = useState<FaseData | null>(null)
+  const [loadingData, setLoadingData] = useState(true)
+  const [erro, setErro] = useState('')
   const [semComunicacao, setSemComunicacao] = useState<Map<string, SemComunicacaoInfo>>(new Map())
-  const [carregando, setCarregando] = useState(false)
 
   useEffect(() => {
     let cancelado = false
-    setCarregando(true)
+    setLoadingData(true)
+    fetch('/api/fase5/data')
+      .then(async (r) => {
+        if (!r.ok) throw new Error((await r.json().catch(() => ({})))?.error ?? 'Falha ao carregar dados')
+        return r.json()
+      })
+      .then((d: FaseData) => {
+        if (cancelado) return
+        setData(d)
+        setErro('')
+      })
+      .catch((e) => {
+        if (!cancelado) setErro(e instanceof Error ? e.message : 'Falha ao carregar dados')
+      })
+      .finally(() => {
+        if (!cancelado) setLoadingData(false)
+      })
+    return () => {
+      cancelado = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelado = false
     fetch('/api/fase1/rastreamento/sem-comunicacao?situacao=todas')
       .then((r) => (r.ok ? r.json() : []))
       .then((rows: SemComunicacaoInfo[]) => {
         if (cancelado) return
         setSemComunicacao(new Map(rows.map((r) => [r.placa, r])))
-      })
-      .finally(() => {
-        if (!cancelado) setCarregando(false)
       })
     return () => {
       cancelado = true
@@ -93,16 +114,20 @@ export function Fase1Tritrem({
   }, [])
 
   const linhas: LinhaTritrem[] = useMemo(() => {
-    const placasSet = new Set(placas.map((p) => p.placa))
+    if (!data) return []
+    const placasSet = new Set(data.placas.map((p) => p.placa))
     // Sem período próprio nesta aba (o negócio de madeira ainda não tem
     // corte de mês/meta definido) — usa todo o histórico de combustível
     // disponível, igual ao "sem abastecimento prolongado" da Crítica.
     const hoje = new Date().toISOString().slice(0, 10)
     const consumoPorPlaca = new Map(
-      calcularConsumo(abastecimento, placasSet, '2020-01-01', hoje, metaConsumoKmL).map((c) => [c.placa, c]),
+      calcularConsumo(data.abastecimento, placasSet, '2020-01-01', hoje, data.metaConsumoKmL).map((c) => [
+        c.placa,
+        c,
+      ]),
     )
     const viagensPorPlaca = new Map<string, { n: number; km: number; pesoT: number }>()
-    for (const t of trips) {
+    for (const t of data.trips) {
       const placa = String(t.PLACA ?? '').trim().toUpperCase()
       if (!placasSet.has(placa)) continue
       const info = viagensPorPlaca.get(placa) ?? { n: 0, km: 0, pesoT: 0 }
@@ -112,7 +137,7 @@ export function Fase1Tritrem({
       viagensPorPlaca.set(placa, info)
     }
 
-    return placas.map((p) => {
+    return data.placas.map((p) => {
       const sc = semComunicacao.get(p.placa)
       const viagens = viagensPorPlaca.get(p.placa)
       return {
@@ -128,18 +153,25 @@ export function Fase1Tritrem({
         pesoMadeiraT: viagens?.pesoT ?? 0,
       }
     })
-  }, [placas, trips, abastecimento, metaConsumoKmL, semComunicacao])
+  }, [data, semComunicacao])
 
   return (
-    <div>
-      <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-xl font-semibold">Transporte Interno de Madeira</h1>
+        <p className="text-sm text-slate-500">Acompanhamento das placas transferidas para composições de transporte de madeira (ex.: Tritrem Florestal).</p>
+      </div>
+
+      {erro && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{erro}</p>}
+
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
         <p className="text-sm text-amber-900">
-          🪵 {placas.length} placa(s) transferida(s) para Tritrem Florestal (transporte de madeira) — fora das
-          estatísticas do Transporte Rodoviário.
+          🪵 {data?.placas.length ?? 0} placa(s) nesta fase — fora das estatísticas do Transporte Rodoviário.
         </p>
         <p className="mt-1 text-xs text-amber-800">
           Sem dataset de vendas de madeira ainda (fase futura) — aqui só posição GPS e combustível. Se aparecer nota
-          de transporte rodoviário pra alguma dessas placas, ela já é sinalizada em Crítica ao modelo.
+          de transporte rodoviário pra alguma dessas placas, ela já é sinalizada em Crítica ao modelo do Transporte
+          Rodoviário.
         </p>
       </div>
 
@@ -148,12 +180,12 @@ export function Fase1Tritrem({
         rowKey={(l) => l.placa}
         defaultSortKey="placa"
         defaultSortDir="asc"
-        emptyMessage={carregando ? 'carregando…' : 'Nenhuma placa em Tritrem Florestal.'}
+        emptyMessage={loadingData ? 'carregando…' : 'Nenhuma placa nesta fase.'}
         columns={[
           { key: 'placa', label: 'Placa', sortValue: (l) => l.placa, render: (l) => <span className="font-mono font-medium">{l.placa}</span> },
           {
             key: 'desde',
-            label: 'Tritrem desde',
+            label: 'Nesta fase desde',
             sortValue: (l) => l.desde ?? '',
             render: (l) => (l.desde ? fmtDate(l.desde) : '—'),
           },
@@ -195,7 +227,7 @@ export function Fase1Tritrem({
             sortValue: (l) => l.viagensMadeira,
             render: (l) =>
               l.viagensMadeira > 0 ? (
-                <span title="Nota apareceu no dataset de transporte rodoviário — ver Crítica ao modelo">
+                <span title="Nota apareceu no dataset de transporte rodoviário — ver Crítica ao modelo do Transporte Rodoviário">
                   ⚠️ {l.viagensMadeira}
                 </span>
               ) : (

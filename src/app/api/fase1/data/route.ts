@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { getDatasetView } from '@/lib/semantic/dataset-view'
 import { aggregateTrips, enrichTrips } from '@/lib/fase1/trips'
 import { buildRouteMatcher } from '@/lib/fase1/route-match'
-import { buildCompositionResolver, applyCompositionOverrides } from '@/lib/fase1/composition'
+import { buildCompositionResolver, applyCompositionOverrides, composicoesAtuaisComDesde } from '@/lib/fase1/composition'
 import { buildComplianceMap, applyWeightCompliance } from '@/lib/fase1/compliance'
 import { buildFreightPriceResolver, quantidadeNaUnidade } from '@/lib/fase1/freight-price'
 import { resolveParameter, calendarVarsFor } from '@/lib/semantic/parameters'
@@ -134,29 +134,7 @@ export async function GET(req: NextRequest) {
   // dia da mudança. Sem essa data de corte não dá pra saber, só pelas
   // viagens (que somem do dataset assim que a placa vira Tritrem), se a
   // placa "sumiu" porque parou de rodar ou porque mudou de composição.
-  const registrosComposicao = await prisma.plateComposition.findMany({
-    orderBy: { effectiveFrom: 'asc' },
-    select: { placa: true, effectiveFrom: true },
-  })
-  const composicoesAtuais: Record<string, { composicao: string; desde: string | null }> = {}
-  for (const placa of new Set(registrosComposicao.map((p) => p.placa.trim().toUpperCase()))) {
-    const composicao = resolveComposition(placa, todayStr)
-    if (!composicao) continue
-    // Data de vigência do registro atual — mesma lógica de resolução do
-    // resolver (o registro com effectiveFrom mais recente ainda <= hoje;
-    // null conta como "desde sempre", só perde pra qualquer data real) —
-    // usado só pra exibir "desde quando" ao usuário.
-    const registrosDaPlaca = registrosComposicao
-      .filter((r) => r.placa.trim().toUpperCase() === placa)
-      .map((r) => (r.effectiveFrom ? r.effectiveFrom.toISOString().slice(0, 10) : null))
-      .sort((a, b) => (a ?? '').localeCompare(b ?? ''))
-    let desde: string | null = null
-    for (const from of registrosDaPlaca) {
-      if (from === null || from <= todayStr) desde = from
-      else break
-    }
-    composicoesAtuais[placa] = { composicao, desde }
-  }
+  const composicoesAtuais = await composicoesAtuaisComDesde(resolveComposition)
 
   // Devolve TODAS as viagens enriquecidas (desde a carga inicial): o cliente
   // aplica o período e os filtros de dimensão — assim o comparativo mensal

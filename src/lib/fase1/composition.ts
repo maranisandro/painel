@@ -46,6 +46,42 @@ export async function buildCompositionResolver(): Promise<
   }
 }
 
+/**
+ * Composição vigente de cada placa cadastrada HOJE, com a data de vigência
+ * do registro atual ("desde quando") — usado tanto pelo Fase1 (pra excluir
+ * placas fora de escopo, ex.: Tritrem Florestal) quanto pelo Fase5
+ * (Transporte Interno de Madeira, pra saber quais placas acompanhar).
+ */
+export async function composicoesAtuaisComDesde(
+  resolveComposition: (placa: unknown, dateYmd: string) => string | null,
+): Promise<Record<string, { composicao: string; desde: string | null }>> {
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const registros = await prisma.plateComposition.findMany({
+    orderBy: { effectiveFrom: 'asc' },
+    select: { placa: true, effectiveFrom: true },
+  })
+  const composicoesAtuais: Record<string, { composicao: string; desde: string | null }> = {}
+  for (const placa of new Set(registros.map((p) => normPlaca(p.placa)))) {
+    const composicao = resolveComposition(placa, todayStr)
+    if (!composicao) continue
+    // Data de vigência do registro atual — mesma lógica de resolução do
+    // resolver (o registro com effectiveFrom mais recente ainda <= hoje;
+    // null conta como "desde sempre", só perde pra qualquer data real) —
+    // usado só pra exibir "desde quando" ao usuário.
+    const registrosDaPlaca = registros
+      .filter((r) => normPlaca(r.placa) === placa)
+      .map((r) => (r.effectiveFrom ? r.effectiveFrom.toISOString().slice(0, 10) : null))
+      .sort((a, b) => (a ?? '').localeCompare(b ?? ''))
+    let desde: string | null = null
+    for (const from of registrosDaPlaca) {
+      if (from === null || from <= todayStr) desde = from
+      else break
+    }
+    composicoesAtuais[placa] = { composicao, desde }
+  }
+  return composicoesAtuais
+}
+
 type Row = Record<string, unknown>
 
 /**
