@@ -2,7 +2,13 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { calcularDisponibilidadePlaca, type DisponibilidadePlaca } from '@/lib/fase1/disponibilidade'
+import { horasCalendarioUtilNoIntervalo } from '@/lib/fase1/calendario-util'
 import { SortableTable } from '@/components/shared/SortableTable'
+
+function fmtDate(iso: string): string {
+  const [y, m, d] = iso.slice(0, 10).split('-')
+  return `${d}/${m}/${y}`
+}
 
 const PRODUTOS_ESCOPO = new Set(['Carvão', 'Cavaco', 'Maravalha'])
 
@@ -70,6 +76,16 @@ export function Fase1Disponibilidade({
     }
   }, [from, to])
 
+  const manutencoesPorPlaca = useMemo(() => {
+    const map = new Map<string, ManutencaoInfo[]>()
+    for (const m of manutencoes) {
+      const lista = map.get(m.placa) ?? []
+      lista.push(m)
+      map.set(m.placa, lista)
+    }
+    return map
+  }, [manutencoes])
+
   const linhas = useMemo<DisponibilidadePlaca[]>(() => {
     const doPeriodo = trips.filter(
       (t) =>
@@ -101,13 +117,6 @@ export function Fase1Disponibilidade({
     // esperadas a partir do próprio histórico vazio).
     const todasDuracoes = doPeriodo.map((t) => Number(t.DURACAO_HORAS)).filter((d) => d > 0)
     const duracaoMediaFrota = todasDuracoes.length ? todasDuracoes.reduce((s, d) => s + d, 0) / todasDuracoes.length : null
-
-    const manutencoesPorPlaca = new Map<string, ManutencaoInfo[]>()
-    for (const m of manutencoes) {
-      const lista = manutencoesPorPlaca.get(m.placa) ?? []
-      lista.push(m)
-      manutencoesPorPlaca.set(m.placa, lista)
-    }
 
     // Universo de placas: quem teve viagem no período OU manutenção no período.
     const placas = new Set([...porPlaca.keys(), ...manutencoesPorPlaca.keys()])
@@ -225,6 +234,68 @@ export function Fase1Disponibilidade({
               render: (l) => <span className={`font-medium ${corPct(l.eficienciaViagensPct)}`}>{fmtPct(l.eficienciaViagensPct)}</span>,
             },
           ]}
+          renderExpanded={(l) => {
+            const manuts = (manutencoesPorPlaca.get(l.placa) ?? []).slice().sort((a, b) => a.startDate.localeCompare(b.startDate))
+            return (
+              <div className="space-y-3 text-xs">
+                <div>
+                  <p className="font-medium text-slate-700">
+                    Tempo perdido em manutenção no período ({fmtDate(from)} a {fmtDate(to)})
+                  </p>
+                  {manuts.length === 0 ? (
+                    <p className="mt-1 text-slate-400">Nenhum período de manutenção no período selecionado.</p>
+                  ) : (
+                    <table className="mt-1 w-full max-w-xl">
+                      <thead className="text-slate-500">
+                        <tr>
+                          <th className="text-left font-normal">Início</th>
+                          <th className="text-left font-normal">Fim</th>
+                          <th className="text-right font-normal">Horas úteis perdidas</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {manuts.map((m, i) => (
+                          <tr key={i} className="border-t border-slate-100">
+                            <td>{fmtDate(m.startDate)}</td>
+                            <td>{m.endDate ? fmtDate(m.endDate) : 'em aberto'}</td>
+                            <td className="text-right">
+                              {fmt(horasCalendarioUtilNoIntervalo(m.startDate, m.endDate ?? new Date().toISOString().slice(0, 10), from, to), 1)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <div>
+                    <p className="text-slate-500">Horas calendário</p>
+                    <p className="font-medium">{fmt(l.horasCalendario)}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">− Horas em manutenção</p>
+                    <p className="font-medium text-red-700">-{fmt(l.horasManutencao, 1)}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">= Horas disponíveis</p>
+                    <p className="font-medium">{fmt(l.horasDisponiveis, 1)}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Disp. Mecânica</p>
+                    <p className={`font-medium ${corPct(l.disponibilidadeMecanicaPct)}`}>{fmtPct(l.disponibilidadeMecanicaPct)}</p>
+                  </div>
+                </div>
+                <p className="text-slate-500">
+                  A manutenção reduz as horas disponíveis, o que afeta os dois indicadores desta placa: a{' '}
+                  <strong>Disponibilidade Mecânica</strong> diretamente (horas disponíveis ÷ horas calendário) e a{' '}
+                  <strong>Eficiência Operacional</strong> nas 3 variantes — Efic. 1 divide as horas rodando por horas
+                  disponíveis (menos horas disponíveis, exigência menor, mas também menos tempo pra rodar); Efic. 2 reduz o KM
+                  esperado na mesma proporção (esperado {fmt(l.kmEsperadoAjustado)} km); Efic. 3 reduz as viagens esperadas
+                  (esperava {l.viagensEsperadas != null ? fmt(l.viagensEsperadas, 1) : '—'} viagem(ns)).
+                </p>
+              </div>
+            )
+          }}
         />
       </div>
     </div>
