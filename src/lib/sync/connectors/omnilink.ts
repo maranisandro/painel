@@ -325,7 +325,9 @@ export async function fetchOmnilinkPosicoes(
   // placa da frota própria necessariamente tem rastreador instalado/ativado,
   // a consulta precisa ser placa por placa: "não localizada" vira "sem
   // dados desta placa" (não interrompe as demais); qualquer OUTRO erro
-  // (token, rede, etc.) continua interrompendo a sincronização.
+  // (token, rede, TLS, etc.) também não interrompe mais as demais placas do
+  // lote (ver comentário no `continue` abaixo) — só fica registrado como
+  // ERRO para aquela placa específica.
   const linhas: ExternalRow[] = []
   for (const placa of placas) {
     const ultimaConhecida = ultimaPosicaoPorPlaca.get(placa)
@@ -357,11 +359,22 @@ export async function fetchOmnilinkPosicoes(
       })
     }
 
-    // Erro genuíno (não "não localizada") continua interrompendo a
-    // sincronização inteira, como antes — só que agora o log da placa que
-    // falhou já ficou registrado acima antes de propagar o erro.
+    // Corrigido 2026-08-21 (achado real: RHX5D99/TBH2C10 apareciam como "sem
+    // comunicação" no app mesmo com dados recentes confirmados ao vivo na
+    // API da Omnilink via Insomnia). Antes, um erro genuíno numa placa
+    // (`throw` abaixo) interrompia a sincronização INTEIRA — as placas
+    // seguintes no rodízio daquela execução nunca chegavam a ser tentadas,
+    // e como o rodízio prioriza "há mais tempo sem tentativa", uma placa que
+    // fica atrás de uma falha some da fila por execuções seguidas. O gatilho
+    // real (SyncRun): falhas intermitentes de TLS ("self-signed certificate
+    // in certificate chain") ao falar com api.showtecnologia.com — nada a
+    // ver com a placa específica, mas travava o lote inteiro no meio.
+    // Agora só REGISTRA o erro desta placa (já feito acima) e segue para a
+    // próxima — uma placa com erro genuíno continua marcada ERRO no seu
+    // OmnilinkSyncPlaca e volta a ser priorizada no próximo ciclo (30 min),
+    // sem bloquear as outras 14 do mesmo lote.
     if (resultado.status === 'ERRO') {
-      throw new Error(resultado.mensagem ?? `Falha desconhecida ao buscar posições da placa ${placa}`)
+      continue
     }
   }
   return linhas
