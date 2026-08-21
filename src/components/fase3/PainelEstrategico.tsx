@@ -180,7 +180,7 @@ function TabelaGanhoPerda({
     },
     { key: 'faturamentoLiquido', label: 'Faturamento líquido', align: 'right', sortValue: (d) => d.faturamentoLiquido, render: (d) => fmtMoeda(d.faturamentoLiquido) },
     { key: 'valorM3Vendido', label: 'R$/m³ vendido', align: 'right', sortValue: (d) => d.valorM3Vendido ?? 0, render: (d) => fmtMoeda(d.valorM3Vendido) },
-    { key: 'precoPonderado', label: 'Mínimo ponderado', align: 'right', sortValue: (d) => d.precoPonderado ?? 0, render: (d) => fmtMoeda(d.precoPonderado) },
+    { key: 'precoPonderado', label: 'Meta de destino', align: 'right', sortValue: (d) => d.precoPonderado ?? 0, render: (d) => fmtMoeda(d.precoPonderado) },
     {
       key: 'margem',
       label: 'Margem',
@@ -251,7 +251,7 @@ export function PainelEstrategico() {
     { key: 'faturamentoLiquido', label: 'Faturamento líquido', align: 'right', sortValue: (m) => m.faturamentoLiquido, render: (m) => fmtMoeda(m.faturamentoLiquido) },
     { key: 'm3Total', label: 'm³ vendido', align: 'right', sortValue: (m) => m.m3Total, render: (m) => fmt(m.m3Total, 1) },
     { key: 'valorM3Vendido', label: 'R$/m³ vendido', align: 'right', sortValue: (m) => m.valorM3Vendido ?? 0, render: (m) => fmtMoeda(m.valorM3Vendido) },
-    { key: 'precoPonderado', label: 'Mínimo ponderado', align: 'right', sortValue: (m) => m.precoPonderado ?? 0, render: (m) => fmtMoeda(m.precoPonderado) },
+    { key: 'precoPonderado', label: 'Meta de destino', align: 'right', sortValue: (m) => m.precoPonderado ?? 0, render: (m) => fmtMoeda(m.precoPonderado) },
     {
       key: 'perdaEstimada',
       label: 'Perda estimada',
@@ -279,7 +279,7 @@ export function PainelEstrategico() {
     { key: 'produto', label: 'Produto', sortValue: (p) => p.produto, render: (p) => p.produto },
     { key: 'faturamentoLiquido', label: 'Faturamento líquido', align: 'right', sortValue: (p) => p.faturamentoLiquido, render: (p) => fmtMoeda(p.faturamentoLiquido) },
     { key: 'valorM3Vendido', label: 'R$/m³ vendido', align: 'right', sortValue: (p) => p.valorM3Vendido ?? 0, render: (p) => fmtMoeda(p.valorM3Vendido) },
-    { key: 'precoPonderado', label: 'Mínimo ponderado', align: 'right', sortValue: (p) => p.precoPonderado ?? 0, render: (p) => fmtMoeda(p.precoPonderado) },
+    { key: 'precoPonderado', label: 'Meta de destino', align: 'right', sortValue: (p) => p.precoPonderado ?? 0, render: (p) => fmtMoeda(p.precoPonderado) },
     {
       key: 'perdaEstimada',
       label: 'Perda estimada',
@@ -643,7 +643,7 @@ export function PainelEstrategico() {
                     <p className="font-semibold">{fmtMoeda(det.totalGeral?.valorM3Vendido ?? null)}</p>
                   </div>
                   <div className="rounded-lg border border-slate-200 bg-white p-2">
-                    <p className="text-xs text-slate-500">Mínimo ponderado</p>
+                    <p className="text-xs text-slate-500">Meta de destino</p>
                     <p className="font-semibold">{fmtMoeda(det.totalGeral?.precoPonderado ?? null)}</p>
                   </div>
                 </div>
@@ -656,7 +656,7 @@ export function PainelEstrategico() {
                       <tr>
                         <th className="py-1">ICMS</th>
                         <th className="py-1 text-right">R$/m³ vendido</th>
-                        <th className="py-1 text-right">Mínimo ponderado</th>
+                        <th className="py-1 text-right">Meta de destino</th>
                         <th className="py-1 text-right">Perda estimada</th>
                         <th className="py-1">Situação</th>
                       </tr>
@@ -759,7 +759,7 @@ export function PainelEstrategico() {
                           <tr>
                             <th className="py-1 pl-2">Mês</th>
                             <th className="py-1 text-right">R$/m³ vendido</th>
-                            <th className="py-1 text-right">Mínimo ponderado</th>
+                            <th className="py-1 text-right">Meta de destino</th>
                             <th className="py-1 text-right">Perda estimada</th>
                             <th className="py-1">Situação</th>
                           </tr>
@@ -798,7 +798,7 @@ export function PainelEstrategico() {
                           <tr>
                             <th className="py-1 pl-2">Cliente</th>
                             <th className="py-1 text-right">R$/m³ vendido</th>
-                            <th className="py-1 text-right">Mínimo ponderado</th>
+                            <th className="py-1 text-right">Meta de destino</th>
                             <th className="py-1 text-right">Perda estimada</th>
                             <th className="py-1">Situação</th>
                           </tr>

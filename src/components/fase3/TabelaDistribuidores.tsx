@@ -115,7 +115,7 @@ export function TabelaDistribuidores({
     { key: 'vendasUN', label: 'Quantidade (un)', align: 'right', sortValue: (d) => d.vendasUN, render: (d) => fmt(d.vendasUN, 0) },
     { key: 'm3Total', label: 'm³ vendido', align: 'right', sortValue: (d) => d.m3Total, render: (d) => fmt(d.m3Total, 1) },
     { key: 'valorM3Vendido', label: 'R$/m³ vendido', align: 'right', sortValue: (d) => d.valorM3Vendido ?? 0, render: (d) => fmtMoeda(d.valorM3Vendido) },
-    { key: 'precoPonderado', label: 'Mínimo ponderado', align: 'right', sortValue: (d) => d.precoPonderado ?? 0, render: (d) => fmtMoeda(d.precoPonderado) },
+    { key: 'precoPonderado', label: 'Meta de destino', align: 'right', sortValue: (d) => d.precoPonderado ?? 0, render: (d) => fmtMoeda(d.precoPonderado) },
     { key: 'perdaEstimada', label: 'Perda estimada', align: 'right', sortValue: (d) => d.perdaEstimada, render: (d) => d.perdaEstimada > 0 ? <span className="font-medium text-red-700">{fmtMoeda(d.perdaEstimada)}</span> : <span className="text-slate-400">—</span> },
     { key: 'situacao', label: 'Situação', sortValue: (d) => (d.abaixoDoMinimo ? 0 : 1), render: (d) => <SituacaoBadge v={d} /> },
   ]

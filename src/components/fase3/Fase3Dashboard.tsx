@@ -496,6 +496,26 @@ export function Fase3Dashboard() {
           <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4">
             <DateRangeInputs from={from} to={to} onFromChange={setFrom} onToChange={setTo} />
           </div>
+          {/* Pedido do usuário 2026-08-21: "na aba por nota fiscal preciso de
+              um filtro por categoria de produto" — mesmo controle usado nas
+              outras abas (categorias/marca já filtram `data.porNota` no
+              backend, mas o controle só aparecia nas outras abas, deixando o
+              filtro "invisível" aqui mesmo quando já estava aplicado). */}
+          <div className="flex flex-wrap items-start gap-3">
+            <CategoriaFiltro
+              categoriasDisponiveis={data?.categoriasDisponiveis ?? []}
+              porCategoria={data?.porCategoria ?? []}
+              selecionadas={categorias}
+              onChange={setCategorias}
+            />
+            <CategoriaFiltro
+              titulo="Marca"
+              categoriasDisponiveis={data?.marcasDisponiveis ?? []}
+              porCategoria={data?.porMarca ?? []}
+              selecionadas={marcas}
+              onChange={setMarcas}
+            />
+          </div>
           <p className="text-xs text-slate-500">
             Uma linha por nota fiscal, com as mesmas fórmulas do resumo financeiro aplicadas só àquela NF — clique para
             abrir os itens (produto a produto) e conferir quantidade × preço, desconto e m³ contra a fonte.
@@ -931,7 +951,7 @@ export function Fase3Dashboard() {
                 <Bar key={tipo} yAxisId="volume" dataKey={tipo} name={tipo} stackId="volume" fill={corTipoProduto(tipo)} />
               ))}
               <Line yAxisId="preco" type="monotone" dataKey="valorM3Vendido" name="R$/m³ vendido (realizado)" stroke={COR_REALIZADO} strokeWidth={2} dot={{ r: 2 }} connectNulls />
-              <Line yAxisId="preco" type="monotone" dataKey="precoPonderado" name="Mínimo ponderado (meta)" stroke={COR_META} strokeWidth={2} strokeDasharray="4 3" dot={{ r: 2 }} connectNulls />
+              <Line yAxisId="preco" type="monotone" dataKey="precoPonderado" name="Meta de destino" stroke={COR_META} strokeWidth={2} strokeDasharray="4 3" dot={{ r: 2 }} connectNulls />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -1130,7 +1150,7 @@ export function Fase3Dashboard() {
             { key: 'vendasUN', label: 'Quantidade (un)', align: 'right', sortValue: (p: VendaPorProduto) => p.vendasUN, render: (p) => fmt(p.vendasUN, 0) },
             { key: 'm3Total', label: 'm³ vendido', align: 'right', sortValue: (p: VendaPorProduto) => p.m3Total, render: (p) => fmt(p.m3Total, 1) },
             { key: 'valorM3Vendido', label: 'R$/m³ vendido', align: 'right', sortValue: (p: VendaPorProduto) => p.valorM3Vendido ?? 0, render: (p) => fmtMoeda(p.valorM3Vendido) },
-            { key: 'precoPonderado', label: 'Mínimo ponderado', align: 'right', sortValue: (p: VendaPorProduto) => p.precoPonderado ?? 0, render: (p) => fmtMoeda(p.precoPonderado) },
+            { key: 'precoPonderado', label: 'Meta de destino', align: 'right', sortValue: (p: VendaPorProduto) => p.precoPonderado ?? 0, render: (p) => fmtMoeda(p.precoPonderado) },
             {
               key: 'situacao',
               label: 'Situação',
@@ -1176,7 +1196,7 @@ export function Fase3Dashboard() {
             { key: 'vendasUN', label: 'Quantidade (un)', align: 'right', sortValue: (c: VendaAgregada) => c.vendasUN, render: (c) => fmt(c.vendasUN, 0) },
             { key: 'm3Total', label: 'm³ vendido', align: 'right', sortValue: (c: VendaAgregada) => c.m3Total, render: (c) => fmt(c.m3Total, 1) },
             { key: 'valorM3Vendido', label: 'R$/m³ vendido', align: 'right', sortValue: (c: VendaAgregada) => c.valorM3Vendido ?? 0, render: (c) => fmtMoeda(c.valorM3Vendido) },
-            { key: 'precoPonderado', label: 'Mínimo ponderado', align: 'right', sortValue: (c: VendaAgregada) => c.precoPonderado ?? 0, render: (c) => fmtMoeda(c.precoPonderado) },
+            { key: 'precoPonderado', label: 'Meta de destino', align: 'right', sortValue: (c: VendaAgregada) => c.precoPonderado ?? 0, render: (c) => fmtMoeda(c.precoPonderado) },
             {
               key: 'situacao',
               label: 'Situação',
@@ -1295,7 +1315,7 @@ export function Fase3Dashboard() {
             { key: 'vendasUN', label: 'Quantidade (un)', align: 'right', sortValue: (p: VendaPorProdutoEspecifico) => p.vendasUN, render: (p) => fmt(p.vendasUN, 0) },
             { key: 'm3Total', label: 'm³ vendido', align: 'right', sortValue: (p: VendaPorProdutoEspecifico) => p.m3Total, render: (p) => fmt(p.m3Total, 1) },
             { key: 'valorM3Vendido', label: 'R$/m³ vendido', align: 'right', sortValue: (p: VendaPorProdutoEspecifico) => p.valorM3Vendido ?? 0, render: (p) => fmtMoeda(p.valorM3Vendido) },
-            { key: 'precoPonderado', label: 'Mínimo ponderado', align: 'right', sortValue: (p: VendaPorProdutoEspecifico) => p.precoPonderado ?? 0, render: (p) => fmtMoeda(p.precoPonderado) },
+            { key: 'precoPonderado', label: 'Meta de destino', align: 'right', sortValue: (p: VendaPorProdutoEspecifico) => p.precoPonderado ?? 0, render: (p) => fmtMoeda(p.precoPonderado) },
             {
               key: 'situacao',
               label: 'Situação',

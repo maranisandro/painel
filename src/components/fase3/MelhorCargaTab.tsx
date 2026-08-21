@@ -113,7 +113,7 @@ function colunasCarga(): SortableColumn<Carga>[] {
     { key: 'tabelaPreco', label: 'ICMS', sortValue: (c) => c.tabelaPreco, render: (c) => c.tabelaPreco },
     { key: 'm3Total', label: 'm³', align: 'right', sortValue: (c) => c.m3Total, render: (c) => fmt(c.m3Total, 1) },
     { key: 'valorM3', label: 'R$/m³', align: 'right', sortValue: (c) => c.valorM3 ?? 0, render: (c) => fmtMoeda(c.valorM3) },
-    { key: 'precoPonderado', label: 'Mínimo ponderado', align: 'right', sortValue: (c) => c.precoPonderado ?? 0, render: (c) => fmtMoeda(c.precoPonderado) },
+    { key: 'precoPonderado', label: 'Meta de destino', align: 'right', sortValue: (c) => c.precoPonderado ?? 0, render: (c) => fmtMoeda(c.precoPonderado) },
     {
       key: 'margem',
       label: 'Margem vs mínimo',
@@ -220,7 +220,7 @@ export function MelhorCargaTab() {
     { key: 'n', label: 'Cargas', align: 'right', sortValue: (r) => r.n, render: (r) => fmt(r.n) },
     { key: 'm3Total', label: 'm³ total', align: 'right', sortValue: (r) => r.m3Total, render: (r) => fmt(r.m3Total, 1) },
     { key: 'valorM3Medio', label: 'R$/m³ médio ponderado', align: 'right', sortValue: (r) => r.valorM3Medio ?? 0, render: (r) => fmtMoeda(r.valorM3Medio) },
-    { key: 'precoPonderado', label: 'Mínimo ponderado', align: 'right', sortValue: (r) => r.precoPonderado ?? 0, render: (r) => fmtMoeda(r.precoPonderado) },
+    { key: 'precoPonderado', label: 'Meta de destino', align: 'right', sortValue: (r) => r.precoPonderado ?? 0, render: (r) => fmtMoeda(r.precoPonderado) },
   ]
 
   return (
