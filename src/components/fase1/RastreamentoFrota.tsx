@@ -108,6 +108,22 @@ interface ResumoPernoiteInfo {
   ultimaSaida?: string
 }
 
+interface NoiteRodandoInfo {
+  placa: string
+  noite: string
+  horasRodando: number
+  nPosicoes: number
+  primeiraHora: string
+  ultimaHora: string
+  localizacaoInicio: string | null
+  localizacaoFim: string | null
+}
+
+interface ResumoNoiteRodandoInfo {
+  noite: string
+  placas: number
+}
+
 interface SemComunicacaoInfo {
   placa: string
   situacao: 'SEM_RASTREADOR' | 'SEM_COMUNICACAO'
@@ -211,7 +227,7 @@ export function RastreamentoFrota({
   positions: VehiclePositionInfo[]
 }) {
   const searchParams = useSearchParams()
-  const [tab, setTab] = useState<'mapa' | 'lista' | 'permanencia' | 'pernoite' | 'sem-comunicacao'>('mapa')
+  const [tab, setTab] = useState<'mapa' | 'lista' | 'permanencia' | 'pernoite' | 'noite-rodando' | 'sem-comunicacao'>('mapa')
   const [historicoPlaca, setHistoricoPlaca] = useState<string | null>(null)
   const [historico, setHistorico] = useState<HistoricoPonto[]>([])
   const [carregandoHistorico, setCarregandoHistorico] = useState(false)
@@ -374,6 +390,35 @@ export function RastreamentoFrota({
     if (tab === 'pernoite') void loadPernoites()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, pernFrom, pernTo])
+
+  // Placas rodando de madrugada (19h-04h) — pedido do usuário 2026-08-21:
+  // "criar uma aba em rastreamento onde mostra caminhões que estão rodando
+  // entre 19:00 e 4:00 (noite e madrugada)". Mesma UX de período das outras
+  // abas de GPS bruto — ver /api/fase1/rastreamento/noite-rodando.
+  const [noiteRodando, setNoiteRodando] = useState<NoiteRodandoInfo[]>([])
+  const [resumoNoiteRodando, setResumoNoiteRodando] = useState<ResumoNoiteRodandoInfo[]>([])
+  const [noiteRodandoFrom, setNoiteRodandoFrom] = useState(() => new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10))
+  const [noiteRodandoTo, setNoiteRodandoTo] = useState(() => new Date().toISOString().slice(0, 10))
+  const [carregandoNoiteRodando, setCarregandoNoiteRodando] = useState(false)
+
+  const loadNoiteRodando = async () => {
+    setCarregandoNoiteRodando(true)
+    const res = await fetch(`/api/fase1/rastreamento/noite-rodando?from=${noiteRodandoFrom}&to=${noiteRodandoTo}`)
+    if (res.ok) {
+      const body = await res.json()
+      setNoiteRodando(body.rodandoNoite)
+      setResumoNoiteRodando(body.resumo)
+    } else {
+      setNoiteRodando([])
+      setResumoNoiteRodando([])
+    }
+    setCarregandoNoiteRodando(false)
+  }
+
+  useEffect(() => {
+    if (tab === 'noite-rodando') void loadNoiteRodando()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, noiteRodandoFrom, noiteRodandoTo])
 
   // Alertas de excesso de velocidade — pedido do usuário 2026-08-03: precisam
   // de reconhecimento formal (motivo + usuário), não só aparecer no mapa.
@@ -625,7 +670,7 @@ export function RastreamentoFrota({
       )}
 
       <div className="mb-4 flex gap-1 border-b border-slate-200">
-        {(['mapa', 'lista', 'permanencia', 'pernoite', 'sem-comunicacao'] as const).map((t) => (
+        {(['mapa', 'lista', 'permanencia', 'pernoite', 'noite-rodando', 'sem-comunicacao'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -643,7 +688,9 @@ export function RastreamentoFrota({
                   ? 'Permanência'
                   : t === 'pernoite'
                     ? 'Pernoite'
-                    : 'Sem comunicação'}
+                    : t === 'noite-rodando'
+                      ? 'Rodando de madrugada'
+                      : 'Sem comunicação'}
           </button>
         ))}
       </div>
@@ -890,6 +937,48 @@ export function RastreamentoFrota({
                 },
                 { key: 'primeira', label: 'Primeira posição', sortValue: (p) => new Date(p.primeiraHora).getTime(), render: (p) => <span className="whitespace-nowrap">{fmtDataHora(p.primeiraHora)}</span> },
                 { key: 'ultima', label: 'Última posição', sortValue: (p) => new Date(p.ultimaHora).getTime(), render: (p) => <span className="whitespace-nowrap">{fmtDataHora(p.ultimaHora)}</span> },
+              ]}
+            />
+          </div>
+        </div>
+      ) : tab === 'noite-rodando' ? (
+        <div>
+          <div className="mb-3 flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-3">
+            <DateRangeInputs from={noiteRodandoFrom} to={noiteRodandoTo} onFromChange={setNoiteRodandoFrom} onToChange={setNoiteRodandoTo} />
+            <span className="text-xs text-slate-500">
+              {carregandoNoiteRodando ? 'carregando…' : `${noiteRodando.length} placa(s)-noite rodando no período`}
+            </span>
+          </div>
+          <p className="mb-3 text-xs text-slate-500">
+            Placas com deslocamento (GPS acima de 5 km/h) em algum trecho da janela 19h–04h (ex.: 20/08 19h até
+            21/08 04h conta como a noite de 20/08). Não depende de rota/viagem cadastrada — direto do GPS bruto.
+          </p>
+          {resumoNoiteRodando.length > 0 && (
+            <div className="mb-4 flex flex-wrap gap-2">
+              {resumoNoiteRodando.map((r) => (
+                <span key={r.noite} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                  {fmtDataCurta(r.noite)}: {r.placas} placa{r.placas === 1 ? '' : 's'}
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+            <div className="border-b border-slate-100 px-3 py-2 text-xs font-semibold text-slate-600">
+              Detalhe por placa/noite
+            </div>
+            <SortableTable
+              rows={noiteRodando}
+              rowKey={(r) => `${r.placa}-${r.noite}`}
+              defaultSortKey="noite"
+              emptyMessage="Nenhuma placa rodando de madrugada no período."
+              columns={[
+                { key: 'placa', label: 'Placa', sortValue: (r) => r.placa, render: (r) => <span className="font-mono font-medium">{r.placa}</span> },
+                { key: 'noite', label: 'Noite', sortValue: (r) => r.noite, render: (r) => <span className="whitespace-nowrap">{fmtDataCurta(r.noite)}</span> },
+                { key: 'horasRodando', label: 'Horas rodando', align: 'right', sortValue: (r) => r.horasRodando, render: (r) => `${r.horasRodando.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}h` },
+                { key: 'primeira', label: 'Primeira posição', sortValue: (r) => new Date(r.primeiraHora).getTime(), render: (r) => <span className="whitespace-nowrap">{fmtDataHora(r.primeiraHora)}</span> },
+                { key: 'ultima', label: 'Última posição', sortValue: (r) => new Date(r.ultimaHora).getTime(), render: (r) => <span className="whitespace-nowrap">{fmtDataHora(r.ultimaHora)}</span> },
+                { key: 'localInicio', label: 'Local (início)', sortValue: (r) => r.localizacaoInicio ?? '', render: (r) => <span className="text-xs text-slate-500">{r.localizacaoInicio ?? '—'}</span> },
+                { key: 'localFim', label: 'Local (fim)', sortValue: (r) => r.localizacaoFim ?? '', render: (r) => <span className="text-xs text-slate-500">{r.localizacaoFim ?? '—'}</span> },
               ]}
             />
           </div>
