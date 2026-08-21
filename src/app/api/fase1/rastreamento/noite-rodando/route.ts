@@ -3,6 +3,11 @@ import { getSessionUser, hasModuleAccess } from '@/lib/authz'
 import { prisma } from '@/lib/prisma'
 import { diaBrasilDe, horaBrasilDe, diaAnteriorStr } from '@/lib/horario-brasil'
 import { horasRodandoGps } from '@/lib/fase1/disponibilidade'
+import { getAllTripsBasic } from '@/lib/fase1/get-trips-simple'
+
+function normPlaca(v: unknown): string {
+  return String(v ?? '').trim().toUpperCase()
+}
 
 /**
  * Identifica placas em deslocamento durante a madrugada — pedido do usuário
@@ -70,6 +75,64 @@ export async function GET(req: NextRequest) {
     porGrupo.set(chave, lista)
   }
 
+  // Motorista — pedido do usuário 2026-08-21: "trazer o nome do motorista,
+  // vamos utilizar o mesmo motorista que consta na NF no período em que
+  // rodou a noite". Não tem motorista no GPS bruto (VehiclePosition) — só
+  // no dataset de viagens/NF (fase1_vendas_transporte, campo MOTORISTA).
+  //
+  // A DATASAIDA de uma NF é quando a viagem foi DESPACHADA (carregada), não
+  // necessariamente a hora em que o caminhão está de fato rodando à noite —
+  // testado ao vivo: uma placa que rodou GPS de 20/08 19h a 21/08 04h tinha
+  // sua NF mais próxima despachada em 19/08 13h30 (tarde do dia anterior),
+  // nenhuma NF caindo dentro da própria janela 19h-04h. Por isso o motorista
+  // usado é o da NF DESPACHADA MAIS RECENTEMENTE até o FIM daquela madrugada
+  // (mesma lógica de "vigência" do resolver de composição de placa em
+  // src/lib/fase1/composition.ts: vale o registro mais recente com data
+  // <= a data de referência) — reflete quem estava "de posse" do caminhão
+  // até aquele momento, não exige que a NF tenha saído durante a madrugada.
+  // Busca de viagens é só um ENRIQUECIMENTO (nome do motorista) — uma falha
+  // aqui (dataset indisponível, registro corrompido) nunca pode derrubar as
+  // linhas de "rodando à noite" em si. Se der erro, segue com o mapa vazio:
+  // toda placa cai no "sem NF na janela" (mesmo comportamento de antes da
+  // coluna Motorista existir), em vez de a rota inteira retornar 500.
+  const viagensPorPlaca = new Map<string, { dataSaida: number; motorista: string }[]>()
+  try {
+    const trips = await getAllTripsBasic()
+    for (const t of trips) {
+      const placa = normPlaca(t.PLACA)
+      const dataSaida = t.DATASAIDA
+      // .getTime() em vez de .toISOString(): um Date inválido (registro com
+      // DATASAIDA corrompida) faz .toISOString() LANÇAR RangeError e derrubar
+      // a rota inteira — .getTime() só retorna NaN, que o guard abaixo pula.
+      const dataMs = dataSaida instanceof Date ? dataSaida.getTime() : Date.parse(String(dataSaida ?? ''))
+      const motorista = String(t.MOTORISTA ?? '').trim()
+      if (!placa || Number.isNaN(dataMs) || !motorista) continue
+      const lista = viagensPorPlaca.get(placa) ?? []
+      lista.push({ dataSaida: dataMs, motorista })
+      viagensPorPlaca.set(placa, lista)
+    }
+    for (const lista of viagensPorPlaca.values()) lista.sort((a, b) => a.dataSaida - b.dataSaida)
+  } catch (err) {
+    console.error('[noite-rodando] falha ao buscar motoristas (viagens) — seguindo sem essa info', err)
+    viagensPorPlaca.clear()
+  }
+
+  /** Fim da janela 19h-04h de uma "noite" (YYYY-MM-DD) — 04h do dia seguinte, em horário de Brasília (UTC-3, sem DST). */
+  function fimDaNoite(noite: string): number {
+    return Date.parse(`${noite}T04:00:00-03:00`) + 24 * 3_600_000
+  }
+  function motoristasAteFimDaNoite(placa: string, noite: string): string[] {
+    const lista = viagensPorPlaca.get(placa)
+    if (!lista || lista.length === 0) return []
+    const limite = fimDaNoite(noite)
+    let ultima: { dataSaida: number; motorista: string } | null = null
+    for (const v of lista) {
+      if (v.dataSaida > limite) break
+      ultima = v
+    }
+    return ultima ? [ultima.motorista] : []
+  }
+
   const rodandoNoite: {
     placa: string
     noite: string
@@ -79,6 +142,7 @@ export async function GET(req: NextRequest) {
     ultimaHora: string
     localizacaoInicio: string | null
     localizacaoFim: string | null
+    motoristas: string[]
   }[] = []
   for (const grupo of porGrupo.values()) {
     if (grupo.length < 2) continue // 1 leitura isolada não confirma deslocamento
@@ -93,6 +157,7 @@ export async function GET(req: NextRequest) {
       ultimaHora: grupo[grupo.length - 1].capturedAt,
       localizacaoInicio: grupo[0].localizacao,
       localizacaoFim: grupo[grupo.length - 1].localizacao,
+      motoristas: motoristasAteFimDaNoite(grupo[0].placa, grupo[0].noite),
     })
   }
   rodandoNoite.sort((a, b) => b.noite.localeCompare(a.noite) || b.horasRodando - a.horasRodando)

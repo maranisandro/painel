@@ -117,6 +117,8 @@ interface NoiteRodandoInfo {
   ultimaHora: string
   localizacaoInicio: string | null
   localizacaoFim: string | null
+  /** motorista(s) da NF/viagem que saiu nessa mesma janela de noite (19h-04h) — mais de um quando houve troca de turno na mesma madrugada */
+  motoristas: string[]
 }
 
 interface ResumoNoiteRodandoInfo {
@@ -1048,6 +1050,17 @@ export function RastreamentoFrota({
               columns={[
                 { key: 'placa', label: 'Placa', sortValue: (r) => r.placa, render: (r) => <span className="font-mono font-medium">{r.placa}</span> },
                 { key: 'noite', label: 'Noite', sortValue: (r) => r.noite, render: (r) => <span className="whitespace-nowrap">{fmtDataCurta(r.noite)}</span> },
+                {
+                  key: 'motoristas',
+                  label: 'Motorista',
+                  sortValue: (r) => r.motoristas.join(', '),
+                  render: (r) =>
+                    r.motoristas.length > 0 ? (
+                      <span>{r.motoristas.join(' / ')}</span>
+                    ) : (
+                      <span className="text-xs text-slate-400" title="Nenhuma NF com saída nesta janela para esta placa">sem NF na janela</span>
+                    ),
+                },
                 { key: 'horasRodando', label: 'Horas rodando', align: 'right', sortValue: (r) => r.horasRodando, render: (r) => `${r.horasRodando.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}h` },
                 { key: 'primeira', label: 'Primeira posição', sortValue: (r) => new Date(r.primeiraHora).getTime(), render: (r) => <span className="whitespace-nowrap">{fmtDataHora(r.primeiraHora)}</span> },
                 { key: 'ultima', label: 'Última posição', sortValue: (r) => new Date(r.ultimaHora).getTime(), render: (r) => <span className="whitespace-nowrap">{fmtDataHora(r.ultimaHora)}</span> },
