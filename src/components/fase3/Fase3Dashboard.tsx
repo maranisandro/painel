@@ -734,7 +734,7 @@ export function Fase3Dashboard() {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <CardFinanceiro
             label="Faturamento Bruto"
-            formula="(Quantidade × preço vendido) − descontos — só vendas 2.2.40/2.2.41"
+            formula="Quantidade × preço vendido — só vendas 2.2.40/2.2.41"
             valor={fmtMoeda(data?.totalGeral?.faturamentoBruto ?? null)}
             ativo={tipoMovimentoFiltro.has('Vendas')}
             onClick={(ctrl) => toggleSelecao(tipoMovimentoFiltro, setTipoMovimentoFiltro, 'Vendas', ctrl)}
@@ -770,21 +770,21 @@ export function Fase3Dashboard() {
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <CardFinanceiro
             label="Faturamento Líquido"
-            formula="Faturamento Bruto − devolução"
+            formula="Faturamento Bruto − descontos − devolução"
             valor={fmtMoeda(data?.totalGeral?.faturamentoLiquido ?? null)}
             ativo={tipoMovimentoFiltro.size === 0}
             onClick={() => setTipoMovimentoFiltro(new Set())}
           />
           <CardFinanceiro
             label="Faturamento Bruto Preço Base"
-            formula="(Quantidade × preço base) − descontos — só vendas 2.2.40/2.2.41"
+            formula="Quantidade × preço base — só vendas 2.2.40/2.2.41"
             valor={fmtMoeda(data?.totalGeral?.faturamentoPrecoBase ?? null)}
             ativo={tipoMovimentoFiltro.size === 0}
             onClick={() => setTipoMovimentoFiltro(new Set())}
           />
           <CardFinanceiro
             label="Faturamento Líquido Preço Base"
-            formula="Faturamento Bruto Preço Base − devolução"
+            formula="Faturamento Bruto Preço Base − descontos − devolução"
             valor={fmtMoeda(data?.totalGeral?.faturamentoLiquidoPrecoBase ?? null)}
             ativo={tipoMovimentoFiltro.size === 0}
             onClick={() => setTipoMovimentoFiltro(new Set())}

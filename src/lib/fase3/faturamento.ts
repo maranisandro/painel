@@ -260,12 +260,14 @@ export function registrosAlteradosAposFechamento(linhas: VendaLinha[], to: strin
 export interface VendaAgregada {
   chave: string
   /**
-   * Formula 1 do usuário (2026-08-20): "(quantidade × preço unitário
-   * (preco_venda)) − descontos, somente vendas 2.2.40 + 2.2.41" — preço
-   * REALMENTE cobrado (valorBruto), líquido de desconto. Só linhas Vendas
-   * (o CODTMV já está restrito a 2.2.40/2.2.41 desde `prepararVendas`).
-   * Substitui o antigo campo de mesmo nome, que na verdade calculava o que
-   * hoje é `faturamentoPrecoBase` (ver abaixo).
+   * Formula 1 do usuário — 2ª correção 2026-08-21 ("trazer as devoluções
+   * para deduzir no líquido e não no bruto"): "(quantidade × preço unitário
+   * (preco_venda)), somente vendas 2.2.40 + 2.2.41" — SEM NENHUMA dedução
+   * (nem desconto, nem devolução; as duas saem só em `faturamentoLiquido`).
+   * Só linhas Vendas (o CODTMV já está restrito a 2.2.40/2.2.41 desde
+   * `prepararVendas`). Passou por duas versões intermediárias no mesmo dia
+   * (desconto embutido aqui; depois devolução embutida aqui) antes de
+   * chegar nesta — puro valorBruto, sem dedução nenhuma.
    */
   faturamentoBruto: number
   /** Soma de desconto lançado nas vendas normais do período — sem alteração de fórmula, só de contexto (agora conta só 2.2.40/2.2.41). */
@@ -279,7 +281,7 @@ export interface VendaAgregada {
   bonificacaoUnidades: number
   /** Formula 3: total de m³ bonificado (Σ M3_TOTAL nos movimentos de bonificação, mesmo critério de `contaM3` usado no m³ vendido). */
   bonificacaoM3: number
-  /** Formula 5: faturamentoBruto − devolução (o desconto já está líquido dentro de faturamentoBruto — não é subtraído de novo aqui). */
+  /** Formula 5 — 2ª correção 2026-08-21: faturamentoBruto − descontos − devolução (as duas deduções acontecem aqui; faturamentoBruto agora é puro, sem nenhuma). */
   faturamentoLiquido: number
   vendasUN: number
   m3Total: number
@@ -313,27 +315,24 @@ export interface VendaAgregada {
   margem: number | null
   /**
    * "Faturamento Bruto Preço Base" na UI (renomeado 2026-08-21 — antes só
-   * "Faturamento Preço Base"; o usuário apontou que comparar isto direto
-   * contra `faturamentoLiquido` não fazia sentido, já que aquele já vem
-   * líquido de devolução e este não). Formula 6 do usuário: "(quantidade ×
-   * preço unitário (preco_base)) − descontos, somente vendas 2.2.40 +
-   * 2.2.41" — ainda NÃO desconta devolução (ver `faturamentoLiquidoPrecoBase`
-   * logo abaixo, o par líquido desta). Antes desta mudança (2026-08-20) esse
-   * número existia sem nome próprio — era o que o campo `faturamentoBruto`
-   * antigo calculava (valorBase, sem subtrair desconto na soma bruta, só
-   * depois em faturamentoLiquido); agora fica explícito e com desconto
-   * líquido, e `valorM3Vendido`/`abaixoDoMinimo`/`perdaEstimada`/`margem`
-   * continuam derivando dele internamente (via `faturamentoLiquidoPrecoBase`),
-   * preservando os mesmos números de antes.
+   * "Faturamento Preço Base"). Formula 6 do usuário — 2ª correção
+   * 2026-08-21 (mesmo ajuste da Formula 1): "(quantidade × preço unitário
+   * (preco_base)), somente vendas 2.2.40 + 2.2.41" — SEM nenhuma dedução
+   * (nem desconto, nem devolução; as duas saem em
+   * `faturamentoLiquidoPrecoBase`). `valorM3Vendido`/`abaixoDoMinimo`/
+   * `perdaEstimada`/`margem` continuam derivando do par líquido (via
+   * `faturamentoLiquidoPrecoBase`), preservando os mesmos números de
+   * sempre — só o valor intermediário mostrado neste campo mudou.
    */
   faturamentoPrecoBase: number
   /**
-   * "Faturamento Líquido Preço Base" (novo campo, 2026-08-21): mesmo par
+   * "Faturamento Líquido Preço Base" — 2ª correção 2026-08-21: mesmo par
    * bruto→líquido que `faturamentoBruto`→`faturamentoLiquido`, só que na
    * base de preço_base em vez de preço_venda — `faturamentoPrecoBase`
-   * (acima) menos devolução. Numericamente é o que `valorM3Vendido` já
-   * dividia por `m3Total` internamente (calibrado contra o Power BI em
-   * 2026-08-04); só não tinha nome/campo próprio até agora.
+   * (acima) menos DESCONTOS e menos DEVOLUÇÃO (avaliada a preço_base,
+   * `devolucoesBase`). Numericamente é o que `valorM3Vendido` já dividia
+   * por `m3Total` internamente desde sempre (calibrado contra o Power BI
+   * em 2026-08-04) — inalterado por qualquer reordenação da fórmula.
    */
   faturamentoLiquidoPrecoBase: number
   /**
@@ -361,6 +360,8 @@ export function agregarVendas(linhas: VendaLinha[], chaveFn: (l: VendaLinha) => 
       valorBaseVendas: number
       descontos: number
       devolucoes: number
+      /** devolução avaliada a preço_base (mesma linha da Devolucoes, valorBase em vez de valorBruto) — usada em Faturamento Bruto Preço Base */
+      devolucoesBase: number
       bonificacoes: number
       bonificacaoUnidades: number
       bonificacaoM3: number
@@ -379,6 +380,7 @@ export function agregarVendas(linhas: VendaLinha[], chaveFn: (l: VendaLinha) => 
         valorBaseVendas: 0,
         descontos: 0,
         devolucoes: 0,
+        devolucoesBase: 0,
         bonificacoes: 0,
         bonificacaoUnidades: 0,
         bonificacaoM3: 0,
@@ -389,6 +391,7 @@ export function agregarVendas(linhas: VendaLinha[], chaveFn: (l: VendaLinha) => 
       }
     if (l.tipoMovimento === 'Devolucoes') {
       e.devolucoes += l.valorBruto
+      e.devolucoesBase += l.valorBase
       // Corrigido 2026-08-04 (releitura da nota original): a medida real do
       // Power BI (".Meta Destino") soma devolução com SINAL NEGATIVO em vez
       // de excluí-la — simétrico com o m3Total, que também subtrai devolução
@@ -424,23 +427,24 @@ export function agregarVendas(linhas: VendaLinha[], chaveFn: (l: VendaLinha) => 
 
   return [...acc.entries()]
     .map(([chave, e]) => {
-      // Formula 1: preço realmente cobrado, líquido de desconto.
-      const faturamentoBruto = e.valorBrutoVendas - e.descontos
-      // Formula 6: preço base/tabela preço base, líquido de desconto —
-      // numericamente igual ao que o antigo campo `faturamentoBruto` gerava
-      // (o desconto só era subtraído depois, no faturamentoLiquido); ver
-      // nota na interface. "Bruto Preço Base" na UI — ainda não desconta
-      // devolução (ver faturamentoLiquidoPrecoBase logo abaixo).
-      const faturamentoPrecoBase = e.valorBaseVendas - e.descontos
-      // Formula 5: bruto − devolução (desconto já está líquido no bruto).
-      const faturamentoLiquido = faturamentoBruto - e.devolucoes
+      // Corrigido 2026-08-21 (2ª correção do usuário no mesmo dia — "trazer
+      // as devoluções para deduzir no líquido e não no bruto"): Formula 1
+      // = quantidade × preço vendido, SEM nenhuma dedução — bruto de verdade.
+      const faturamentoBruto = e.valorBrutoVendas
+      // Formula 6: quantidade × preço base, também sem dedução.
+      const faturamentoPrecoBase = e.valorBaseVendas
+      // Formula 5: bruto − descontos − devolução (as duas deduções agora
+      // acontecem só aqui, no líquido).
+      const faturamentoLiquido = faturamentoBruto - e.descontos - e.devolucoes
       // "Faturamento Líquido Preço Base" — mesmo par bruto→líquido que
-      // faturamentoBruto→faturamentoLiquido, na base de preço_base. Também
-      // é o equivalente exato do antigo `faturamentoLiquido` (valorBase −
-      // descontos − devolução) — mantém valorM3Vendido/abaixoDoMinimo/
-      // perdaEstimada/margem calibrados contra o Power BI (achado 2026-08-04),
-      // sem depender da nova Formula 1/5 baseada em preco_venda.
-      const faturamentoLiquidoBase = faturamentoPrecoBase - e.devolucoes
+      // faturamentoBruto→faturamentoLiquido, na base de preço_base:
+      // faturamentoPrecoBase − descontos − devolução (avaliada a preço_base,
+      // `devolucoesBase`). Numericamente é o MESMO valor final desde a
+      // primeira versão desta fórmula (valorBase − desconto − devolução,
+      // goste da ordem/agrupamento que for) — mantém valorM3Vendido/
+      // abaixoDoMinimo/perdaEstimada/margem calibrados contra o Power BI
+      // (achado 2026-08-04).
+      const faturamentoLiquidoBase = faturamentoPrecoBase - e.descontos - e.devolucoesBase
       const valorM3Vendido = e.m3Total > 0 ? faturamentoLiquidoBase / e.m3Total : null
       const precoPonderado = e.m3Total > 0 ? e.m3PesoMinimo / e.m3Total : null
       const abaixoDoMinimo = valorM3Vendido != null && precoPonderado != null && valorM3Vendido < precoPonderado
