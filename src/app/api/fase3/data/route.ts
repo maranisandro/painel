@@ -190,6 +190,49 @@ export async function GET(req: NextRequest) {
     const [produto, tabelaPreco] = a.chave.split('|')
     return { ...a, produto, tabelaPreco }
   })
+  // Por Nota Fiscal (pedido do usuário 2026-08-21: "preciso da opção de
+  // visualização que eu consiga ver por nota fiscal e na nota fiscal ter
+  // todas as métricas do painel para que eu possa avaliar venda a venda,
+  // preciso validar os cálculos") — cada NF passa pelo MESMO `agregarVendas`
+  // usado em todo o resto do painel (mesmas fórmulas, mesmo motor), agrupada
+  // por NUMEROMOV; `itens` traz as linhas cruas (produto a produto) que
+  // compõem a nota, para conferir manualmente contra a fonte (quantidade ×
+  // preço, desconto, m³) o que o agregado está somando.
+  const linhasPorNota = new Map<string, typeof linhas>()
+  for (const l of linhas) {
+    const key = l.numeroMov || '—'
+    const arr = linhasPorNota.get(key) ?? []
+    arr.push(l)
+    linhasPorNota.set(key, arr)
+  }
+  const porNota = agregarVendas(linhas, (l) => l.numeroMov || '—')
+    .map((a) => {
+      const itensNota = linhasPorNota.get(a.chave) ?? []
+      const primeira = itensNota[0]
+      return {
+        ...a,
+        numeroMov: a.chave,
+        data: primeira?.data ?? '',
+        distribuidor: primeira?.distribuidor ?? '',
+        cliente: primeira?.cliente ?? '',
+        tipoMovimento: primeira?.tipoMovimento ?? 'Vendas',
+        itens: itensNota.map((l) => ({
+          produto: l.produto,
+          tabelaPreco: l.tabelaPreco,
+          tipoMovimento: l.tipoMovimento,
+          quantidade: l.quantidade,
+          precoVendido: l.quantidade > 0 ? l.valorBruto / l.quantidade : 0,
+          precoBase: l.precoBase,
+          desconto: l.desconto,
+          valorBruto: l.valorBruto,
+          valorBase: l.valorBase,
+          m3Total: l.m3Total,
+          m3Minimo: l.m3Minimo,
+          flagBonificacao: l.flagBonificacao,
+        })),
+      }
+    })
+    .sort((a, b) => b.data.localeCompare(a.data) || a.numeroMov.localeCompare(b.numeroMov))
   const produtosPorMes = produtosAoLongoDoTempo(linhas)
   // Dispersão de preço por produto × ICMS (pedido do usuário 2026-08-04:
   // "mostrar produtos que têm um valor considerável de preço entre as
@@ -266,6 +309,23 @@ export async function GET(req: NextRequest) {
     return linha
   })
 
+  // Mesma ideia de `porDia`, mas agrupado por MÊS — pedido do usuário
+  // 2026-08-21: "este gráfico quando colocar vários meses agrupar por mês"
+  // (um período de vários meses vira uma parede ilegível de centenas de
+  // barras diárias). O front decide qual dos dois usar no gráfico conforme
+  // o período cobrir 1 ou vários meses; clicar num mês aqui estreita o
+  // filtro de data para aquele mês, o que troca automaticamente o gráfico
+  // de volta para `porDia` (drill natural, sem UI extra).
+  const porMesBase = [...agregarVendas(linhasParaGrafico, (l) => l.mes)].sort((a, b) => a.chave.localeCompare(b.chave))
+  const m3PorMesTipo = new Map(
+    agregarVendas(linhasParaGrafico, (l) => `${l.mes}|${l.tipoProduto}`).map((a) => [a.chave, a.m3Total]),
+  )
+  const porMes = porMesBase.map((d) => {
+    const linha: Record<string, unknown> = { ...d }
+    for (const tipo of tiposVolume) linha[tipo] = m3PorMesTipo.get(`${d.chave}|${tipo}`) ?? 0
+    return linha
+  })
+
   // Resumo por categoria SEMPRE sobre linhasPeriodo (não filtrado) — o
   // filtro de categoria mostra quanto cada opção representa antes de
   // marcar/desmarcar, não só o que já está selecionado.
@@ -334,6 +394,7 @@ export async function GET(req: NextRequest) {
     clientesDisponiveis,
     totalGeral,
     porDia,
+    porMes,
     tiposVolume,
     porTabelaPeriodo,
     porSubTipoProdutoPeriodo,
@@ -350,6 +411,7 @@ export async function GET(req: NextRequest) {
     porClienteProdutoNota,
     porDistribuidorClienteProduto,
     porProdutoEspecifico,
+    porNota,
     produtosPorMes,
     dispersaoPreco,
     abaixoTabela4,

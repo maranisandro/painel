@@ -134,7 +134,7 @@ export function BonificacoesTab() {
     { key: 'valorNominal', label: 'Valor nominal', align: 'right', sortValue: (d) => d.valorNominal, render: (d) => fmtMoeda(d.valorNominal) },
     {
       key: 'diferencaTabela4',
-      label: 'Diferença vs tabela 4',
+      label: 'Diferença vs tabela preço base',
       align: 'right',
       sortValue: (d) => d.diferencaTabela4,
       render: (d) => <span className="text-slate-500">{fmtMoeda(d.diferencaTabela4)}</span>,
@@ -149,7 +149,7 @@ export function BonificacoesTab() {
     { key: 'quantidade', label: 'Qtd', align: 'right', sortValue: (l) => l.quantidade, render: (l) => fmt(l.quantidade, 2) },
     { key: 'precoVendido', label: 'Preço vendido', align: 'right', sortValue: (l) => l.precoVendido, render: (l) => fmtMoeda(l.precoVendido) },
     { key: 'valorNominal', label: 'Valor nominal', align: 'right', sortValue: (l) => l.valorNominal, render: (l) => fmtMoeda(l.valorNominal) },
-    { key: 'precoMedioTabela4', label: 'Preço tabela 4', align: 'right', sortValue: (l) => l.precoMedioTabela4, render: (l) => fmtMoeda(l.precoMedioTabela4) },
+    { key: 'precoMedioTabela4', label: 'Tabela preço base', align: 'right', sortValue: (l) => l.precoMedioTabela4, render: (l) => fmtMoeda(l.precoMedioTabela4) },
   ]
 
   const colunasSemTabela4: SortableColumn<BonificacaoSemTabela4>[] = [
@@ -176,7 +176,7 @@ export function BonificacoesTab() {
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <p className="text-xs text-slate-500">O que gerou a bonificação (preço tabela 4)</p>
+          <p className="text-xs text-slate-500">O que gerou a bonificação (tabela preço base)</p>
           <p className="text-lg font-semibold" style={{ color: COR_TABELA4 }}>{fmtMoeda(data?.totalTabela4 ?? 0)}</p>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-4">
@@ -197,7 +197,7 @@ export function BonificacoesTab() {
 
       {mostrarEvolucao && (
         <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <div className="mb-3 font-medium">Evolução mensal — gerado (tabela 4) x faturado (nominal)</div>
+          <div className="mb-3 font-medium">Evolução mensal — gerado (tabela preço base) x faturado (nominal)</div>
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={data?.evolucaoMensal ?? []}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -208,7 +208,7 @@ export function BonificacoesTab() {
                 formatter={(v, name) => [fmtMoeda(Number(v)), String(name)]}
               />
               <Legend />
-              <Bar dataKey="tabela4" name="Gerado (tabela 4)" fill={COR_TABELA4} radius={[4, 4, 0, 0]} />
+              <Bar dataKey="tabela4" name="Gerado (tabela preço base)" fill={COR_TABELA4} radius={[4, 4, 0, 0]} />
               <Bar dataKey="nominal" name="Faturado (nominal)" fill={COR_NOMINAL} radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
@@ -239,15 +239,15 @@ export function BonificacoesTab() {
 
       <div className="overflow-x-auto rounded-xl border border-amber-300 bg-white">
         <div className="border-b border-amber-100 bg-amber-50 px-4 py-3 font-medium text-amber-900">
-          Bonificações sem tabela 4 de distribuidor ({data?.totalSemTabela4 ?? 0}) — não dá para calcular o valor real
-          bonificado (diferença entre a tabela 4/preço base e o preço vendido, comparada ao preço mínimo)
+          Bonificações sem tabela preço base de distribuidor ({data?.totalSemTabela4 ?? 0}) — não dá para calcular o
+          valor real bonificado (diferença entre a tabela preço base e o preço vendido, comparada ao preço mínimo)
         </div>
         <SortableTable
           columns={colunasSemTabela4}
           rows={data?.semTabela4 ?? []}
           rowKey={(l, i) => `${l.data}-${l.distribuidor}-${l.cliente}-${l.produto}-${i}`}
           defaultSortKey="valorBonificacao"
-          emptyMessage="Todas as bonificações do período têm tabela 4 vigente."
+          emptyMessage="Todas as bonificações do período têm tabela preço base vigente."
         />
       </div>
 

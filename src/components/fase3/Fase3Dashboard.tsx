@@ -43,6 +43,8 @@ function corTipoProduto(tipo: string): string {
   return CORES_TIPO_PRODUTO[tipo] ?? COR_TIPO_FALLBACK
 }
 
+type TipoMovimento = 'Vendas' | 'Devolucoes' | 'Bonificacoes'
+
 interface VendaAgregada {
   chave: string
   /** Quantidade × preço vendido, líquido de desconto — só vendas 2.2.40/2.2.41 */
@@ -63,12 +65,12 @@ interface VendaAgregada {
   precoPonderado: number | null
   abaixoDoMinimo: boolean
   perdaEstimada: number
-  /** Quantidade × preço base (tabela4 quando bonificado=SIM), líquido de desconto — só vendas 2.2.40/2.2.41 */
+  /** "Faturamento Bruto Preço Base" — quantidade × preço base (tabela preço base quando bonificado=SIM), líquido de desconto, ainda SEM descontar devolução — só vendas 2.2.40/2.2.41 */
   faturamentoPrecoBase: number
+  /** "Faturamento Líquido Preço Base" — faturamentoPrecoBase menos devolução (par líquido de faturamentoPrecoBase, mesma relação de faturamentoBruto→faturamentoLiquido) */
+  faturamentoLiquidoPrecoBase: number
   /** Vendas + Bonificação − Devolução — "tudo que saiu da unidade", diferente de m3Total ("Volume Vendido", sem bonificação). */
   volumeExpedidoM3: number
-  /** Volume vendido (m³) × preço mínimo — "Meta destino" */
-  metaDestino: number
 }
 
 interface DistribuidorCliente extends VendaAgregada {
@@ -115,6 +117,30 @@ interface ClienteProdutoNota extends VendaAgregada {
   data: string
 }
 
+interface ItemNota {
+  produto: string
+  tabelaPreco: string
+  tipoMovimento: TipoMovimento
+  quantidade: number
+  precoVendido: number
+  precoBase: number
+  desconto: number
+  valorBruto: number
+  valorBase: number
+  m3Total: number
+  m3Minimo: number
+  flagBonificacao: boolean
+}
+
+interface NotaFiscal extends VendaAgregada {
+  numeroMov: string
+  data: string
+  distribuidor: string
+  cliente: string
+  tipoMovimento: TipoMovimento
+  itens: ItemNota[]
+}
+
 interface ApiData {
   period: { from: string; to: string; toSolicitado: string }
   hoje: {
@@ -128,6 +154,7 @@ interface ApiData {
   clientesDisponiveis: string[]
   totalGeral: (VendaAgregada & { bonificacaoDoMes: number }) | null
   porDia: (VendaAgregada & Record<string, unknown>)[]
+  porMes: (VendaAgregada & Record<string, unknown>)[]
   tiposVolume: string[]
   porTabelaPeriodo: VendaAgregada[]
   porSubTipoProdutoPeriodo: VendaAgregada[]
@@ -153,6 +180,7 @@ interface ApiData {
   porCliente: VendaAgregada[]
   porClienteProduto: ClienteProduto[]
   porClienteProdutoNota: ClienteProdutoNota[]
+  porNota: NotaFiscal[]
   porProdutoEspecifico: VendaPorProdutoEspecifico[]
   produtosPorMes: ProdutoAoLongoDoTempo[]
   dispersaoPreco: DispersaoPreco[]
@@ -181,6 +209,14 @@ interface InsightDiametroMourao {
   dentroDaMeta: boolean | null
 }
 
+interface TransacaoPreco {
+  numeroMov: string
+  data: string
+  distribuidor: string
+  cliente: string
+  preco: number
+}
+
 interface DispersaoPreco {
   produto: string
   tabelaPreco: string
@@ -189,6 +225,8 @@ interface DispersaoPreco {
   precoMax: number
   precoMedio: number
   variacaoPct: number
+  notaMin: TransacaoPreco | null
+  notaMax: TransacaoPreco | null
 }
 
 interface VendaAbaixoTabela4 {
@@ -341,16 +379,27 @@ function CardFinanceiro({
  * distribuidor — a mesma lógica das medidas `.Valor M3 Vendido` /
  * `.ValorminM3` / `.IndicadorPrecoMedio` do relatório original.
  */
-type Aba = 'tatico' | 'estrategico' | 'bonificacoes' | 'melhorcarga' | 'clientes' | 'potenciais' | 'critica'
+type Aba = 'tatico' | 'estrategico' | 'nota' | 'bonificacoes' | 'melhorcarga' | 'clientes' | 'potenciais' | 'critica'
 
 const ABA_LABEL: Record<Aba, string> = {
   tatico: 'Análise por período',
   estrategico: 'Painel estratégico (ano)',
+  nota: 'Por Nota Fiscal',
   bonificacoes: 'Bonificações',
   melhorcarga: 'Melhor carga',
   clientes: 'Clientes',
   potenciais: 'Clientes potenciais',
   critica: 'Crítica ao modelo',
+}
+
+type SubAba = 'cliente' | 'produto' | 'tempo' | 'dispersao' | 'abaixoTabela'
+
+const SUB_ABA_LABEL: Record<SubAba, string> = {
+  cliente: 'Por cliente',
+  produto: 'Por produto específico',
+  tempo: 'Produto ao longo do tempo',
+  dispersao: 'Dispersão de preço',
+  abaixoTabela: 'Abaixo da tabela preço base',
 }
 
 export function Fase3Dashboard() {
@@ -374,6 +423,23 @@ export function Fase3Dashboard() {
   // Bruto/Bonificação/Devolução filtra a tela inteira para só aquele tipo de
   // movimento — mesmo comportamento de clique/Ctrl+clique dos demais cards.
   const [tipoMovimentoFiltro, setTipoMovimentoFiltro] = useState<Set<string>>(new Set())
+  // Pedido do usuário 2026-08-21: "colocar em abas" as tabelas de detalhe
+  // (cliente, produto específico, produto ao longo do tempo, dispersão de
+  // preço, abaixo da tabela4) — antes empilhadas uma sobre a outra, exigindo
+  // muita rolagem; agora só uma é renderizada por vez, escolhida por este
+  // sub-menu (independente das abas principais de cima).
+  const [subAba, setSubAba] = useState<SubAba>('cliente')
+  // Pedido do usuário 2026-08-21: na Dispersão de preço, clicar na nota do
+  // maior/menor preço já abre ela na aba "Por Nota Fiscal" — estreita o
+  // período pro dia da nota (senão ela pode ficar fora do recorte atual) e
+  // guarda o número da NF pra filtrar/auto-expandir só ela lá.
+  const [notaFiscalFoco, setNotaFiscalFoco] = useState<string | null>(null)
+  function abrirNotaFiscal(t: TransacaoPreco) {
+    setFrom(t.data)
+    setTo(t.data)
+    setNotaFiscalFoco(t.numeroMov)
+    setAba('nota')
+  }
 
   function toggleSelecao(set: Set<string>, setSet: (s: Set<string>) => void, valor: string, ctrl: boolean) {
     if (ctrl) {
@@ -412,7 +478,7 @@ export function Fase3Dashboard() {
       </div>
 
       <div className="flex flex-wrap gap-2 border-b border-slate-200">
-        {(['tatico', 'estrategico', 'bonificacoes', 'melhorcarga', 'clientes', 'potenciais', 'critica'] as Aba[]).map((a) => (
+        {(['tatico', 'estrategico', 'nota', 'bonificacoes', 'melhorcarga', 'clientes', 'potenciais', 'critica'] as Aba[]).map((a) => (
           <button
             key={a}
             onClick={() => setAba(a)}
@@ -425,6 +491,124 @@ export function Fase3Dashboard() {
 
       {aba === 'estrategico' ? (
         <PainelEstrategico />
+      ) : aba === 'nota' ? (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4">
+            <DateRangeInputs from={from} to={to} onFromChange={setFrom} onToChange={setTo} />
+          </div>
+          <p className="text-xs text-slate-500">
+            Uma linha por nota fiscal, com as mesmas fórmulas do resumo financeiro aplicadas só àquela NF — clique para
+            abrir os itens (produto a produto) e conferir quantidade × preço, desconto e m³ contra a fonte.
+          </p>
+          {notaFiscalFoco && (
+            <div className="flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+              Mostrando só a NF <strong>{notaFiscalFoco}</strong> (aberta a partir da Dispersão de preço).
+              <button type="button" onClick={() => setNotaFiscalFoco(null)} className="ml-auto rounded bg-white px-2 py-0.5 font-medium text-emerald-800 hover:bg-emerald-100">
+                Ver todas as notas
+              </button>
+            </div>
+          )}
+          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+            <div className="border-b border-slate-100 px-4 py-3 font-medium">Por nota fiscal ({data?.porNota.length ?? 0})</div>
+            <SortableTable
+              columns={[
+                { key: 'numeroMov', label: 'NF', sortValue: (n: NotaFiscal) => n.numeroMov, render: (n) => <span className="font-medium">{n.numeroMov || '—'}</span> },
+                { key: 'data', label: 'Data', sortValue: (n: NotaFiscal) => n.data, render: (n) => (n.data ? fmtDateBR(n.data) : '—') },
+                {
+                  key: 'tipoMovimento',
+                  label: 'Tipo',
+                  sortValue: (n: NotaFiscal) => n.tipoMovimento,
+                  render: (n) => (
+                    <span
+                      className={`rounded px-2 py-0.5 text-xs font-medium ${
+                        n.tipoMovimento === 'Devolucoes'
+                          ? 'bg-rose-100 text-rose-700'
+                          : n.tipoMovimento === 'Bonificacoes'
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-slate-100 text-slate-600'
+                      }`}
+                    >
+                      {n.tipoMovimento === 'Devolucoes' ? 'Devolução' : n.tipoMovimento === 'Bonificacoes' ? 'Bonificação' : 'Venda'}
+                    </span>
+                  ),
+                },
+                { key: 'distribuidor', label: 'Distribuidor', sortValue: (n: NotaFiscal) => n.distribuidor, render: (n) => n.distribuidor },
+                { key: 'cliente', label: 'Cliente', sortValue: (n: NotaFiscal) => n.cliente, render: (n) => n.cliente },
+                { key: 'vendasUN', label: 'Quantidade (un)', align: 'right', sortValue: (n: NotaFiscal) => n.vendasUN, render: (n) => fmt(n.vendasUN, 0) },
+                { key: 'faturamentoBruto', label: 'Faturamento Bruto', align: 'right', sortValue: (n: NotaFiscal) => n.faturamentoBruto, render: (n) => fmtMoeda(n.faturamentoBruto) },
+                { key: 'descontos', label: 'Descontos', align: 'right', sortValue: (n: NotaFiscal) => n.descontos, render: (n) => fmtMoeda(n.descontos) },
+                { key: 'devolucoes', label: 'Devolução', align: 'right', sortValue: (n: NotaFiscal) => n.devolucoes, render: (n) => fmtMoeda(n.devolucoes) },
+                { key: 'bonificacaoUnidades', label: 'Bonif. (un)', align: 'right', sortValue: (n: NotaFiscal) => n.bonificacaoUnidades, render: (n) => fmt(n.bonificacaoUnidades, 0) },
+                { key: 'bonificacaoM3', label: 'Bonif. (m³)', align: 'right', sortValue: (n: NotaFiscal) => n.bonificacaoM3, render: (n) => fmt(n.bonificacaoM3, 2) },
+                { key: 'faturamentoLiquido', label: 'Faturamento Líquido', align: 'right', sortValue: (n: NotaFiscal) => n.faturamentoLiquido, render: (n) => fmtMoeda(n.faturamentoLiquido) },
+                { key: 'faturamentoPrecoBase', label: 'Faturamento Bruto Preço Base', align: 'right', sortValue: (n: NotaFiscal) => n.faturamentoPrecoBase, render: (n) => fmtMoeda(n.faturamentoPrecoBase) },
+                { key: 'faturamentoLiquidoPrecoBase', label: 'Faturamento Líquido Preço Base', align: 'right', sortValue: (n: NotaFiscal) => n.faturamentoLiquidoPrecoBase, render: (n) => fmtMoeda(n.faturamentoLiquidoPrecoBase) },
+                { key: 'm3Total', label: 'm³ vendido', align: 'right', sortValue: (n: NotaFiscal) => n.m3Total, render: (n) => fmt(n.m3Total, 2) },
+                { key: 'volumeExpedidoM3', label: 'Volume expedido', align: 'right', sortValue: (n: NotaFiscal) => n.volumeExpedidoM3, render: (n) => fmt(n.volumeExpedidoM3, 2) },
+                { key: 'valorM3Vendido', label: 'R$/m³ vendido', align: 'right', sortValue: (n: NotaFiscal) => n.valorM3Vendido ?? 0, render: (n) => fmtMoeda(n.valorM3Vendido) },
+                { key: 'precoPonderado', label: 'Meta de destino', align: 'right', sortValue: (n: NotaFiscal) => n.precoPonderado ?? 0, render: (n) => fmtMoeda(n.precoPonderado) },
+                {
+                  key: 'situacao',
+                  label: 'Situação',
+                  sortValue: (n: NotaFiscal) => (n.abaixoDoMinimo ? 0 : 1),
+                  render: (n) =>
+                    n.valorM3Vendido == null ? (
+                      <span className="text-slate-400">sem m³</span>
+                    ) : n.abaixoDoMinimo ? (
+                      <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">abaixo do mínimo</span>
+                    ) : (
+                      <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">dentro do mínimo</span>
+                    ),
+                },
+              ]}
+              rows={notaFiscalFoco ? (data?.porNota ?? []).filter((n) => n.numeroMov === notaFiscalFoco) : data?.porNota ?? []}
+              rowKey={(n) => n.numeroMov}
+              defaultSortKey="data"
+              autoExpandKeys={notaFiscalFoco ? [notaFiscalFoco] : []}
+              emptyMessage={
+                notaFiscalFoco
+                  ? `NF ${notaFiscalFoco} não está no período selecionado.`
+                  : 'Nenhuma nota fiscal no período.'
+              }
+              renderExpanded={(n) => (
+                <table className="w-full text-xs">
+                  <thead className="text-left text-slate-500">
+                    <tr>
+                      <th className="py-1 pl-2">Produto</th>
+                      <th className="py-1">Tabela</th>
+                      <th className="py-1 text-right">Quantidade</th>
+                      <th className="py-1 text-right">Preço vendido</th>
+                      <th className="py-1 text-right">Preço base</th>
+                      <th className="py-1 text-right">Desconto</th>
+                      <th className="py-1 text-right">Valor bruto</th>
+                      <th className="py-1 text-right">Valor base</th>
+                      <th className="py-1 text-right">m³</th>
+                      <th className="py-1 text-right">m³ mínimo</th>
+                      <th className="py-1 text-center">Bonificado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {n.itens.map((it, i) => (
+                      <tr key={i} className="border-t border-slate-100">
+                        <td className="py-1 pl-2">{it.produto}</td>
+                        <td className="py-1 text-slate-600">{it.tabelaPreco}</td>
+                        <td className="py-1 text-right">{fmt(it.quantidade, 2)}</td>
+                        <td className="py-1 text-right">{fmtMoeda(it.precoVendido)}</td>
+                        <td className="py-1 text-right">{fmtMoeda(it.precoBase)}</td>
+                        <td className="py-1 text-right">{fmtMoeda(it.desconto)}</td>
+                        <td className="py-1 text-right">{fmtMoeda(it.valorBruto)}</td>
+                        <td className="py-1 text-right">{fmtMoeda(it.valorBase)}</td>
+                        <td className="py-1 text-right">{fmt(it.m3Total, 2)}</td>
+                        <td className="py-1 text-right">{fmt(it.m3Minimo, 2)}</td>
+                        <td className="py-1 text-center">{it.flagBonificacao ? 'SIM' : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            />
+          </div>
+        </div>
       ) : aba === 'bonificacoes' ? (
         <BonificacoesTab />
       ) : aba === 'melhorcarga' ? (
@@ -567,23 +751,23 @@ export function Fase3Dashboard() {
             onClick={() => setTipoMovimentoFiltro(new Set())}
           />
           <CardFinanceiro
-            label="Faturamento Preço Base"
+            label="Faturamento Bruto Preço Base"
             formula="(Quantidade × preço base) − descontos — só vendas 2.2.40/2.2.41"
             valor={fmtMoeda(data?.totalGeral?.faturamentoPrecoBase ?? null)}
             ativo={tipoMovimentoFiltro.size === 0}
             onClick={() => setTipoMovimentoFiltro(new Set())}
           />
           <CardFinanceiro
-            label="Bonificação do mês"
-            formula="(Bruto − Base × parâmetro) nas linhas bonificado=SIM"
-            valor={fmtMoeda(data?.totalGeral?.bonificacaoDoMes ?? null)}
+            label="Faturamento Líquido Preço Base"
+            formula="Faturamento Bruto Preço Base − devolução"
+            valor={fmtMoeda(data?.totalGeral?.faturamentoLiquidoPrecoBase ?? null)}
             ativo={tipoMovimentoFiltro.size === 0}
             onClick={() => setTipoMovimentoFiltro(new Set())}
           />
           <CardFinanceiro
-            label="Meta destino"
-            formula="Volume vendido (m³) × preço mínimo"
-            valor={fmtMoeda(data?.totalGeral?.metaDestino ?? null)}
+            label="Bonificação do mês"
+            formula="(Líquido − Base × parâmetro) nas linhas bonificado=SIM"
+            valor={fmtMoeda(data?.totalGeral?.bonificacaoDoMes ?? null)}
             ativo={tipoMovimentoFiltro.size === 0}
             onClick={() => setTipoMovimentoFiltro(new Set())}
           />
@@ -610,7 +794,7 @@ export function Fase3Dashboard() {
             onClick={() => setTipoMovimentoFiltro(new Set())}
           />
           <CardFinanceiro
-            label="Preço mínimo ponderado"
+            label="Meta de destino"
             formula="Preço mínimo médio, ponderado pelo mix (m³) efetivamente vendido"
             valor={fmtMoeda(data?.totalGeral?.precoPonderado ?? null)}
             sub={data?.totalGeral?.abaixoDoMinimo ? '⚠ abaixo do mínimo no geral' : undefined}
@@ -631,39 +815,70 @@ export function Fase3Dashboard() {
           um eixo duplo de propósito, a pedido explícito do usuário — a regra
           padrão da skill dataviz (nunca dual-axis) foi conscientemente
           deixada de lado aqui. */}
-      {(data?.porDia?.length ?? 0) > 1 && (
+      {(data?.porDia?.length ?? 0) > 1 && (() => {
+        // Pedido do usuário 2026-08-21: "quando colocar vários meses agrupar
+        // por mês" — um período de muitos meses vira uma parede ilegível de
+        // barras diárias; com mais de 1 mês no recorte, o gráfico agrega por
+        // mês em vez de por dia. Clicar num mês estreita o período pra
+        // aquele mês (na próxima renderização `multiMes` vira false e o
+        // MESMO gráfico volta a mostrar dia a dia — é o "drill" pedido, sem
+        // precisar de um botão/estado extra). Ctrl/Cmd+clique NÃO troca de
+        // mês, ESTENDE o período atual para incluir aquele mês também
+        // (o filtro continua sendo um único intervalo contínuo — meses
+        // "pulados" no meio entram junto, já que o painel não filtra por
+        // meses avulsos).
+        const multiMes = (data?.porMes?.length ?? 0) > 1
+        const dadosGrafico = multiMes ? data?.porMes ?? [] : data?.porDia ?? []
+        const { acima, abaixo } = contarDiasAcimaAbaixo(dadosGrafico as VendaAgregada[])
+        return (
         <div className="rounded-xl border border-slate-200 bg-white p-4">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs font-medium text-slate-600">
-              Evolução diária — volume por tipo (m³, barras) x R$/m³ vendido x mínimo ponderado (linhas). Inclui hoje
-              (sem afetar as médias) — clique num dia para filtrar só ele e investigar o que impactou o resultado.
+              {multiMes ? 'Evolução mensal' : 'Evolução diária'} — volume por tipo (m³, barras) x R$/m³ vendido x mínimo
+              ponderado (linhas).{' '}
+              {multiMes
+                ? 'Clique num mês para abrir o detalhe dia a dia daquele mês (Ctrl/Cmd+clique estende o período até aquele mês).'
+                : 'Inclui hoje (sem afetar as médias) — clique num dia para filtrar só ele e investigar o que impactou o resultado.'}
             </p>
-            {(() => {
-              const { acima, abaixo } = contarDiasAcimaAbaixo(data?.porDia ?? [])
-              if (acima + abaixo === 0) return null
-              return (
-                <p className="text-xs">
-                  <span className="rounded bg-emerald-100 px-2 py-0.5 font-medium text-emerald-800">{acima} dias acima da meta</span>
-                  {' · '}
-                  <span className="rounded bg-red-100 px-2 py-0.5 font-medium text-red-700">{abaixo} dias abaixo da meta</span>
-                </p>
-              )
-            })()}
+            {acima + abaixo > 0 && (
+              <p className="text-xs">
+                <span className="rounded bg-emerald-100 px-2 py-0.5 font-medium text-emerald-800">
+                  {acima} {multiMes ? 'meses' : 'dias'} acima da meta
+                </span>
+                {' · '}
+                <span className="rounded bg-red-100 px-2 py-0.5 font-medium text-red-700">
+                  {abaixo} {multiMes ? 'meses' : 'dias'} abaixo da meta
+                </span>
+              </p>
+            )}
           </div>
           <ResponsiveContainer width="100%" height={320}>
             <ComposedChart
-              data={data?.porDia ?? []}
+              data={dadosGrafico}
               margin={{ top: 4, right: 8, left: -8, bottom: 0 }}
               className="cursor-pointer"
-              onClick={(e) => {
-                const dia = e?.activeLabel as string | undefined
-                if (!dia) return
-                setFrom(dia)
-                setTo(dia)
+              onClick={(e, event) => {
+                const chave = e?.activeLabel as string | undefined
+                if (!chave) return
+                if (multiMes) {
+                  const [ano, mesNum] = chave.split('-').map(Number)
+                  const inicioMes = `${chave}-01`
+                  const fimMes = new Date(ano, mesNum, 0).toISOString().slice(0, 10)
+                  if (event?.ctrlKey || event?.metaKey) {
+                    setFrom((f) => (inicioMes < f ? inicioMes : f))
+                    setTo((t) => (fimMes > t ? fimMes : t))
+                  } else {
+                    setFrom(inicioMes)
+                    setTo(fimMes)
+                  }
+                } else {
+                  setFrom(chave)
+                  setTo(chave)
+                }
               }}
             >
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-              <XAxis dataKey="chave" tickFormatter={fmtDia} tick={{ fontSize: 11 }} />
+              <XAxis dataKey="chave" tickFormatter={multiMes ? fmtMes : fmtDia} tick={{ fontSize: 11 }} />
               <YAxis
                 yAxisId="volume"
                 orientation="right"
@@ -679,7 +894,7 @@ export function Fase3Dashboard() {
                 label={{ value: 'R$/m³', position: 'insideTopLeft', fontSize: 11, fill: '#64748b' }}
               />
               <Tooltip
-                labelFormatter={(v) => fmtDateBR(String(v))}
+                labelFormatter={(v) => (multiMes ? fmtMes(String(v)) : fmtDateBR(String(v)))}
                 formatter={(v, name) => {
                   const numero = v == null ? null : Number(v)
                   const ehVolume = (data?.tiposVolume ?? []).includes(String(name))
@@ -695,7 +910,8 @@ export function Fase3Dashboard() {
             </ComposedChart>
           </ResponsiveContainer>
         </div>
-      )}
+        )
+      })()}
 
       {/* Pedido do usuário 2026-08-05: "os cards precisam estar nas abas de
           análise por período e no estratégico com os mesmos conceitos" —
@@ -886,6 +1102,7 @@ export function Fase3Dashboard() {
             { key: 'tipoProduto', label: 'Tipo de produto', sortValue: (p: VendaPorProduto) => p.tipoProduto, render: (p) => p.tipoProduto },
             { key: 'tabelaPreco', label: 'Tabela', sortValue: (p: VendaPorProduto) => p.tabelaPreco, render: (p) => <span className="text-xs text-slate-600">{p.tabelaPreco}</span> },
             { key: 'faturamentoLiquido', label: 'Faturamento líquido', align: 'right', sortValue: (p: VendaPorProduto) => p.faturamentoLiquido, render: (p) => fmtMoeda(p.faturamentoLiquido) },
+            { key: 'vendasUN', label: 'Quantidade (un)', align: 'right', sortValue: (p: VendaPorProduto) => p.vendasUN, render: (p) => fmt(p.vendasUN, 0) },
             { key: 'm3Total', label: 'm³ vendido', align: 'right', sortValue: (p: VendaPorProduto) => p.m3Total, render: (p) => fmt(p.m3Total, 1) },
             { key: 'valorM3Vendido', label: 'R$/m³ vendido', align: 'right', sortValue: (p: VendaPorProduto) => p.valorM3Vendido ?? 0, render: (p) => fmtMoeda(p.valorM3Vendido) },
             { key: 'precoPonderado', label: 'Mínimo ponderado', align: 'right', sortValue: (p: VendaPorProduto) => p.precoPonderado ?? 0, render: (p) => fmtMoeda(p.precoPonderado) },
@@ -910,6 +1127,19 @@ export function Fase3Dashboard() {
         />
       </div>
 
+      <div className="flex flex-wrap gap-2 border-b border-slate-200">
+        {(Object.keys(SUB_ABA_LABEL) as SubAba[]).map((sa) => (
+          <button
+            key={sa}
+            onClick={() => setSubAba(sa)}
+            className={`-mb-px rounded-t-md border border-b-0 px-3 py-1.5 text-xs font-medium transition-colors ${subAba === sa ? 'border-slate-200 bg-slate-700 text-white shadow-sm' : 'border-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-700'}`}
+          >
+            {SUB_ABA_LABEL[sa]}
+          </button>
+        ))}
+      </div>
+
+      {subAba === 'cliente' && (
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
         <div className="border-b border-slate-100 px-4 py-3 font-medium">
           Por cliente ({data?.porCliente.length ?? 0}) — clientes abaixo do mínimo abrem para mostrar qual produto pesa mais
@@ -918,6 +1148,7 @@ export function Fase3Dashboard() {
           columns={[
             { key: 'chave', label: 'Cliente', sortValue: (c: VendaAgregada) => c.chave, render: (c) => <span className="font-medium">{c.chave}</span> },
             { key: 'faturamentoLiquido', label: 'Faturamento líquido', align: 'right', sortValue: (c: VendaAgregada) => c.faturamentoLiquido, render: (c) => fmtMoeda(c.faturamentoLiquido) },
+            { key: 'vendasUN', label: 'Quantidade (un)', align: 'right', sortValue: (c: VendaAgregada) => c.vendasUN, render: (c) => fmt(c.vendasUN, 0) },
             { key: 'm3Total', label: 'm³ vendido', align: 'right', sortValue: (c: VendaAgregada) => c.m3Total, render: (c) => fmt(c.m3Total, 1) },
             { key: 'valorM3Vendido', label: 'R$/m³ vendido', align: 'right', sortValue: (c: VendaAgregada) => c.valorM3Vendido ?? 0, render: (c) => fmtMoeda(c.valorM3Vendido) },
             { key: 'precoPonderado', label: 'Mínimo ponderado', align: 'right', sortValue: (c: VendaAgregada) => c.precoPonderado ?? 0, render: (c) => fmtMoeda(c.precoPonderado) },
@@ -1024,7 +1255,9 @@ export function Fase3Dashboard() {
           }}
         />
       </div>
+      )}
 
+      {subAba === 'produto' && (
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
         <div className="border-b border-slate-100 px-4 py-3 font-medium">
           Por produto específico ({data?.porProdutoEspecifico.length ?? 0})
@@ -1034,6 +1267,7 @@ export function Fase3Dashboard() {
             { key: 'produto', label: 'Produto', sortValue: (p: VendaPorProdutoEspecifico) => p.produto, render: (p) => <span className="font-medium">{p.produto}</span> },
             { key: 'tabelaPreco', label: 'Tabela', sortValue: (p: VendaPorProdutoEspecifico) => p.tabelaPreco, render: (p) => <span className="text-xs text-slate-600">{p.tabelaPreco}</span> },
             { key: 'faturamentoLiquido', label: 'Faturamento líquido', align: 'right', sortValue: (p: VendaPorProdutoEspecifico) => p.faturamentoLiquido, render: (p) => fmtMoeda(p.faturamentoLiquido) },
+            { key: 'vendasUN', label: 'Quantidade (un)', align: 'right', sortValue: (p: VendaPorProdutoEspecifico) => p.vendasUN, render: (p) => fmt(p.vendasUN, 0) },
             { key: 'm3Total', label: 'm³ vendido', align: 'right', sortValue: (p: VendaPorProdutoEspecifico) => p.m3Total, render: (p) => fmt(p.m3Total, 1) },
             { key: 'valorM3Vendido', label: 'R$/m³ vendido', align: 'right', sortValue: (p: VendaPorProdutoEspecifico) => p.valorM3Vendido ?? 0, render: (p) => fmtMoeda(p.valorM3Vendido) },
             { key: 'precoPonderado', label: 'Mínimo ponderado', align: 'right', sortValue: (p: VendaPorProdutoEspecifico) => p.precoPonderado ?? 0, render: (p) => fmtMoeda(p.precoPonderado) },
@@ -1057,7 +1291,9 @@ export function Fase3Dashboard() {
           emptyMessage="Nenhuma venda no período."
         />
       </div>
+      )}
 
+      {subAba === 'tempo' && (
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
         <div className="border-b border-slate-100 px-4 py-3 font-medium">
           Produtos ao longo do tempo — meses com perda de preço x meses OK
@@ -1151,7 +1387,9 @@ export function Fase3Dashboard() {
           </tbody>
         </table>
       </div>
+      )}
 
+      {subAba === 'dispersao' && (
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
         <div className="border-b border-slate-100 px-4 py-3 font-medium">
           Dispersão de preço por produto × ICMS (top 30) — mesmo produto, mesma alíquota, preços muito
@@ -1181,9 +1419,55 @@ export function Fase3Dashboard() {
           rowKey={(d) => `${d.produto}|${d.tabelaPreco}`}
           defaultSortKey="variacaoPct"
           emptyMessage="Sem produtos com vendas suficientes no período para medir variação."
+          renderExpanded={(d) => (
+            <table className="w-full text-xs">
+              <thead className="text-left text-slate-500">
+                <tr>
+                  <th className="py-1 pl-2"></th>
+                  <th className="py-1">Cliente</th>
+                  <th className="py-1">Distribuidor</th>
+                  <th className="py-1">Data</th>
+                  <th className="py-1 text-right">Preço</th>
+                  <th className="py-1 text-right"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  { rotulo: 'Menor preço', t: d.notaMin },
+                  { rotulo: 'Maior preço', t: d.notaMax },
+                ].map(({ rotulo, t }) => (
+                  <tr key={rotulo} className="border-t border-slate-100">
+                    <td className="py-1 pl-2 font-medium text-slate-500">{rotulo}</td>
+                    {t ? (
+                      <>
+                        <td className="py-1">{t.cliente}</td>
+                        <td className="py-1">{t.distribuidor}</td>
+                        <td className="py-1">{fmtDateBR(t.data)}</td>
+                        <td className="py-1 text-right">{fmtMoeda(t.preco)}</td>
+                        <td className="py-1 text-right">
+                          <button
+                            type="button"
+                            onClick={() => abrirNotaFiscal(t)}
+                            className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 hover:bg-emerald-200"
+                            title={`Abrir NF ${t.numeroMov || '—'} na aba Por Nota Fiscal`}
+                          >
+                            NF {t.numeroMov || '—'} ↗
+                          </button>
+                        </td>
+                      </>
+                    ) : (
+                      <td className="py-1 text-slate-400" colSpan={5}>sem transação encontrada</td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         />
       </div>
+      )}
 
+      {subAba === 'abaixoTabela' && (
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
         <div className="border-b border-slate-100 px-4 py-3 font-medium">
           Vendas abaixo do preço de tabela do distribuidor (top 50 por valor perdido)
@@ -1205,7 +1489,7 @@ export function Fase3Dashboard() {
             { key: 'cliente', label: 'Cliente', sortValue: (l: VendaAbaixoTabela4) => l.cliente, render: (l) => l.cliente },
             { key: 'produto', label: 'Produto', sortValue: (l: VendaAbaixoTabela4) => l.produto, render: (l) => <span className="text-xs">{l.produto}</span> },
             { key: 'precoVendido', label: 'Preço vendido', align: 'right', sortValue: (l: VendaAbaixoTabela4) => l.precoVendido, render: (l) => fmtMoeda(l.precoVendido) },
-            { key: 'precoMedioTabela4', label: 'Preço tabela 4', align: 'right', sortValue: (l: VendaAbaixoTabela4) => l.precoMedioTabela4, render: (l) => fmtMoeda(l.precoMedioTabela4) },
+            { key: 'precoMedioTabela4', label: 'Tabela preço base', align: 'right', sortValue: (l: VendaAbaixoTabela4) => l.precoMedioTabela4, render: (l) => fmtMoeda(l.precoMedioTabela4) },
             {
               key: 'valorPerdido',
               label: 'Valor perdido',
@@ -1220,6 +1504,7 @@ export function Fase3Dashboard() {
           emptyMessage="Nenhuma venda abaixo do preço de tabela do distribuidor no período."
         />
       </div>
+      )}
         </>
       )}
     </div>

@@ -292,7 +292,18 @@ export interface VendaAgregada {
    * não pediu para mudar essa métrica nesta rodada (2026-08-20).
    */
   valorM3Vendido: number | null
-  /** média do m3_minimo PONDERADA pelo mix efetivamente vendido (m3PesoMinimo ÷ m3Total) — comparável ao valorM3Vendido em qualquer nível de agregação. Sem alteração (usuário confirmou 2026-08-20: "Preco Ponderado = volume m3 * m3_min"). */
+  /**
+   * "Meta de destino" — média do m3_minimo PONDERADA pelo mix efetivamente
+   * vendido (m3PesoMinimo ÷ m3Total), comparável ao valorM3Vendido em
+   * qualquer nível de agregação. Sem alteração de fórmula (usuário
+   * confirmou 2026-08-20: "Preco Ponderado = volume m3 * m3_min"). Existiu
+   * por um tempo um campo `metaDestino` separado (Σ m3PesoMinimo, um total
+   * em R$ em vez de uma média por m³) implementando a Formula 9 do usuário
+   * ("Meta destino = volume m³ × preço mínimo") — removido em 2026-08-21 a
+   * pedido do usuário por duplicar este mesmo conceito ("realmente está
+   * duplicado"); a UI usa só este campo, exibido com o rótulo "Meta de
+   * destino".
+   */
   precoPonderado: number | null
   /** true = valorM3Vendido abaixo do precoPonderado (perda de preço) */
   abaixoDoMinimo: boolean
@@ -301,16 +312,30 @@ export interface VendaAgregada {
   /** valorM3Vendido − precoPonderado, SEM travar em zero (negativo = perda, positivo = ganho) — usado para ranquear "melhores ganhos" e "piores perdas" com a mesma métrica */
   margem: number | null
   /**
-   * Formula 6 do usuário: "(quantidade × preço unitário (preco_base)) −
-   * descontos, somente vendas 2.2.40 + 2.2.41". Antes desta mudança
-   * (2026-08-20) esse número existia sem nome próprio — era o que o campo
-   * `faturamentoBruto` antigo calculava (valorBase, sem subtrair desconto
-   * na soma bruta, só depois em faturamentoLiquido); agora fica explícito
-   * e com desconto líquido, e `valorM3Vendido`/`abaixoDoMinimo`/
-   * `perdaEstimada`/`margem` continuam derivando dele internamente (via
-   * faturamentoLiquidoBase), preservando os mesmos números de antes.
+   * "Faturamento Bruto Preço Base" na UI (renomeado 2026-08-21 — antes só
+   * "Faturamento Preço Base"; o usuário apontou que comparar isto direto
+   * contra `faturamentoLiquido` não fazia sentido, já que aquele já vem
+   * líquido de devolução e este não). Formula 6 do usuário: "(quantidade ×
+   * preço unitário (preco_base)) − descontos, somente vendas 2.2.40 +
+   * 2.2.41" — ainda NÃO desconta devolução (ver `faturamentoLiquidoPrecoBase`
+   * logo abaixo, o par líquido desta). Antes desta mudança (2026-08-20) esse
+   * número existia sem nome próprio — era o que o campo `faturamentoBruto`
+   * antigo calculava (valorBase, sem subtrair desconto na soma bruta, só
+   * depois em faturamentoLiquido); agora fica explícito e com desconto
+   * líquido, e `valorM3Vendido`/`abaixoDoMinimo`/`perdaEstimada`/`margem`
+   * continuam derivando dele internamente (via `faturamentoLiquidoPrecoBase`),
+   * preservando os mesmos números de antes.
    */
   faturamentoPrecoBase: number
+  /**
+   * "Faturamento Líquido Preço Base" (novo campo, 2026-08-21): mesmo par
+   * bruto→líquido que `faturamentoBruto`→`faturamentoLiquido`, só que na
+   * base de preço_base em vez de preço_venda — `faturamentoPrecoBase`
+   * (acima) menos devolução. Numericamente é o que `valorM3Vendido` já
+   * dividia por `m3Total` internamente (calibrado contra o Power BI em
+   * 2026-08-04); só não tinha nome/campo próprio até agora.
+   */
+  faturamentoLiquidoPrecoBase: number
   /**
    * Volume que "saiu da unidade" (pedido do usuário 2026-08-13): Vendas +
    * Bonificação, descontando Devolução — diferente de `m3Total` ("Volume
@@ -319,14 +344,6 @@ export interface VendaAgregada {
    * receita cheia.
    */
   volumeExpedidoM3: number
-  /**
-   * Formula 9 do usuário, chamada "Meta destino": volume vendido (m³) ×
-   * preço mínimo — o que teria sido faturado vendendo esse volume
-   * exatamente no mínimo. Numericamente é o mesmo cálculo que o antigo
-   * campo `faturamentoPrecoBase` fazia (Σ m3Total × m3Minimo do mix
-   * vendido); só o nome mudou, para não colidir com a Formula 6 acima.
-   */
-  metaDestino: number
 }
 
 /**
@@ -409,13 +426,17 @@ export function agregarVendas(linhas: VendaLinha[], chaveFn: (l: VendaLinha) => 
     .map(([chave, e]) => {
       // Formula 1: preço realmente cobrado, líquido de desconto.
       const faturamentoBruto = e.valorBrutoVendas - e.descontos
-      // Formula 6: preço base/tabela4, líquido de desconto — numericamente
-      // igual ao que o antigo campo `faturamentoBruto` gerava (o desconto só
-      // era subtraído depois, no faturamentoLiquido); ver nota na interface.
+      // Formula 6: preço base/tabela preço base, líquido de desconto —
+      // numericamente igual ao que o antigo campo `faturamentoBruto` gerava
+      // (o desconto só era subtraído depois, no faturamentoLiquido); ver
+      // nota na interface. "Bruto Preço Base" na UI — ainda não desconta
+      // devolução (ver faturamentoLiquidoPrecoBase logo abaixo).
       const faturamentoPrecoBase = e.valorBaseVendas - e.descontos
       // Formula 5: bruto − devolução (desconto já está líquido no bruto).
       const faturamentoLiquido = faturamentoBruto - e.devolucoes
-      // Equivalente exato do antigo `faturamentoLiquido` (valorBase −
+      // "Faturamento Líquido Preço Base" — mesmo par bruto→líquido que
+      // faturamentoBruto→faturamentoLiquido, na base de preço_base. Também
+      // é o equivalente exato do antigo `faturamentoLiquido` (valorBase −
       // descontos − devolução) — mantém valorM3Vendido/abaixoDoMinimo/
       // perdaEstimada/margem calibrados contra o Power BI (achado 2026-08-04),
       // sem depender da nova Formula 1/5 baseada em preco_venda.
@@ -441,32 +462,41 @@ export function agregarVendas(linhas: VendaLinha[], chaveFn: (l: VendaLinha) => 
         perdaEstimada: abaixoDoMinimo ? (precoPonderado! - valorM3Vendido!) * e.m3Total : 0,
         margem: valorM3Vendido != null && precoPonderado != null ? valorM3Vendido - precoPonderado : null,
         faturamentoPrecoBase,
+        faturamentoLiquidoPrecoBase: faturamentoLiquidoBase,
         volumeExpedidoM3: e.m3TotalExpedido,
-        metaDestino: e.m3PesoMinimo,
       }
     })
     .sort((a, b) => b.faturamentoLiquido - a.faturamentoLiquido)
 }
 
 /**
- * Formula 7 do usuário (2026-08-20): "Bonificação do mês = faturamento
- * bruto − faturamento base × 0,7142 (bonificado = SIM)". Métrica de topo,
- * calculada uma vez sobre TODAS as linhas do período (não por chave de
- * agrupamento) — escopo confirmado pelo usuário: só linhas com
- * `flagBonificacao` (TMOVCOMPL.BONIFICACAO='SIM'), independente do
- * `tipoMovimento`/CODTMV da linha (a flag aparece inclusive em vendas
- * normais — achado 2026-08-04). Usa a mesma definição de bruto/base líquida
- * de desconto das Formulas 1/6, restrita a esse subconjunto de linhas.
+ * Formula 7 do usuário — corrigida 2026-08-21 ("Bonificação gerada no mês =
+ * faturamento líquido − faturamento preço base × 0,7142, bonificado = SIM";
+ * a versão de 2026-08-20 dizia "faturamento bruto", sem descontar
+ * devolução). Métrica de topo, calculada uma vez sobre TODAS as linhas do
+ * período (não por chave de agrupamento) — escopo confirmado pelo usuário:
+ * só linhas com `flagBonificacao` (TMOVCOMPL.BONIFICACAO='SIM'),
+ * independente do `tipoMovimento`/CODTMV da linha (a flag aparece inclusive
+ * em vendas normais — achado 2026-08-04). "Faturamento líquido" aqui é o
+ * bruto do subconjunto (Formula 1, líquido de desconto) menos a devolução
+ * DESSE MESMO subconjunto — mesma relação bruto→líquido da Formula 5,
+ * restrita às linhas bonificado=SIM.
  */
 export function calcularBonificacaoDoMes(linhas: VendaLinha[], fatorBonificacaoMes: number): number {
   let bruto = 0
+  let devolucao = 0
   let base = 0
   for (const l of linhas) {
     if (!l.flagBonificacao) continue
+    if (l.tipoMovimento === 'Devolucoes') {
+      devolucao += l.valorBruto
+      continue
+    }
     bruto += l.valorBruto - l.desconto
     base += l.valorBase - l.desconto
   }
-  return bruto - base * fatorBonificacaoMes
+  const liquido = bruto - devolucao
+  return liquido - base * fatorBonificacaoMes
 }
 
 export interface MesProduto {
@@ -709,6 +739,14 @@ export function agruparCargas(linhas: VendaLinha[]): { cargas: Carga[]; linhasSe
   return { cargas, linhasSemPlaca }
 }
 
+export interface TransacaoPreco {
+  numeroMov: string
+  data: string
+  distribuidor: string
+  cliente: string
+  preco: number
+}
+
 export interface DispersaoPreco {
   produto: string
   tabelaPreco: string
@@ -718,6 +756,15 @@ export interface DispersaoPreco {
   precoMedio: number
   /** (precoMax - precoMin) / precoMedio — quanto o preço varia dentro da mesma alíquota de ICMS para o mesmo produto */
   variacaoPct: number
+  /**
+   * Transação (NF/cliente/data) que praticou o preço mínimo e o máximo —
+   * pedido do usuário 2026-08-21: "preciso ter uma seta para detalhar para
+   * saber o cliente e nota do maior preço e menor preço, colocar a opção de
+   * clicar e já abrir a nota completa na aba por nf". `null` só no caso
+   * teórico de `n === 0` (não deveria acontecer, já filtrado por `minVendas`).
+   */
+  notaMin: TransacaoPreco | null
+  notaMax: TransacaoPreco | null
 }
 
 /**
@@ -729,32 +776,34 @@ export interface DispersaoPreco {
  * erro de tabela, etc.), não só perda de preço médio.
  */
 export function dispersaoPrecoPorProdutoTabela(linhas: VendaLinha[], minVendas = 3): DispersaoPreco[] {
-  const acc = new Map<string, { precos: number[] }>()
+  const acc = new Map<string, { transacoes: TransacaoPreco[] }>()
   for (const l of linhas) {
     if (l.tipoMovimento !== 'Vendas' || l.quantidade <= 0) continue
     const precoUnitario = l.valorBruto / l.quantidade
     if (!Number.isFinite(precoUnitario) || precoUnitario <= 0) continue
     const chave = `${l.produto}|${l.tabelaPreco}`
-    const e = acc.get(chave) ?? { precos: [] }
-    e.precos.push(precoUnitario)
+    const e = acc.get(chave) ?? { transacoes: [] }
+    e.transacoes.push({ numeroMov: l.numeroMov, data: l.data, distribuidor: l.distribuidor, cliente: l.cliente, preco: precoUnitario })
     acc.set(chave, e)
   }
 
   return [...acc.entries()]
-    .filter(([, e]) => e.precos.length >= minVendas)
+    .filter(([, e]) => e.transacoes.length >= minVendas)
     .map(([chave, e]) => {
       const [produto, tabelaPreco] = chave.split('|')
-      const precoMin = Math.min(...e.precos)
-      const precoMax = Math.max(...e.precos)
-      const precoMedio = e.precos.reduce((s, p) => s + p, 0) / e.precos.length
+      const precoMin = Math.min(...e.transacoes.map((t) => t.preco))
+      const precoMax = Math.max(...e.transacoes.map((t) => t.preco))
+      const precoMedio = e.transacoes.reduce((s, t) => s + t.preco, 0) / e.transacoes.length
       return {
         produto,
         tabelaPreco,
-        n: e.precos.length,
+        n: e.transacoes.length,
         precoMin,
         precoMax,
         precoMedio,
         variacaoPct: precoMedio > 0 ? (precoMax - precoMin) / precoMedio : 0,
+        notaMin: e.transacoes.find((t) => t.preco === precoMin) ?? null,
+        notaMax: e.transacoes.find((t) => t.preco === precoMax) ?? null,
       }
     })
     .sort((a, b) => b.variacaoPct - a.variacaoPct)

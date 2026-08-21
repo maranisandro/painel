@@ -214,14 +214,14 @@ export function CriticaModeloTab() {
         </p>
       </Achado>
 
-      <Achado numero={3} titulo="Bonificação: valor nominal x diferença de tabela 4" status="em-aberto">
+      <Achado numero={3} titulo="Bonificação: valor nominal x diferença de tabela preço base" status="em-aberto">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <div className="rounded-lg border border-slate-200 bg-white p-3">
             <p className="text-xs text-slate-500">Nominal (QUANTIDADE × PRECO_VENDIDO) — em uso hoje</p>
             <p className="font-semibold">{fmtMoeda(data?.achado3BonificacaoNominalVsTabela4.bonifNominal ?? 0)}</p>
           </div>
           <div className="rounded-lg border border-slate-200 bg-white p-3">
-            <p className="text-xs text-slate-500">Diferença vs preço tabela 4</p>
+            <p className="text-xs text-slate-500">Diferença vs tabela preço base</p>
             <p className="font-semibold">{fmtMoeda(data?.achado3BonificacaoNominalVsTabela4.bonifDiferencaTabela4 ?? 0)}</p>
           </div>
           <div className="rounded-lg border border-slate-200 bg-white p-3">
@@ -447,7 +447,7 @@ export function CriticaModeloTab() {
                   <th className="px-2 py-1">Cliente</th>
                   <th className="px-2 py-1">Produto</th>
                   <th className="px-2 py-1 text-right">Preço vendido</th>
-                  <th className="px-2 py-1 text-right">Preço tabela 4</th>
+                  <th className="px-2 py-1 text-right">Tabela preço base</th>
                 </tr>
               </thead>
               <tbody>
@@ -469,16 +469,16 @@ export function CriticaModeloTab() {
           <strong>Corrigido</strong> em <code>agregarVendas</code>/<code>agruparCargas</code> (faturamento
           bruto/líquido/R$ por m³, igual ao "Fat. Bruto Venda" do BI) — <code>valorBruto</code> (preço
           realmente cobrado) continua intacto onde a pergunta é "quanto o cliente pagou de fato" (abaixo da
-          tabela 4, dispersão de preço, histórico de cliente). Resultado: todos os números da Fase 3 batem
+          tabela preço base, dispersão de preço, histórico de cliente). Resultado: todos os números da Fase 3 batem
           exato com o BI agora (Fat. Bruto Venda, Faturamento Líquido, m³, Valor M3 Vendido, Meta Destino, e
           as 3 alíquotas de ICMS).
         </p>
         <p className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
           <strong>Decisão pendente</strong>: a aba "Bonificações" (destino de bonificações) e a análise
-          "abaixo da tabela 4" continuam usando <code>bonificacaoOriginal</code> (CODTMV=2.2.48), não esse
+          "abaixo da tabela preço base" continuam usando <code>bonificacaoOriginal</code> (CODTMV=2.2.48), não esse
           flag bruto. As {fmt(data?.achado10FlagBonificacaoSemCodtmv.transacoes ?? 0)} linhas acima têm
           desconto embutido mas NÃO aparecem hoje na aba Bonificações nem são excluídas da análise "abaixo da
-          tabela 4" (já que são "Vendas" pelo CODTMV). Quer que essas linhas passem a contar como bonificação
+          tabela preço base" (já que são "Vendas" pelo CODTMV). Quer que essas linhas passem a contar como bonificação
           também nessas duas telas, ou faz sentido mantê-las separadas (um desconto comercial numa venda
           normal é diferente de uma bonificação formal, mesmo que o preço_base contábil trate os dois igual)?
         </p>

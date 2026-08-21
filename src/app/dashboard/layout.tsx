@@ -23,7 +23,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   return (
     <div className="flex h-screen flex-col">
       <header className="shrink-0 border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
+        <div className="mx-auto flex max-w-none items-center justify-between px-4 py-3">
           <div className="flex items-center gap-6">
             <Link href="/dashboard" className="text-lg font-semibold text-emerald-800">
               Painel de Informações
@@ -59,7 +59,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
           </div>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-7xl flex-1 overflow-y-auto px-4 py-6">{children}</main>
+      <main className="mx-auto w-full max-w-none flex-1 overflow-y-auto overflow-x-hidden px-4 py-6">{children}</main>
     </div>
   )
 }

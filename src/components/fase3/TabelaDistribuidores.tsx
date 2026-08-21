@@ -6,6 +6,7 @@ import { SortableTable, type SortableColumn } from '@/components/shared/Sortable
 interface VendaAgregada {
   chave: string
   faturamentoLiquido: number
+  vendasUN: number
   m3Total: number
   valorM3Vendido: number | null
   precoPonderado: number | null
@@ -111,6 +112,7 @@ export function TabelaDistribuidores({
       )
     } },
     { key: 'faturamentoLiquido', label: 'Faturamento líquido', align: 'right', sortValue: (d) => d.faturamentoLiquido, render: (d) => fmtMoeda(d.faturamentoLiquido) },
+    { key: 'vendasUN', label: 'Quantidade (un)', align: 'right', sortValue: (d) => d.vendasUN, render: (d) => fmt(d.vendasUN, 0) },
     { key: 'm3Total', label: 'm³ vendido', align: 'right', sortValue: (d) => d.m3Total, render: (d) => fmt(d.m3Total, 1) },
     { key: 'valorM3Vendido', label: 'R$/m³ vendido', align: 'right', sortValue: (d) => d.valorM3Vendido ?? 0, render: (d) => fmtMoeda(d.valorM3Vendido) },
     { key: 'precoPonderado', label: 'Mínimo ponderado', align: 'right', sortValue: (d) => d.precoPonderado ?? 0, render: (d) => fmtMoeda(d.precoPonderado) },

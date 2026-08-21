@@ -31,6 +31,7 @@ export function SortableTable<T>({
   onRowClick,
   rowClassName,
   rowTitle,
+  autoExpandKeys,
 }: {
   columns: SortableColumn<T>[]
   rows: T[]
@@ -44,11 +45,20 @@ export function SortableTable<T>({
   /** classes extras por linha (ex.: destacar em vermelho quando há um alerta) */
   rowClassName?: (row: T) => string
   rowTitle?: (row: T) => string | undefined
+  /**
+   * Chaves (rowKey) já abertas quando a tabela monta — pedido do usuário
+   * 2026-08-21: um clique em outra tela ("clicar e já abrir a nota
+   * completa") precisa chegar aqui com a linha já expandida, sem exigir um
+   * segundo clique manual no ▸. Só lido na primeira renderização (useState
+   * lazy init) — a tabela é remontada (key muda ou o pai some/reaparece)
+   * toda vez que o chamador quer forçar um novo auto-expand.
+   */
+  autoExpandKeys?: string[]
 }) {
   const [sortKey, setSortKey] = useState(defaultSortKey ?? columns[0]?.key)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(defaultSortDir)
   const [filtros, setFiltros] = useState<Record<string, string>>({})
-  const [expandido, setExpandido] = useState<Set<string>>(new Set())
+  const [expandido, setExpandido] = useState<Set<string>>(() => new Set(autoExpandKeys ?? []))
 
   function toggleSort(key: string) {
     if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
