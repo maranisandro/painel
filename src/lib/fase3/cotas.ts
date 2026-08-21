@@ -438,6 +438,11 @@ export function calcularInsightDiametroMourao(
   let m3Classe1 = 0
   let m3Classe2 = 0
   for (const l of linhas) {
+    // Pedido do usuário 2026-08-21: "em todas as análises de venda... deve-se
+    // desconsiderar os movimentos de bonificação" (exceto Volume Vendido/
+    // Expedido, que não se aplicam aqui) — esta proporção somava m³ de
+    // bonificação e devolução junto com venda, distorcendo o mix real vendido.
+    if (l.tipoMovimento !== 'Vendas') continue
     if (l.subTipoProduto !== 'Mourão') continue
     if (l.classeDiametro === CLASSE_1) m3Classe1 += l.m3Total
     else if (l.classeDiametro === CLASSE_2) m3Classe2 += l.m3Total

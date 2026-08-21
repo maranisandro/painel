@@ -110,7 +110,12 @@ export async function GET(req: NextRequest) {
           data: hojeStr,
           incluidoNoOficial: hojeIncluidoNoOficial,
           totais: agregarVendas(linhasHoje, () => 'total')[0] ?? null,
-          numeroNotas: new Set(linhasHoje.map((l) => l.numeroMov).filter(Boolean)).size,
+          // Pedido do usuário 2026-08-21: análises de venda desconsideram
+          // bonificação (exceto volume vendido/expedido) — NF de bonificação
+          // não deve contar como "nota fiscal" de venda no resumo do dia.
+          numeroNotas: new Set(
+            linhasHoje.filter((l) => l.tipoMovimento === 'Vendas').map((l) => l.numeroMov).filter(Boolean),
+          ).size,
         }
       : null
 
