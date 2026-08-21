@@ -45,10 +45,17 @@ function corTipoProduto(tipo: string): string {
 
 interface VendaAgregada {
   chave: string
+  /** Quantidade × preço vendido, líquido de desconto — só vendas 2.2.40/2.2.41 */
   faturamentoBruto: number
   descontos: number
+  /** descontos ÷ faturamentoBruto */
+  descontosPct: number | null
   devolucoes: number
   bonificacoes: number
+  /** total de unidades bonificadas */
+  bonificacaoUnidades: number
+  /** total de m³ bonificado */
+  bonificacaoM3: number
   faturamentoLiquido: number
   vendasUN: number
   m3Total: number
@@ -56,10 +63,12 @@ interface VendaAgregada {
   precoPonderado: number | null
   abaixoDoMinimo: boolean
   perdaEstimada: number
-  /** Σ(m3Total × m3Minimo) do mix vendido — o que teria faturado vendendo no preço mínimo (Vendas − Devolução, sem bonificação, mesmo escopo de m3Total). */
+  /** Quantidade × preço base (tabela4 quando bonificado=SIM), líquido de desconto — só vendas 2.2.40/2.2.41 */
   faturamentoPrecoBase: number
   /** Vendas + Bonificação − Devolução — "tudo que saiu da unidade", diferente de m3Total ("Volume Vendido", sem bonificação). */
   volumeExpedidoM3: number
+  /** Volume vendido (m³) × preço mínimo — "Meta destino" */
+  metaDestino: number
 }
 
 interface DistribuidorCliente extends VendaAgregada {
@@ -117,7 +126,7 @@ interface ApiData {
   categoriasDisponiveis: string[]
   porCategoria: VendaAgregada[]
   clientesDisponiveis: string[]
-  totalGeral: VendaAgregada | null
+  totalGeral: (VendaAgregada & { bonificacaoDoMes: number }) | null
   porDia: (VendaAgregada & Record<string, unknown>)[]
   tiposVolume: string[]
   porTabelaPeriodo: VendaAgregada[]
@@ -197,6 +206,10 @@ function fmt(n: number | null, digits = 0): string {
 function fmtMoeda(n: number | null): string {
   if (n == null) return '—'
   return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 2 })
+}
+function fmtPct(n: number | null): string {
+  if (n == null) return '—'
+  return n.toLocaleString('pt-BR', { style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1 })
 }
 /** 'YYYY-MM' -> 'MM/AAAA' */
 function fmtMes(iso: string): string {
@@ -507,7 +520,7 @@ export function Fase3Dashboard() {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <CardFinanceiro
             label="Faturamento Bruto"
-            formula="Quantidade × preço unitário (vendas, sem desconto)"
+            formula="(Quantidade × preço vendido) − descontos — só vendas 2.2.40/2.2.41"
             valor={fmtMoeda(data?.totalGeral?.faturamentoBruto ?? null)}
             ativo={tipoMovimentoFiltro.has('Vendas')}
             onClick={(ctrl) => toggleSelecao(tipoMovimentoFiltro, setTipoMovimentoFiltro, 'Vendas', ctrl)}
@@ -516,13 +529,19 @@ export function Fase3Dashboard() {
             label="Total de Descontos"
             formula="Desconto lançado nas vendas normais"
             valor={fmtMoeda(data?.totalGeral?.descontos ?? null)}
+            sub={
+              data?.totalGeral?.descontosPct != null
+                ? `${fmtPct(data.totalGeral.descontosPct)} do faturamento bruto`
+                : undefined
+            }
             ativo={tipoMovimentoFiltro.has('Vendas')}
             onClick={(ctrl) => toggleSelecao(tipoMovimentoFiltro, setTipoMovimentoFiltro, 'Vendas', ctrl)}
           />
           <CardFinanceiro
-            label="Total de Bonificação"
-            formula="Quantidade × preço vendido nos movimentos de bonificação"
-            valor={fmtMoeda(data?.totalGeral?.bonificacoes ?? null)}
+            label="Bonificação"
+            formula="Total de unidades e m³ bonificado"
+            valor={`${fmt(data?.totalGeral?.bonificacaoUnidades ?? null, 0)} un`}
+            sub={`${fmt(data?.totalGeral?.bonificacaoM3 ?? null, 1)} m³`}
             ativo={tipoMovimentoFiltro.has('Bonificacoes')}
             onClick={(ctrl) => toggleSelecao(tipoMovimentoFiltro, setTipoMovimentoFiltro, 'Bonificacoes', ctrl)}
           />
@@ -534,23 +553,32 @@ export function Fase3Dashboard() {
             onClick={(ctrl) => toggleSelecao(tipoMovimentoFiltro, setTipoMovimentoFiltro, 'Devolucoes', ctrl)}
           />
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <CardFinanceiro
             label="Faturamento Líquido"
-            formula="Bruto − descontos − devolução (métrica usada no R$/m³ e na perda de preço)"
+            formula="Faturamento Bruto − devolução"
             valor={fmtMoeda(data?.totalGeral?.faturamentoLiquido ?? null)}
-            sub={
-              data?.totalGeral
-                ? `com bonificação também deduzida: ${fmtMoeda(data.totalGeral.faturamentoLiquido - data.totalGeral.bonificacoes)}`
-                : undefined
-            }
             ativo={tipoMovimentoFiltro.size === 0}
             onClick={() => setTipoMovimentoFiltro(new Set())}
           />
           <CardFinanceiro
             label="Faturamento Preço Base"
-            formula="Volume vendido (m³) × preço mínimo — o que faturaria vendendo esse volume exatamente no mínimo"
+            formula="(Quantidade × preço base) − descontos — só vendas 2.2.40/2.2.41"
             valor={fmtMoeda(data?.totalGeral?.faturamentoPrecoBase ?? null)}
+            ativo={tipoMovimentoFiltro.size === 0}
+            onClick={() => setTipoMovimentoFiltro(new Set())}
+          />
+          <CardFinanceiro
+            label="Bonificação do mês"
+            formula="(Bruto − Base × parâmetro) nas linhas bonificado=SIM"
+            valor={fmtMoeda(data?.totalGeral?.bonificacaoDoMes ?? null)}
+            ativo={tipoMovimentoFiltro.size === 0}
+            onClick={() => setTipoMovimentoFiltro(new Set())}
+          />
+          <CardFinanceiro
+            label="Meta destino"
+            formula="Volume vendido (m³) × preço mínimo"
+            valor={fmtMoeda(data?.totalGeral?.metaDestino ?? null)}
             ativo={tipoMovimentoFiltro.size === 0}
             onClick={() => setTipoMovimentoFiltro(new Set())}
           />
@@ -570,7 +598,7 @@ export function Fase3Dashboard() {
           />
           <CardFinanceiro
             label="Valor R$/m³ vendido"
-            formula="Faturamento líquido ÷ volume vendido"
+            formula="Faturamento líquido (preço base) ÷ volume vendido"
             valor={fmtMoeda(data?.totalGeral?.valorM3Vendido ?? null)}
             valorClassName={data?.totalGeral?.abaixoDoMinimo ? 'text-red-700' : ''}
             ativo={tipoMovimentoFiltro.size === 0}

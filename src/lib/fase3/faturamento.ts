@@ -139,6 +139,17 @@ function classeDiametro(produto: string): string | null {
   return m ? `${m[1]}-${m[2]}` : null
 }
 
+// CODTMV que participam do painel de vendas — pedido do usuário 2026-08-20:
+// "Faturamento Bruto = ... (somente vendas 2.2.40 + 2.2.41)". A consulta
+// Oracle traz vários outros CODTMV (2.2.44, 2.2.45, 2.2.55, 2.2.01, 2.2.02,
+// 2.2.05, 2.2.10, 2.2.12, 2.2.15, 2.2.65, 2.2.07, 2.2.08) — outros tipos de
+// movimento fora do escopo do faturamento (amostra, transferência, consumo
+// interno etc.); ficam de fora de TODO o painel, não só do Faturamento
+// Bruto (pedido do usuário: "excluir de tudo").
+const CODTMV_VENDA = new Set(['2.2.40', '2.2.41'])
+const CODTMV_BONIFICACAO = '2.2.48'
+const CODTMV_DEVOLUCAO = new Set(['1.2.83', '1.2.84'])
+
 /** Filtra ao período (por DATASAIDA) e calcula os campos derivados de cada linha de venda. */
 export function prepararVendas(rows: Row[], from: string, to: string): VendaLinha[] {
   const out: VendaLinha[] = []
@@ -147,9 +158,10 @@ export function prepararVendas(rows: Row[], from: string, to: string): VendaLinh
     if (!data || data < from || data > to) continue
 
     const codtmv = String(r.CODTMV ?? '')
+    if (!CODTMV_VENDA.has(codtmv) && codtmv !== CODTMV_BONIFICACAO && !CODTMV_DEVOLUCAO.has(codtmv)) continue
     const distribuidor = String(r.ABREV_DISTRIBUIDOR ?? 'SEM DISTRIBUIDOR')
     const tipoMovimentoBruto: TipoMovimento =
-      codtmv === '1.2.83' || codtmv === '1.2.84' ? 'Devolucoes' : codtmv === '2.2.48' ? 'Bonificacoes' : 'Vendas'
+      CODTMV_DEVOLUCAO.has(codtmv) ? 'Devolucoes' : codtmv === CODTMV_BONIFICACAO ? 'Bonificacoes' : 'Vendas'
     // Corrigido 2026-08-05 (pedido do usuário): o conceito de bonificação é
     // O MESMO para todos os distribuidores, sem exceção — CODTMV=2.2.48
     // sempre conta como Bonificacoes, mesmo para Planep. A regra de negócio
@@ -247,16 +259,40 @@ export function registrosAlteradosAposFechamento(linhas: VendaLinha[], to: strin
 
 export interface VendaAgregada {
   chave: string
+  /**
+   * Formula 1 do usuário (2026-08-20): "(quantidade × preço unitário
+   * (preco_venda)) − descontos, somente vendas 2.2.40 + 2.2.41" — preço
+   * REALMENTE cobrado (valorBruto), líquido de desconto. Só linhas Vendas
+   * (o CODTMV já está restrito a 2.2.40/2.2.41 desde `prepararVendas`).
+   * Substitui o antigo campo de mesmo nome, que na verdade calculava o que
+   * hoje é `faturamentoPrecoBase` (ver abaixo).
+   */
   faturamentoBruto: number
+  /** Soma de desconto lançado nas vendas normais do período — sem alteração de fórmula, só de contexto (agora conta só 2.2.40/2.2.41). */
   descontos: number
+  /** Formula 2: descontos ÷ faturamentoBruto — null quando faturamentoBruto é zero. */
+  descontosPct: number | null
   devolucoes: number
+  /** Valor nominal da bonificação (quantidade × preço vendido), mantido para o que ainda usa a métrica em R$; ver `bonificacaoUnidades`/`bonificacaoM3` para a métrica física pedida na Formula 3. */
   bonificacoes: number
+  /** Formula 3: total de unidades bonificadas (Σ quantidade nos movimentos de bonificação). */
+  bonificacaoUnidades: number
+  /** Formula 3: total de m³ bonificado (Σ M3_TOTAL nos movimentos de bonificação, mesmo critério de `contaM3` usado no m³ vendido). */
+  bonificacaoM3: number
+  /** Formula 5: faturamentoBruto − devolução (o desconto já está líquido dentro de faturamentoBruto — não é subtraído de novo aqui). */
   faturamentoLiquido: number
   vendasUN: number
   m3Total: number
-  /** faturamentoLiquido ÷ m3Total — preço médio realmente praticado */
+  /**
+   * faturamentoLiquidoBase ÷ m3Total — preço médio realmente praticado.
+   * Continua na base de PRECO_BASE (não a nova `faturamentoBruto` de
+   * preco_venda) porque foi calibrada em 2026-08-04 contra um export real
+   * do Power BI (".Valor M3 Vendido") — trocar a base aqui reintroduziria a
+   * divergência de R$123.069,73/mês que aquele achado corrigiu. O usuário
+   * não pediu para mudar essa métrica nesta rodada (2026-08-20).
+   */
   valorM3Vendido: number | null
-  /** média do m3_minimo PONDERADA pelo mix efetivamente vendido (m3PesoMinimo ÷ m3Total) — comparável ao valorM3Vendido em qualquer nível de agregação */
+  /** média do m3_minimo PONDERADA pelo mix efetivamente vendido (m3PesoMinimo ÷ m3Total) — comparável ao valorM3Vendido em qualquer nível de agregação. Sem alteração (usuário confirmou 2026-08-20: "Preco Ponderado = volume m3 * m3_min"). */
   precoPonderado: number | null
   /** true = valorM3Vendido abaixo do precoPonderado (perda de preço) */
   abaixoDoMinimo: boolean
@@ -265,14 +301,14 @@ export interface VendaAgregada {
   /** valorM3Vendido − precoPonderado, SEM travar em zero (negativo = perda, positivo = ganho) — usado para ranquear "melhores ganhos" e "piores perdas" com a mesma métrica */
   margem: number | null
   /**
-   * Σ (m3Total × m3Minimo) do mix efetivamente VENDIDO (mesmo escopo de
-   * m3Total/precoPonderado: Vendas − Devolução, bonificação não entra) — o
-   * que teria sido faturado vendendo esse volume exatamente no preço
-   * mínimo. Pedido do usuário 2026-08-13 ("faturamento preço base =
-   * quantidade × volume m³ × preço mínimo"): como `quantidade` já vira m³
-   * (M3_TOTAL na origem), essa conta é o produto do volume pelo mínimo —
-   * já era calculada internamente (numerador de precoPonderado), só não
-   * estava exposta como valor absoluto.
+   * Formula 6 do usuário: "(quantidade × preço unitário (preco_base)) −
+   * descontos, somente vendas 2.2.40 + 2.2.41". Antes desta mudança
+   * (2026-08-20) esse número existia sem nome próprio — era o que o campo
+   * `faturamentoBruto` antigo calculava (valorBase, sem subtrair desconto
+   * na soma bruta, só depois em faturamentoLiquido); agora fica explícito
+   * e com desconto líquido, e `valorM3Vendido`/`abaixoDoMinimo`/
+   * `perdaEstimada`/`margem` continuam derivando dele internamente (via
+   * faturamentoLiquidoBase), preservando os mesmos números de antes.
    */
   faturamentoPrecoBase: number
   /**
@@ -283,6 +319,14 @@ export interface VendaAgregada {
    * receita cheia.
    */
   volumeExpedidoM3: number
+  /**
+   * Formula 9 do usuário, chamada "Meta destino": volume vendido (m³) ×
+   * preço mínimo — o que teria sido faturado vendendo esse volume
+   * exatamente no mínimo. Numericamente é o mesmo cálculo que o antigo
+   * campo `faturamentoPrecoBase` fazia (Σ m3Total × m3Minimo do mix
+   * vendido); só o nome mudou, para não colidir com a Formula 6 acima.
+   */
+  metaDestino: number
 }
 
 /**
@@ -294,10 +338,15 @@ export function agregarVendas(linhas: VendaLinha[], chaveFn: (l: VendaLinha) => 
   const acc = new Map<
     string,
     {
-      faturamentoBruto: number
+      /** Σ valorBruto (preço realmente cobrado) só em linhas Vendas — base da Formula 1 */
+      valorBrutoVendas: number
+      /** Σ valorBase (preço base/tabela4 quando bonificado=SIM) só em linhas Vendas — base da Formula 6 */
+      valorBaseVendas: number
       descontos: number
       devolucoes: number
       bonificacoes: number
+      bonificacaoUnidades: number
+      bonificacaoM3: number
       vendasUN: number
       m3Total: number
       m3PesoMinimo: number
@@ -308,7 +357,19 @@ export function agregarVendas(linhas: VendaLinha[], chaveFn: (l: VendaLinha) => 
   for (const l of linhas) {
     const chave = chaveFn(l)
     const e =
-      acc.get(chave) ?? { faturamentoBruto: 0, descontos: 0, devolucoes: 0, bonificacoes: 0, vendasUN: 0, m3Total: 0, m3PesoMinimo: 0, m3TotalExpedido: 0 }
+      acc.get(chave) ?? {
+        valorBrutoVendas: 0,
+        valorBaseVendas: 0,
+        descontos: 0,
+        devolucoes: 0,
+        bonificacoes: 0,
+        bonificacaoUnidades: 0,
+        bonificacaoM3: 0,
+        vendasUN: 0,
+        m3Total: 0,
+        m3PesoMinimo: 0,
+        m3TotalExpedido: 0,
+      }
     if (l.tipoMovimento === 'Devolucoes') {
       e.devolucoes += l.valorBruto
       // Corrigido 2026-08-04 (releitura da nota original): a medida real do
@@ -323,17 +384,16 @@ export function agregarVendas(linhas: VendaLinha[], chaveFn: (l: VendaLinha) => 
       }
     } else if (l.tipoMovimento === 'Bonificacoes') {
       e.bonificacoes += l.valorBonificacao
-      if (l.contaM3) e.m3TotalExpedido += l.m3Total
+      // Formula 3 do usuário (2026-08-20): "total de unidades e m3
+      // bonificado" — métrica física, não monetária.
+      e.bonificacaoUnidades += l.quantidade
+      if (l.contaM3) {
+        e.bonificacaoM3 += l.m3Total
+        e.m3TotalExpedido += l.m3Total
+      }
     } else {
-      // Usa valorBase (preço "base" contábil), não valorBruto (preço
-      // realmente cobrado) — pedido do usuário 2026-08-04 ("preço médio de
-      // venda" deve bater com ".Valor M3 Vendido" do Power BI, que divide
-      // por ".Fat. Bruto Venda", somado com PRECO_BASE). Achado: 247 linhas
-      // de julho/Agronegócio tinham desconto embutido numa venda normal
-      // (TMOVCOMPL.BONIFICACAO='SIM' mas CODTMV de venda, não bonificação
-      // formal) — usar o preço realmente cobrado nessas linhas subestimava
-      // o faturamento bruto em R$123.069,73 só em julho.
-      e.faturamentoBruto += l.valorBase
+      e.valorBrutoVendas += l.valorBruto
+      e.valorBaseVendas += l.valorBase
       e.descontos += l.desconto
       e.vendasUN += l.quantidade
       if (l.contaM3) {
@@ -347,16 +407,31 @@ export function agregarVendas(linhas: VendaLinha[], chaveFn: (l: VendaLinha) => 
 
   return [...acc.entries()]
     .map(([chave, e]) => {
-      const faturamentoLiquido = e.faturamentoBruto - e.descontos - e.devolucoes
-      const valorM3Vendido = e.m3Total > 0 ? faturamentoLiquido / e.m3Total : null
+      // Formula 1: preço realmente cobrado, líquido de desconto.
+      const faturamentoBruto = e.valorBrutoVendas - e.descontos
+      // Formula 6: preço base/tabela4, líquido de desconto — numericamente
+      // igual ao que o antigo campo `faturamentoBruto` gerava (o desconto só
+      // era subtraído depois, no faturamentoLiquido); ver nota na interface.
+      const faturamentoPrecoBase = e.valorBaseVendas - e.descontos
+      // Formula 5: bruto − devolução (desconto já está líquido no bruto).
+      const faturamentoLiquido = faturamentoBruto - e.devolucoes
+      // Equivalente exato do antigo `faturamentoLiquido` (valorBase −
+      // descontos − devolução) — mantém valorM3Vendido/abaixoDoMinimo/
+      // perdaEstimada/margem calibrados contra o Power BI (achado 2026-08-04),
+      // sem depender da nova Formula 1/5 baseada em preco_venda.
+      const faturamentoLiquidoBase = faturamentoPrecoBase - e.devolucoes
+      const valorM3Vendido = e.m3Total > 0 ? faturamentoLiquidoBase / e.m3Total : null
       const precoPonderado = e.m3Total > 0 ? e.m3PesoMinimo / e.m3Total : null
       const abaixoDoMinimo = valorM3Vendido != null && precoPonderado != null && valorM3Vendido < precoPonderado
       return {
         chave,
-        faturamentoBruto: e.faturamentoBruto,
+        faturamentoBruto,
         descontos: e.descontos,
+        descontosPct: faturamentoBruto !== 0 ? e.descontos / faturamentoBruto : null,
         devolucoes: e.devolucoes,
         bonificacoes: e.bonificacoes,
+        bonificacaoUnidades: e.bonificacaoUnidades,
+        bonificacaoM3: e.bonificacaoM3,
         faturamentoLiquido,
         vendasUN: e.vendasUN,
         m3Total: e.m3Total,
@@ -365,11 +440,33 @@ export function agregarVendas(linhas: VendaLinha[], chaveFn: (l: VendaLinha) => 
         abaixoDoMinimo,
         perdaEstimada: abaixoDoMinimo ? (precoPonderado! - valorM3Vendido!) * e.m3Total : 0,
         margem: valorM3Vendido != null && precoPonderado != null ? valorM3Vendido - precoPonderado : null,
-        faturamentoPrecoBase: e.m3PesoMinimo,
+        faturamentoPrecoBase,
         volumeExpedidoM3: e.m3TotalExpedido,
+        metaDestino: e.m3PesoMinimo,
       }
     })
     .sort((a, b) => b.faturamentoLiquido - a.faturamentoLiquido)
+}
+
+/**
+ * Formula 7 do usuário (2026-08-20): "Bonificação do mês = faturamento
+ * bruto − faturamento base × 0,7142 (bonificado = SIM)". Métrica de topo,
+ * calculada uma vez sobre TODAS as linhas do período (não por chave de
+ * agrupamento) — escopo confirmado pelo usuário: só linhas com
+ * `flagBonificacao` (TMOVCOMPL.BONIFICACAO='SIM'), independente do
+ * `tipoMovimento`/CODTMV da linha (a flag aparece inclusive em vendas
+ * normais — achado 2026-08-04). Usa a mesma definição de bruto/base líquida
+ * de desconto das Formulas 1/6, restrita a esse subconjunto de linhas.
+ */
+export function calcularBonificacaoDoMes(linhas: VendaLinha[], fatorBonificacaoMes: number): number {
+  let bruto = 0
+  let base = 0
+  for (const l of linhas) {
+    if (!l.flagBonificacao) continue
+    bruto += l.valorBruto - l.desconto
+    base += l.valorBase - l.desconto
+  }
+  return bruto - base * fatorBonificacaoMes
 }
 
 export interface MesProduto {

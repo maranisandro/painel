@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSessionUser, hasModuleAccess } from '@/lib/authz'
+import { prisma } from '@/lib/prisma'
 import { getDatasetView } from '@/lib/semantic/dataset-view'
 import {
   prepararVendas,
@@ -7,14 +8,29 @@ import {
   produtosAoLongoDoTempo,
   dispersaoPrecoPorProdutoTabela,
   vendasAbaixoTabela4,
+  calcularBonificacaoDoMes,
   DISTRIBUIDORES_CONHECIDOS,
 } from '@/lib/fase3/faturamento'
 import { carregarMetaPeriodo, compararComCotas, carregarNomesClientes, calcularInsightDiametroMourao } from '@/lib/fase3/cotas'
 import { hojeBrasil, corteOficial } from '@/lib/horario-brasil'
+import { resolveParameter, calendarVarsFor } from '@/lib/semantic/parameters'
 
 function monthStart(): string {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+}
+
+function paramNumber(
+  all: { code: string; valueNumber: number | null; formula: string | null }[],
+  code: string,
+  fallback: number,
+  calendar: ReturnType<typeof calendarVarsFor>,
+): number {
+  try {
+    return resolveParameter(code, all, calendar)
+  } catch {
+    return fallback
+  }
 }
 
 /**
@@ -179,7 +195,17 @@ export async function GET(req: NextRequest) {
   // PRECO_MEDIO_TABELA4" — top 50 transações com maior valor perdido.
   const todasAbaixoTabela4 = vendasAbaixoTabela4(linhas)
   const abaixoTabela4 = todasAbaixoTabela4.slice(0, 50)
-  const totalGeral = agregarVendas(linhas, () => 'total')[0] ?? null
+  const totalGeralAgregado = agregarVendas(linhas, () => 'total')[0] ?? null
+  // Formula 7 do usuário (2026-08-20): "Bonificação do mês = faturamento
+  // bruto − faturamento base × 0,7142 (bonificado = SIM)" — 0,7142 exposto
+  // como parâmetro (Cadastros → Parâmetros), mesmo padrão de FATOR_MDC_CARVAO
+  // no Fase1, para poder ser ajustado sem alterar código.
+  const paramRows = await prisma.parameter.findMany()
+  const paramsAll = paramRows.map((p) => ({ code: p.code, valueNumber: p.valueNumber ? Number(p.valueNumber) : null, formula: p.formula }))
+  const fatorBonificacaoMes = paramNumber(paramsAll, 'FATOR_BONIFICACAO_MES', 0.7142, calendarVarsFor(new Date()))
+  const totalGeral = totalGeralAgregado
+    ? { ...totalGeralAgregado, bonificacaoDoMes: calcularBonificacaoDoMes(linhas, fatorBonificacaoMes) }
+    : null
 
   // Comparativo com as cotas de venda cadastradas (pedido do usuário
   // 2026-08-13) — meta soma todo mês cadastrado dentro do período `from`..`to`,
