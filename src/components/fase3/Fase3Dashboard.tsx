@@ -570,6 +570,31 @@ export function Fase3Dashboard() {
                   ? `NF ${notaFiscalFoco} não está no período selecionado.`
                   : 'Nenhuma nota fiscal no período.'
               }
+              renderFooter={(linhas: NotaFiscal[]) => {
+                const soma = (f: (n: NotaFiscal) => number) => linhas.reduce((s, n) => s + f(n), 0)
+                const totalM3 = soma((n) => n.m3Total)
+                const totalLiquidoBase = soma((n) => n.faturamentoLiquidoPrecoBase)
+                const valorM3Total = totalM3 > 0 ? totalLiquidoBase / totalM3 : null
+                return (
+                  <>
+                    <td className="px-3 py-2">Total ({linhas.length})</td>
+                    <td className="px-3 py-2" colSpan={4} />
+                    <td className="px-3 py-2 text-right">{fmt(soma((n) => n.vendasUN), 0)}</td>
+                    <td className="px-3 py-2 text-right">{fmtMoeda(soma((n) => n.faturamentoBruto))}</td>
+                    <td className="px-3 py-2 text-right">{fmtMoeda(soma((n) => n.descontos))}</td>
+                    <td className="px-3 py-2 text-right">{fmtMoeda(soma((n) => n.devolucoes))}</td>
+                    <td className="px-3 py-2 text-right">{fmt(soma((n) => n.bonificacaoUnidades), 0)}</td>
+                    <td className="px-3 py-2 text-right">{fmt(soma((n) => n.bonificacaoM3), 2)}</td>
+                    <td className="px-3 py-2 text-right">{fmtMoeda(soma((n) => n.faturamentoLiquido))}</td>
+                    <td className="px-3 py-2 text-right">{fmtMoeda(soma((n) => n.faturamentoPrecoBase))}</td>
+                    <td className="px-3 py-2 text-right">{fmtMoeda(totalLiquidoBase)}</td>
+                    <td className="px-3 py-2 text-right">{fmt(totalM3, 2)}</td>
+                    <td className="px-3 py-2 text-right">{fmt(soma((n) => n.volumeExpedidoM3), 2)}</td>
+                    <td className="px-3 py-2 text-right">{fmtMoeda(valorM3Total)}</td>
+                    <td className="px-3 py-2" colSpan={2} />
+                  </>
+                )
+              }}
               renderExpanded={(n) => (
                 <table className="w-full text-xs">
                   <thead className="text-left text-slate-500">

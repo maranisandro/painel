@@ -32,6 +32,7 @@ export function SortableTable<T>({
   rowClassName,
   rowTitle,
   autoExpandKeys,
+  renderFooter,
 }: {
   columns: SortableColumn<T>[]
   rows: T[]
@@ -54,6 +55,13 @@ export function SortableTable<T>({
    * toda vez que o chamador quer forçar um novo auto-expand.
    */
   autoExpandKeys?: string[]
+  /**
+   * Linha de totais no rodapé — pedido do usuário 2026-08-21: "a tabela
+   * precisa totalizar no final as colunas". Recebe as linhas JÁ filtradas
+   * (pelos filtros de coluna) e ordenadas — o total reflete o que está
+   * visível na tela, não a lista original completa.
+   */
+  renderFooter?: (rows: T[]) => ReactNode
 }) {
   const [sortKey, setSortKey] = useState(defaultSortKey ?? columns[0]?.key)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(defaultSortDir)
@@ -173,6 +181,14 @@ export function SortableTable<T>({
           </tr>
         )}
       </tbody>
+      {renderFooter && linhas.length > 0 && (
+        <tfoot>
+          <tr className="border-t-2 border-slate-300 bg-slate-50 font-medium">
+            {renderExpanded && <td className="px-3 py-2" />}
+            {renderFooter(linhas)}
+          </tr>
+        </tfoot>
+      )}
     </table>
   )
 }
