@@ -124,6 +124,38 @@ interface ResumoNoiteRodandoInfo {
   placas: number
 }
 
+interface OmnilinkTipoErro {
+  mensagem: string
+  count: number
+  placas: string[]
+  ultimaOcorrencia: string
+}
+
+interface OmnilinkErroDia {
+  dia: string
+  tentativas: number
+  erros: number
+  taxaErroPct: number
+}
+
+interface OmnilinkErroDetalhe {
+  placa: string
+  mensagem: string | null
+  createdAt: string
+}
+
+interface OmnilinkErrosInfo {
+  totalExecucoes: number
+  totalExecucoesComErro: number
+  taxaErroExecucaoPct: number
+  totalTentativasPlaca: number
+  totalErrosPlaca: number
+  taxaErroPlacaPct: number
+  porTipoErro: OmnilinkTipoErro[]
+  porDia: OmnilinkErroDia[]
+  ultimosErros: OmnilinkErroDetalhe[]
+}
+
 interface SemComunicacaoInfo {
   placa: string
   situacao: 'SEM_RASTREADOR' | 'SEM_COMUNICACAO'
@@ -227,7 +259,7 @@ export function RastreamentoFrota({
   positions: VehiclePositionInfo[]
 }) {
   const searchParams = useSearchParams()
-  const [tab, setTab] = useState<'mapa' | 'lista' | 'permanencia' | 'pernoite' | 'noite-rodando' | 'sem-comunicacao'>('mapa')
+  const [tab, setTab] = useState<'mapa' | 'lista' | 'permanencia' | 'pernoite' | 'noite-rodando' | 'sem-comunicacao' | 'omnilink-erros'>('mapa')
   const [historicoPlaca, setHistoricoPlaca] = useState<string | null>(null)
   const [historico, setHistorico] = useState<HistoricoPonto[]>([])
   const [carregandoHistorico, setCarregandoHistorico] = useState(false)
@@ -419,6 +451,46 @@ export function RastreamentoFrota({
     if (tab === 'noite-rodando') void loadNoiteRodando()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, noiteRodandoFrom, noiteRodandoTo])
+
+  // Frequência de erros de comunicação com a Omnilink — pedido do usuário
+  // 2026-08-21: "precisamos de montar uma forma de detectar os erros de
+  // comunicação com omnilink que estão frequentes". Ver
+  // /api/fase1/rastreamento/omnilink-erros para o motivo direto (o fix do
+  // "trava o lote inteiro" escondeu essas falhas do status do SyncRun).
+  const [omnilinkErros, setOmnilinkErros] = useState<OmnilinkErrosInfo | null>(null)
+  const [omnilinkErrosFrom, setOmnilinkErrosFrom] = useState(() => new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10))
+  const [omnilinkErrosTo, setOmnilinkErrosTo] = useState(() => new Date().toISOString().slice(0, 10))
+  const [carregandoOmnilinkErros, setCarregandoOmnilinkErros] = useState(false)
+
+  const loadOmnilinkErros = async () => {
+    setCarregandoOmnilinkErros(true)
+    const res = await fetch(`/api/fase1/rastreamento/omnilink-erros?from=${omnilinkErrosFrom}&to=${omnilinkErrosTo}`)
+    setOmnilinkErros(res.ok ? await res.json() : null)
+    setCarregandoOmnilinkErros(false)
+  }
+
+  useEffect(() => {
+    if (tab === 'omnilink-erros') void loadOmnilinkErros()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, omnilinkErrosFrom, omnilinkErrosTo])
+
+  // Revalidar em lote — pedido do usuário 2026-08-21: "pegar todas as placas
+  // com erro e revalidar para tentar resolver todos". Ver
+  // /api/fase1/rastreamento/revalidar-erros.
+  const [revalidando, setRevalidando] = useState(false)
+  const [resultadoRevalidacao, setResultadoRevalidacao] = useState<{ total: number; resolvidas: number } | null>(null)
+
+  async function revalidarErros() {
+    setRevalidando(true)
+    setResultadoRevalidacao(null)
+    const res = await fetch('/api/fase1/rastreamento/revalidar-erros', { method: 'POST' })
+    if (res.ok) {
+      const body = await res.json()
+      setResultadoRevalidacao({ total: body.total, resolvidas: body.resolvidas })
+    }
+    setRevalidando(false)
+    void loadOmnilinkErros()
+  }
 
   // Alertas de excesso de velocidade — pedido do usuário 2026-08-03: precisam
   // de reconhecimento formal (motivo + usuário), não só aparecer no mapa.
@@ -670,7 +742,7 @@ export function RastreamentoFrota({
       )}
 
       <div className="mb-4 flex gap-1 border-b border-slate-200">
-        {(['mapa', 'lista', 'permanencia', 'pernoite', 'noite-rodando', 'sem-comunicacao'] as const).map((t) => (
+        {(['mapa', 'lista', 'permanencia', 'pernoite', 'noite-rodando', 'sem-comunicacao', 'omnilink-erros'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -690,7 +762,9 @@ export function RastreamentoFrota({
                     ? 'Pernoite'
                     : t === 'noite-rodando'
                       ? 'Rodando de madrugada'
-                      : 'Sem comunicação'}
+                      : t === 'sem-comunicacao'
+                        ? 'Sem comunicação'
+                        : 'Erros Omnilink'}
           </button>
         ))}
       </div>
@@ -983,7 +1057,7 @@ export function RastreamentoFrota({
             />
           </div>
         </div>
-      ) : (
+      ) : tab === 'sem-comunicacao' ? (
         <div>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3">
             <div>
@@ -1079,6 +1153,165 @@ export function RastreamentoFrota({
               </tbody>
             </table>
           </div>
+        </div>
+      ) : (
+        <div>
+          <div className="mb-3 flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-3">
+            <DateRangeInputs from={omnilinkErrosFrom} to={omnilinkErrosTo} onFromChange={setOmnilinkErrosFrom} onToChange={setOmnilinkErrosTo} />
+            <span className="text-xs text-slate-500">{carregandoOmnilinkErros ? 'carregando…' : null}</span>
+          </div>
+          <p className="mb-3 text-xs text-slate-500">
+            Frequência de falha ao consultar a API da Omnilink por placa, agrupada pela causa real do erro — pedido do
+            usuário 2026-08-21: "detectar os erros de comunicação com omnilink que estão frequentes". Evidência pronta
+            pra levar ao suporte do fornecedor.
+          </p>
+          <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+            <button
+              onClick={revalidarErros}
+              disabled={revalidando}
+              className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-60"
+            >
+              {revalidando ? 'Revalidando…' : '🔁 Revalidar todas as placas com erro'}
+            </button>
+            <span className="text-xs text-amber-900">
+              {revalidando
+                ? 'Buscando de novo, placa por placa, direto na Omnilink — pode levar alguns minutos.'
+                : resultadoRevalidacao
+                  ? `Última revalidação: ${resultadoRevalidacao.resolvidas} de ${resultadoRevalidacao.total} placa(s) resolvida(s).`
+                  : 'Pega todas as placas cuja última tentativa terminou em erro e tenta de novo, uma por uma.'}
+            </span>
+          </div>
+          {omnilinkErros && (
+            <>
+              <p className="mb-1 text-xs font-medium text-slate-600">Execuções da sincronização (todas as placas do lote de uma vez — a causa mais comum, falha de login/conexão)</p>
+              <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-xs text-slate-500">Execuções no período</p>
+                  <p className="text-lg font-semibold">{omnilinkErros.totalExecucoes}</p>
+                </div>
+                <div className={`rounded-xl border p-4 ${omnilinkErros.totalExecucoesComErro > 0 ? 'border-red-200 bg-red-50' : 'border-slate-200 bg-white'}`}>
+                  <p className="text-xs text-slate-500">Execuções com erro</p>
+                  <p className={`text-lg font-semibold ${omnilinkErros.totalExecucoesComErro > 0 ? 'text-red-700' : ''}`}>{omnilinkErros.totalExecucoesComErro}</p>
+                </div>
+                <div className={`rounded-xl border p-4 ${omnilinkErros.taxaErroExecucaoPct > 10 ? 'border-red-200 bg-red-50' : 'border-slate-200 bg-white'}`}>
+                  <p className="text-xs text-slate-500">Taxa de erro</p>
+                  <p className={`text-lg font-semibold ${omnilinkErros.taxaErroExecucaoPct > 10 ? 'text-red-700' : ''}`}>
+                    {omnilinkErros.taxaErroExecucaoPct.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%
+                  </p>
+                </div>
+              </div>
+
+              <p className="mb-1 text-xs font-medium text-slate-600">Tentativas por placa (já autenticado — falha isolada numa placa específica)</p>
+              <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-xs text-slate-500">Tentativas no período</p>
+                  <p className="text-lg font-semibold">{omnilinkErros.totalTentativasPlaca}</p>
+                </div>
+                <div className={`rounded-xl border p-4 ${omnilinkErros.totalErrosPlaca > 0 ? 'border-red-200 bg-red-50' : 'border-slate-200 bg-white'}`}>
+                  <p className="text-xs text-slate-500">Erros no período</p>
+                  <p className={`text-lg font-semibold ${omnilinkErros.totalErrosPlaca > 0 ? 'text-red-700' : ''}`}>{omnilinkErros.totalErrosPlaca}</p>
+                </div>
+                <div className={`rounded-xl border p-4 ${omnilinkErros.taxaErroPlacaPct > 10 ? 'border-red-200 bg-red-50' : 'border-slate-200 bg-white'}`}>
+                  <p className="text-xs text-slate-500">Taxa de erro</p>
+                  <p className={`text-lg font-semibold ${omnilinkErros.taxaErroPlacaPct > 10 ? 'text-red-700' : ''}`}>
+                    {omnilinkErros.taxaErroPlacaPct.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%
+                  </p>
+                </div>
+              </div>
+
+              {omnilinkErros.porDia.length > 0 && (
+                <div className="mb-4 overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                  <div className="border-b border-slate-100 px-3 py-2 text-xs font-semibold text-slate-600">
+                    Erros por dia
+                  </div>
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 text-left text-slate-600">
+                      <tr>
+                        <th className="px-3 py-2">Dia</th>
+                        <th className="px-3 py-2 text-right">Tentativas</th>
+                        <th className="px-3 py-2 text-right">Erros</th>
+                        <th className="px-3 py-2 text-right">Taxa</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {omnilinkErros.porDia.map((d) => (
+                        <tr key={d.dia} className="border-t border-slate-100">
+                          <td className="px-3 py-2">{fmtDataCurta(d.dia)}</td>
+                          <td className="px-3 py-2 text-right">{d.tentativas}</td>
+                          <td className={`px-3 py-2 text-right ${d.erros > 0 ? 'font-medium text-red-700' : ''}`}>{d.erros}</td>
+                          <td className="px-3 py-2 text-right">{d.taxaErroPct.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <div className="mb-4 overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                <div className="border-b border-slate-100 px-3 py-2 text-xs font-semibold text-slate-600">
+                  Por causa do erro
+                </div>
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 text-left text-slate-600">
+                    <tr>
+                      <th className="px-3 py-2">Causa</th>
+                      <th className="px-3 py-2 text-right">Ocorrências</th>
+                      <th className="px-3 py-2">Placas afetadas</th>
+                      <th className="px-3 py-2">Última ocorrência</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {omnilinkErros.porTipoErro.map((t) => (
+                      <tr key={t.mensagem} className="border-t border-slate-100">
+                        <td className="px-3 py-2">{t.mensagem}</td>
+                        <td className="px-3 py-2 text-right font-medium">{t.count}</td>
+                        <td className="px-3 py-2 font-mono text-xs text-slate-600">{t.placas.join(', ')}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">{fmtDataHora(t.ultimaOcorrencia)}</td>
+                      </tr>
+                    ))}
+                    {omnilinkErros.porTipoErro.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
+                          Nenhum erro de comunicação no período.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                <div className="border-b border-slate-100 px-3 py-2 text-xs font-semibold text-slate-600">
+                  Últimas ocorrências (até 100)
+                </div>
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 text-left text-slate-600">
+                    <tr>
+                      <th className="px-3 py-2">Placa</th>
+                      <th className="px-3 py-2">Quando</th>
+                      <th className="px-3 py-2">Mensagem</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {omnilinkErros.ultimosErros.map((e, i) => (
+                      <tr key={i} className="border-t border-slate-100">
+                        <td className="px-3 py-2 font-mono font-medium">{e.placa}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">{fmtDataHora(e.createdAt)}</td>
+                        <td className="px-3 py-2 text-xs text-slate-600">{e.mensagem ?? '—'}</td>
+                      </tr>
+                    ))}
+                    {omnilinkErros.ultimosErros.length === 0 && (
+                      <tr>
+                        <td colSpan={3} className="px-4 py-8 text-center text-slate-500">
+                          Nenhum erro de comunicação no período.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </div>
       )}
 
