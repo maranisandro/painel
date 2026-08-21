@@ -165,10 +165,15 @@ interface ApiData {
 interface InsightDiametroMourao {
   classe1: string
   classe2: string
+  unidadesClasse1: number
+  unidadesClasse2: number
   m3Classe1: number
   m3Classe2: number
+  /** por unidade vendida — não por m³ */
   pctClasse1: number
   pctClasse2: number
+  metaUnidadesClasse1: number | null
+  metaUnidadesClasse2: number | null
   metaM3Classe1: number | null
   metaM3Classe2: number | null
   metaPctClasse1: number | null
@@ -804,17 +809,22 @@ export function Fase3Dashboard() {
         <div className="rounded-xl border border-slate-200 bg-white p-4">
           <p className="mb-2 text-xs font-medium text-slate-600">
             Proporção {data.insightDiametroMourao.classe1} x {data.insightDiametroMourao.classe2} — Mourão 2,20m
+            <span className="font-normal text-slate-400"> (% por unidade vendida)</span>
           </p>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className="rounded-lg bg-slate-50 p-3">
               <p className="text-xs text-slate-500">Vendido {data.insightDiametroMourao.classe1}</p>
               <p className="text-lg font-semibold">{fmt(data.insightDiametroMourao.pctClasse1 * 100, 0)}%</p>
-              <p className="text-xs text-slate-500">{fmt(data.insightDiametroMourao.m3Classe1, 1)} m³</p>
+              <p className="text-xs text-slate-500">
+                {fmt(data.insightDiametroMourao.unidadesClasse1, 0)} un · {fmt(data.insightDiametroMourao.m3Classe1, 1)} m³
+              </p>
             </div>
             <div className="rounded-lg bg-slate-50 p-3">
               <p className="text-xs text-slate-500">Vendido {data.insightDiametroMourao.classe2}</p>
               <p className="text-lg font-semibold">{fmt(data.insightDiametroMourao.pctClasse2 * 100, 0)}%</p>
-              <p className="text-xs text-slate-500">{fmt(data.insightDiametroMourao.m3Classe2, 1)} m³</p>
+              <p className="text-xs text-slate-500">
+                {fmt(data.insightDiametroMourao.unidadesClasse2, 0)} un · {fmt(data.insightDiametroMourao.m3Classe2, 1)} m³
+              </p>
             </div>
             {data.insightDiametroMourao.metaPctClasse1 != null && data.insightDiametroMourao.metaPctClasse2 != null ? (
               <>

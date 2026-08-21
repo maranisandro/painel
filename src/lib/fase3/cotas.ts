@@ -406,12 +406,20 @@ export function compararComCotas(
 export interface InsightDiametroMourao {
   classe1: string
   classe2: string
+  /** unidades vendidas (Σ quantidade) — pedido do usuário 2026-08-21: o % é por unidade, não por m³ */
+  unidadesClasse1: number
+  unidadesClasse2: number
+  /** m³ vendido — só para exibição, não entra na conta do % */
   m3Classe1: number
   m3Classe2: number
+  /** unidadesClasse1 ÷ (unidadesClasse1 + unidadesClasse2) */
   pctClasse1: number
   pctClasse2: number
+  metaUnidadesClasse1: number | null
+  metaUnidadesClasse2: number | null
   metaM3Classe1: number | null
   metaM3Classe2: number | null
+  /** meta por unidade (cotaUnidades), mesma base do pctClasse1/pctClasse2 real, para a comparação ser justa */
   metaPctClasse1: number | null
   metaPctClasse2: number | null
   /** |pctClasse1 - metaPctClasse1| <= 5 p.p. — `null` quando não há meta cadastrada para comparar */
@@ -435,6 +443,8 @@ export function calcularInsightDiametroMourao(
   const PREFIXO_1 = '2,20 X 08 - 10'
   const PREFIXO_2 = '2,20 X 10 - 12'
 
+  let unidadesClasse1 = 0
+  let unidadesClasse2 = 0
   let m3Classe1 = 0
   let m3Classe2 = 0
   for (const l of linhas) {
@@ -444,34 +454,54 @@ export function calcularInsightDiametroMourao(
     // bonificação e devolução junto com venda, distorcendo o mix real vendido.
     if (l.tipoMovimento !== 'Vendas') continue
     if (l.subTipoProduto !== 'Mourão') continue
-    if (l.classeDiametro === CLASSE_1) m3Classe1 += l.m3Total
-    else if (l.classeDiametro === CLASSE_2) m3Classe2 += l.m3Total
+    if (l.classeDiametro === CLASSE_1) {
+      unidadesClasse1 += l.quantidade
+      m3Classe1 += l.m3Total
+    } else if (l.classeDiametro === CLASSE_2) {
+      unidadesClasse2 += l.quantidade
+      m3Classe2 += l.m3Total
+    }
   }
-  const total = m3Classe1 + m3Classe2
-  if (total <= 0) return null
+  // Pedido do usuário 2026-08-21: "preciso saber por unidade, o % será por
+  // unidade, o m3 só exibir" — o % (real e meta) passa a ser por unidade
+  // vendida (quantidade), não por m³; o m³ continua calculado só para
+  // exibição ao lado do %, sem influenciar a proporção.
+  const totalUnidades = unidadesClasse1 + unidadesClasse2
+  if (totalUnidades <= 0) return null
 
   function metaM3(prefixo: string): number | null {
     const registros = metaProdutos.filter((p) => (p.nomeProduto ?? '').startsWith(prefixo) && p.m3PorUnidade != null)
     if (registros.length === 0) return null
     return registros.reduce((soma, p) => soma + p.cotaUnidades * (p.m3PorUnidade ?? 0), 0)
   }
+  function metaUnidades(prefixo: string): number | null {
+    const registros = metaProdutos.filter((p) => (p.nomeProduto ?? '').startsWith(prefixo))
+    if (registros.length === 0) return null
+    return registros.reduce((soma, p) => soma + p.cotaUnidades, 0)
+  }
+  const metaUnidadesClasse1 = metaUnidades(PREFIXO_1)
+  const metaUnidadesClasse2 = metaUnidades(PREFIXO_2)
   const metaM3Classe1 = metaM3(PREFIXO_1)
   const metaM3Classe2 = metaM3(PREFIXO_2)
-  const metaTotal = (metaM3Classe1 ?? 0) + (metaM3Classe2 ?? 0)
-  const temMeta = metaM3Classe1 != null && metaM3Classe2 != null && metaTotal > 0
-  const metaPctClasse1 = temMeta ? metaM3Classe1! / metaTotal : null
-  const metaPctClasse2 = temMeta ? metaM3Classe2! / metaTotal : null
+  const metaTotalUnidades = (metaUnidadesClasse1 ?? 0) + (metaUnidadesClasse2 ?? 0)
+  const temMeta = metaUnidadesClasse1 != null && metaUnidadesClasse2 != null && metaTotalUnidades > 0
+  const metaPctClasse1 = temMeta ? metaUnidadesClasse1! / metaTotalUnidades : null
+  const metaPctClasse2 = temMeta ? metaUnidadesClasse2! / metaTotalUnidades : null
 
-  const pctClasse1 = m3Classe1 / total
-  const pctClasse2 = m3Classe2 / total
+  const pctClasse1 = unidadesClasse1 / totalUnidades
+  const pctClasse2 = unidadesClasse2 / totalUnidades
 
   return {
     classe1: CLASSE_1,
     classe2: CLASSE_2,
+    unidadesClasse1,
+    unidadesClasse2,
     m3Classe1,
     m3Classe2,
     pctClasse1,
     pctClasse2,
+    metaUnidadesClasse1,
+    metaUnidadesClasse2,
     metaM3Classe1,
     metaM3Classe2,
     metaPctClasse1,
