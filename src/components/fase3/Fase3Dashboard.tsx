@@ -14,6 +14,7 @@ import { CriticaModeloTab } from './CriticaModeloTab'
 import { MelhorCargaTab } from './MelhorCargaTab'
 import { ClientesTab } from './ClientesTab'
 import { ClientesPotenciaisTab } from './ClientesPotenciaisTab'
+import { RelatorioDiaTab } from './RelatorioDiaTab'
 
 // Cores fixas por identidade — mesmo padrão de cores já usado em
 // BonificacoesTab: âmbar = "o que foi realizado", cinza = "referência/meta".
@@ -379,12 +380,13 @@ function CardFinanceiro({
  * distribuidor — a mesma lógica das medidas `.Valor M3 Vendido` /
  * `.ValorminM3` / `.IndicadorPrecoMedio` do relatório original.
  */
-type Aba = 'tatico' | 'estrategico' | 'nota' | 'bonificacoes' | 'melhorcarga' | 'clientes' | 'potenciais' | 'critica'
+type Aba = 'tatico' | 'estrategico' | 'nota' | 'diario' | 'bonificacoes' | 'melhorcarga' | 'clientes' | 'potenciais' | 'critica'
 
 const ABA_LABEL: Record<Aba, string> = {
   tatico: 'Análise por período',
   estrategico: 'Painel estratégico (ano)',
   nota: 'Por Nota Fiscal',
+  diario: 'Relatório D-1',
   bonificacoes: 'Bonificações',
   melhorcarga: 'Melhor carga',
   clientes: 'Clientes',
@@ -478,7 +480,7 @@ export function Fase3Dashboard() {
       </div>
 
       <div className="flex flex-wrap gap-2 border-b border-slate-200">
-        {(['tatico', 'estrategico', 'nota', 'bonificacoes', 'melhorcarga', 'clientes', 'potenciais', 'critica'] as Aba[]).map((a) => (
+        {(['tatico', 'estrategico', 'nota', 'diario', 'bonificacoes', 'melhorcarga', 'clientes', 'potenciais', 'critica'] as Aba[]).map((a) => (
           <button
             key={a}
             onClick={() => setAba(a)}
@@ -654,6 +656,8 @@ export function Fase3Dashboard() {
             />
           </div>
         </div>
+      ) : aba === 'diario' ? (
+        <RelatorioDiaTab />
       ) : aba === 'bonificacoes' ? (
         <BonificacoesTab />
       ) : aba === 'melhorcarga' ? (
