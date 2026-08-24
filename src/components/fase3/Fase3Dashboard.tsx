@@ -481,7 +481,7 @@ export function Fase3Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div>
+      <div className="print:hidden">
         <h1 className="text-xl font-semibold">Fase 3 — Venda de Madeira Tratada</h1>
         <p className="mt-1 text-sm text-slate-500">
           Perda de preço: valor por m³ realmente vendido comparado ao preço mínimo esperado (ICMS do
@@ -489,7 +489,7 @@ export function Fase3Dashboard() {
         </p>
       </div>
 
-      <div className="flex flex-wrap gap-2 border-b border-slate-200">
+      <div className="flex flex-wrap gap-2 border-b border-slate-200 print:hidden">
         {(['tatico', 'estrategico', 'nota', 'diario', 'bonificacoes', 'melhorcarga', 'clientes', 'potenciais', 'critica'] as Aba[]).map((a) => (
           <button
             key={a}

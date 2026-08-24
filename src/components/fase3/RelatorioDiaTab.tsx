@@ -159,7 +159,7 @@ export function RelatorioDiaTab() {
   const total = info?.totalGeral ?? null
 
   return (
-    <div className="space-y-4 print:space-y-3">
+    <div id="relatorio-d1-print-area" className="space-y-4 print:space-y-2">
       <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 print:hidden">
         <SingleDateInput label="Data" valueIso={data} onChange={setData} />
         <button
@@ -198,20 +198,20 @@ export function RelatorioDiaTab() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 print:grid-cols-4">
-            <div className="rounded-lg border border-slate-200 bg-white p-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 print:grid-cols-4 print:gap-1.5">
+            <div className="rounded-lg border border-slate-200 bg-white p-3 print:p-1.5">
               <p className="text-xs text-slate-500">Faturamento líquido</p>
               <p className="text-lg font-semibold">{fmtMoeda(total?.faturamentoLiquido ?? null)}</p>
             </div>
-            <div className="rounded-lg border border-slate-200 bg-white p-3">
+            <div className="rounded-lg border border-slate-200 bg-white p-3 print:p-1.5">
               <p className="text-xs text-slate-500">m³ vendido</p>
               <p className="text-lg font-semibold">{fmt(total?.m3Total ?? 0, 1)}</p>
             </div>
-            <div className="rounded-lg border border-slate-200 bg-white p-3">
+            <div className="rounded-lg border border-slate-200 bg-white p-3 print:p-1.5">
               <p className="text-xs text-slate-500">Notas fiscais (vendas)</p>
               <p className="text-lg font-semibold">{fmt(numeroNotas)}</p>
             </div>
-            <div className="rounded-lg border border-slate-200 bg-white p-3">
+            <div className="rounded-lg border border-slate-200 bg-white p-3 print:p-1.5">
               <p className="text-xs text-slate-500">R$/m³ vendido</p>
               <p className="text-lg font-semibold">{fmtMoeda(total?.valorM3Vendido ?? null)}</p>
               {total && pctMeta(total) != null && (
@@ -220,21 +220,21 @@ export function RelatorioDiaTab() {
                 </p>
               )}
             </div>
-            <div className="rounded-lg border border-slate-200 bg-white p-3">
+            <div className="rounded-lg border border-slate-200 bg-white p-3 print:p-1.5">
               <p className="text-xs text-slate-500">Meta de destino</p>
               <p className="text-lg font-semibold">{fmtMoeda(total?.precoPonderado ?? null)}</p>
             </div>
-            <div className="rounded-lg border border-slate-200 bg-white p-3">
+            <div className="rounded-lg border border-slate-200 bg-white p-3 print:p-1.5">
               <p className="text-xs text-slate-500">Perda estimada</p>
               <p className={`text-lg font-semibold ${total && total.perdaEstimada > 0 ? 'text-red-700' : ''}`}>
                 {total && total.perdaEstimada > 0 ? fmtMoeda(total.perdaEstimada) : '—'}
               </p>
             </div>
-            <div className="rounded-lg border border-slate-200 bg-white p-3">
+            <div className="rounded-lg border border-slate-200 bg-white p-3 print:p-1.5">
               <p className="text-xs text-slate-500">Bonificação</p>
               <p className="text-lg font-semibold">{fmt(total?.bonificacaoUnidades ?? 0)} un</p>
             </div>
-            <div className="rounded-lg border border-slate-200 bg-white p-3">
+            <div className="rounded-lg border border-slate-200 bg-white p-3 print:p-1.5">
               <p className="text-xs text-slate-500">Devolução</p>
               <p className="text-lg font-semibold">{fmtMoeda(total?.devolucoes ?? null)}</p>
             </div>

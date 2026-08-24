@@ -34,7 +34,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <div className="flex h-screen flex-col">
-      <header className="relative shrink-0 border-b border-slate-200 bg-white">
+      <header className="relative shrink-0 border-b border-slate-200 bg-white print:hidden">
         <div className="mx-auto flex max-w-none items-center justify-between gap-3 px-4 py-3">
           <div className="flex min-w-0 items-center gap-6">
             <Link href="/dashboard" className="shrink-0 text-lg font-semibold text-emerald-800">

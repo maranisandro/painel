@@ -24,3 +24,18 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/*
+ * Impressão — pedido do usuário 2026-08-24 ("o relatório impresso não
+ * ficou com layout bom, precisa melhorar para ficar na página"). Tabelas
+ * de vários painéis (Relatório D-1, Fase 1 Por Placa/Motorista) têm muitas
+ * colunas — A4 retrato corta conteúdo; paisagem com margem pequena dá bem
+ * mais espaço horizontal. Global (não só do Relatório D-1) porque qualquer
+ * tabela larga do sistema se beneficia da mesma orientação.
+ */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+}

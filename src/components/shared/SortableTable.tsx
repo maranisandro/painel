@@ -116,7 +116,7 @@ export function SortableTable<T>({
   }, [rows, columns, filtros, sortKey, sortDir])
 
   return (
-    <table className="w-full text-sm">
+    <table className="w-full text-sm print:text-xs">
       <thead className="bg-slate-50 text-left text-slate-600">
         <tr>
           {renderExpanded && <th className="w-8 px-3 py-2" />}
@@ -124,14 +124,15 @@ export function SortableTable<T>({
             <th
               key={c.key}
               onClick={() => toggleSort(c.key)}
-              className={`cursor-pointer select-none px-3 py-2 hover:bg-slate-100 ${wrapHeaders ? 'whitespace-normal leading-tight' : 'whitespace-nowrap'} ${c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : ''}`}
+              className={`cursor-pointer select-none px-3 py-2 hover:bg-slate-100 print:px-1.5 print:py-1 ${wrapHeaders ? 'whitespace-normal leading-tight' : 'whitespace-nowrap'} ${c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : ''}`}
               title="Clique para ordenar"
             >
               {c.label} {sortKey === c.key && (sortDir === 'asc' ? '▲' : '▼')}
             </th>
           ))}
         </tr>
-        <tr>
+        {/* Linha de filtro por coluna — inútil no papel (não é interativo) e só ocupa espaço/tinta; oculta na impressão. */}
+        <tr className="print:hidden">
           {renderExpanded && <th className="px-3 py-1" />}
           {columns.map((c) => (
             <th key={c.key} className="px-3 py-1 font-normal">
@@ -169,7 +170,7 @@ export function SortableTable<T>({
                   </td>
                 )}
                 {columns.map((c) => (
-                  <td key={c.key} className={`px-3 py-2 ${c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : ''}`}>
+                  <td key={c.key} className={`px-3 py-2 print:px-1.5 print:py-1 ${c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : ''}`}>
                     {c.render(r)}
                   </td>
                 ))}
