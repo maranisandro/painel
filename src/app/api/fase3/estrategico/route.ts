@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSessionUser, hasModuleAccess } from '@/lib/authz'
 import { getDatasetView } from '@/lib/semantic/dataset-view'
 import { prepararVendas, agregarVendas, DISTRIBUIDORES_CONHECIDOS } from '@/lib/fase3/faturamento'
-import { carregarMetaPeriodo, compararComCotas, carregarNomesClientes, calcularInsightDiametroMourao } from '@/lib/fase3/cotas'
+import {
+  carregarMetaPeriodo,
+  compararComCotas,
+  carregarNomesClientes,
+  calcularInsightDiametroMourao,
+  resolverConfigVendas,
+} from '@/lib/fase3/cotas'
 import { hojeBrasil } from '@/lib/horario-brasil'
 
 /** "ICMS 7%" -> 7, "ICMS 18%" -> 18 — para ordenar as tabelas por alíquota crescente em vez de alfabético (que colocaria "12%" antes de "7%"). */
@@ -62,7 +68,8 @@ export async function GET(req: NextRequest) {
     ),
   ].sort()
 
-  const linhasAno = prepararVendas(view, `${ano}-01-01`, `${ano}-12-31`)
+  const config = await resolverConfigVendas()
+  const linhasAno = prepararVendas(view, `${ano}-01-01`, `${ano}-12-31`, config)
   const categoriasDisponiveis = [...new Set(linhasAno.map((l) => l.tipoProduto))].sort()
   const porCategoria = agregarVendas(linhasAno, (l) => l.tipoProduto)
   // Filtro de Marca (AMARU x STANDARD) — mesmo princípio de categoriasDisponiveis/porCategoria: sempre sobre linhasAno, não filtrado pela própria marca.

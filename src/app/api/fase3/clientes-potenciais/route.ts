@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSessionUser, hasModuleAccess } from '@/lib/authz'
 import { getDatasetView } from '@/lib/semantic/dataset-view'
 import { prepararVendas, agregarVendas, analisarClientes } from '@/lib/fase3/faturamento'
+import { resolverConfigVendas } from '@/lib/fase3/cotas'
 import { prisma } from '@/lib/prisma'
 
 /**
@@ -31,10 +32,11 @@ export async function GET(req: NextRequest) {
       ? mesReferenciaParam
       : `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`
 
+  const config = await resolverConfigVendas()
   let linhasTodas: ReturnType<typeof prepararVendas> = []
   try {
     const view = await getDatasetView('fase3_vendas_madeira_tratada')
-    linhasTodas = prepararVendas(view, '2000-01-01', '2999-12-31')
+    linhasTodas = prepararVendas(view, '2000-01-01', '2999-12-31', config)
   } catch {
     linhasTodas = []
   }

@@ -15,7 +15,39 @@
 import { prisma } from '@/lib/prisma'
 import { getDatasetView } from '@/lib/semantic/dataset-view'
 import { hojeBrasil } from '@/lib/horario-brasil'
-import { VendaLinha, agregarVendas } from './faturamento'
+import { VendaLinha, agregarVendas, CONFIG_VENDAS_PADRAO, type ConfigVendas } from './faturamento'
+
+function paramList(all: { code: string; valueText: string | null }[], code: string, fallback: string[]): string[] {
+  const texto = all.find((p) => p.code === code)?.valueText
+  if (!texto || !texto.trim()) return fallback
+  return texto
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean)
+}
+
+/**
+ * Resolve o `ConfigVendas` (CODTMV de venda/bonificação/devolução, produtos
+ * fora do m³) a partir dos Parameters cadastrados em Cadastros → Parâmetros
+ * — pedido do usuário 2026-08-21 ("motor de fórmulas editável"). Compartilhado
+ * por TODAS as rotas que chamam `prepararVendas` (data, estratégico,
+ * clientes, bonificações, melhor carga, crítica, clientes potenciais), pra
+ * uma edição no cadastro valer pro painel inteiro, não só numa aba. Sem
+ * parâmetro cadastrado, cai no fallback hardcoded (`CONFIG_VENDAS_PADRAO`) —
+ * comportamento idêntico ao de antes desta configuração existir.
+ */
+export async function resolverConfigVendas(): Promise<ConfigVendas> {
+  const rows = await prisma.parameter.findMany({
+    where: { code: { in: ['CODTMV_VENDA', 'CODTMV_BONIFICACAO', 'CODTMV_DEVOLUCAO', 'PRODUTOS_FORA_DO_M3'] } },
+    select: { code: true, valueText: true },
+  })
+  return {
+    codtmvVenda: new Set(paramList(rows, 'CODTMV_VENDA', [...CONFIG_VENDAS_PADRAO.codtmvVenda])),
+    codtmvBonificacao: paramList(rows, 'CODTMV_BONIFICACAO', [CONFIG_VENDAS_PADRAO.codtmvBonificacao])[0] ?? CONFIG_VENDAS_PADRAO.codtmvBonificacao,
+    codtmvDevolucao: new Set(paramList(rows, 'CODTMV_DEVOLUCAO', [...CONFIG_VENDAS_PADRAO.codtmvDevolucao])),
+    produtosForaDoM3: new Set(paramList(rows, 'PRODUTOS_FORA_DO_M3', [...CONFIG_VENDAS_PADRAO.produtosForaDoM3])),
+  }
+}
 
 /**
  * CODCFO (cadastro de clientes, dataset `fase3_clientes`) → nome do cliente.

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSessionUser, hasModuleAccess } from '@/lib/authz'
 import { getDatasetView } from '@/lib/semantic/dataset-view'
 import { prepararVendas, bonificacoesSemTabela4 } from '@/lib/fase3/faturamento'
+import { resolverConfigVendas } from '@/lib/fase3/cotas'
 
 function monthStart(): string {
   const d = new Date()
@@ -28,10 +29,11 @@ export async function GET(req: NextRequest) {
   const from = req.nextUrl.searchParams.get('from') || monthStart()
   const to = req.nextUrl.searchParams.get('to') || todayStr()
 
+  const config = await resolverConfigVendas()
   let linhasPeriodo: ReturnType<typeof prepararVendas> = []
   try {
     const view = await getDatasetView('fase3_vendas_madeira_tratada')
-    linhasPeriodo = prepararVendas(view, from, to)
+    linhasPeriodo = prepararVendas(view, from, to, config)
   } catch {
     linhasPeriodo = []
   }

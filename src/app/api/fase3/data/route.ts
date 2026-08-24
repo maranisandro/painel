@@ -11,7 +11,13 @@ import {
   calcularBonificacaoDoMes,
   DISTRIBUIDORES_CONHECIDOS,
 } from '@/lib/fase3/faturamento'
-import { carregarMetaPeriodo, compararComCotas, carregarNomesClientes, calcularInsightDiametroMourao } from '@/lib/fase3/cotas'
+import {
+  carregarMetaPeriodo,
+  compararComCotas,
+  carregarNomesClientes,
+  calcularInsightDiametroMourao,
+  resolverConfigVendas,
+} from '@/lib/fase3/cotas'
 import { hojeBrasil, corteOficial } from '@/lib/horario-brasil'
 import { resolveParameter, calendarVarsFor } from '@/lib/semantic/parameters'
 
@@ -89,7 +95,14 @@ export async function GET(req: NextRequest) {
   } catch {
     view = [] // dataset ainda não sincronizado
   }
-  const linhasPeriodoTodosMovimentos = prepararVendas(view, from, toOficial)
+
+  // Conjuntos de CODTMV/produtos configuráveis via Cadastros → Parâmetros
+  // (pedido do usuário 2026-08-21: "motor de fórmulas editável") — buscado
+  // aqui, ANTES de `prepararVendas`, porque tanto o período quanto o
+  // acompanhamento de "hoje" abaixo precisam do mesmo `config`.
+  const config = await resolverConfigVendas()
+
+  const linhasPeriodoTodosMovimentos = prepararVendas(view, from, toOficial, config)
   const linhasPeriodo = tipoMovimentoSelecionado
     ? linhasPeriodoTodosMovimentos.filter((l) => tipoMovimentoSelecionado.includes(l.tipoMovimento))
     : linhasPeriodoTodosMovimentos
@@ -99,7 +112,7 @@ export async function GET(req: NextRequest) {
   // visível aqui para quem quer saber "o que já vendemos hoje" sem esperar
   // o corte liberar.
   const hojeStr = hojeBrasil()
-  const linhasHojeTodosMovimentos = to >= hojeStr ? prepararVendas(view, hojeStr, hojeStr) : []
+  const linhasHojeTodosMovimentos = to >= hojeStr ? prepararVendas(view, hojeStr, hojeStr, config) : []
   const linhasHoje = tipoMovimentoSelecionado
     ? linhasHojeTodosMovimentos.filter((l) => tipoMovimentoSelecionado.includes(l.tipoMovimento))
     : linhasHojeTodosMovimentos

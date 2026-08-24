@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { SortableTable, type SortableColumn } from '@/components/shared/SortableTable'
 
 interface Parameter {
   id: string
@@ -92,6 +93,40 @@ export default function ParametrosPage() {
     load()
   }
 
+  const columns: SortableColumn<Parameter>[] = [
+    { key: 'code', label: 'Código', sortValue: (p) => p.code, render: (p) => <span className="font-mono text-xs">{p.code}</span> },
+    { key: 'name', label: 'Nome', sortValue: (p) => p.name, render: (p) => p.name },
+    {
+      key: 'valueNumber',
+      label: 'Valor',
+      align: 'right',
+      sortValue: (p) => (p.valueNumber ? Number(p.valueNumber) : 0),
+      render: (p) => (p.valueNumber ? Number(p.valueNumber).toLocaleString('pt-BR') : '—'),
+    },
+    {
+      key: 'valueText',
+      label: 'Valor texto',
+      sortValue: (p) => p.valueText ?? '',
+      render: (p) => <span className="font-mono text-xs">{p.valueText ?? '—'}</span>,
+    },
+    { key: 'formula', label: 'Fórmula', sortValue: (p) => p.formula ?? '', render: (p) => <span className="font-mono text-xs">{p.formula ?? '—'}</span> },
+    {
+      key: 'acoes',
+      label: '',
+      sortValue: () => 0,
+      render: (p) => (
+        <span className="whitespace-nowrap">
+          <button onClick={() => startEdit(p)} className="text-emerald-700 hover:underline">
+            Editar
+          </button>
+          <button onClick={() => remove(p.id)} className="ml-3 text-red-600 hover:underline">
+            Excluir
+          </button>
+        </span>
+      ),
+    },
+  ]
+
   return (
     <div className="space-y-6">
       <div>
@@ -145,6 +180,17 @@ export default function ParametrosPage() {
             />
           </div>
           <div className="col-span-2 lg:col-span-5">
+            <label className="block text-xs font-medium text-slate-600">
+              Valor texto (lista separada por vírgula, quando o parâmetro não é um número — ex.: códigos CODTMV, produtos)
+            </label>
+            <input
+              value={form.valueText}
+              onChange={(e) => setForm({ ...form, valueText: e.target.value })}
+              placeholder="2.2.40,2.2.41"
+              className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 font-mono text-sm"
+            />
+          </div>
+          <div className="col-span-2 lg:col-span-5">
             <label className="block text-xs font-medium text-slate-600">Descrição</label>
             <input
               value={form.description}
@@ -187,37 +233,14 @@ export default function ParametrosPage() {
             className="w-72 rounded-md border border-slate-300 px-2 py-1 text-sm"
           />
         </div>
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-slate-600">
-            <tr>
-              <th className="px-3 py-2">Código</th>
-              <th className="px-3 py-2">Nome</th>
-              <th className="px-3 py-2 text-right">Valor</th>
-              <th className="px-3 py-2">Fórmula</th>
-              <th className="px-3 py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredParameters.map((p) => (
-              <tr key={p.id} className="border-t border-slate-100">
-                <td className="px-3 py-2 font-mono text-xs">{p.code}</td>
-                <td className="px-3 py-2">{p.name}</td>
-                <td className="px-3 py-2 text-right">
-                  {p.valueNumber ? Number(p.valueNumber).toLocaleString('pt-BR') : '—'}
-                </td>
-                <td className="px-3 py-2 font-mono text-xs">{p.formula ?? '—'}</td>
-                <td className="px-3 py-2 text-right whitespace-nowrap">
-                  <button onClick={() => startEdit(p)} className="text-emerald-700 hover:underline">
-                    Editar
-                  </button>
-                  <button onClick={() => remove(p.id)} className="ml-3 text-red-600 hover:underline">
-                    Excluir
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <SortableTable
+          columns={columns}
+          rows={filteredParameters}
+          rowKey={(p) => p.id}
+          defaultSortKey="code"
+          defaultSortDir="asc"
+          emptyMessage="Nenhum parâmetro cadastrado."
+        />
       </div>
     </div>
   )

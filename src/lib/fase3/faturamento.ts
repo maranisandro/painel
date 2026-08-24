@@ -28,7 +28,19 @@ type Row = Record<string, unknown>
 // Serragem também, por engano). Sem impacto prático até agora porque
 // Serragem tem M3_TOTAL=0 nos dados reais (TPRDCOMPL.M3 sem fator de
 // conversão cadastrado), mas o critério certo é este.
-const PRODUTOS_FORA_DO_M3 = new Set(['Lenha', 'Lenha UTM'])
+//
+// Valor padrão — pedido do usuário 2026-08-21 ("motor de fórmulas
+// editável"): este e os 3 conjuntos de CODTMV abaixo passaram a ser
+// configuráveis via Cadastros → Parâmetros (campo "Valor texto", lista
+// separada por vírgula — códigos CODTMV_PRODUTOS_FORA_DO_M3/CODTMV_VENDA/
+// CODTMV_BONIFICACAO/CODTMV_DEVOLUCAO). O valor abaixo é só o FALLBACK
+// usado quando o parâmetro ainda não foi cadastrado — quem chama
+// `prepararVendas` (rota /api/fase3/data) resolve o Parameter e passa o
+// conjunto real via `config`. Não expostos como fórmula aritmética (o
+// motor de parâmetros existente só faz +-*/ entre números) porque isto é
+// filtro de conjunto/string, não conta — daí o campo `valueText` em vez de
+// `formula`.
+const PRODUTOS_FORA_DO_M3_PADRAO = new Set(['Lenha', 'Lenha UTM'])
 
 function num(v: unknown): number {
   const n = Number(v)
@@ -146,22 +158,37 @@ function classeDiametro(produto: string): string | null {
 // movimento fora do escopo do faturamento (amostra, transferência, consumo
 // interno etc.); ficam de fora de TODO o painel, não só do Faturamento
 // Bruto (pedido do usuário: "excluir de tudo").
-const CODTMV_VENDA = new Set(['2.2.40', '2.2.41'])
-const CODTMV_BONIFICACAO = '2.2.48'
-const CODTMV_DEVOLUCAO = new Set(['1.2.83', '1.2.84'])
+const CODTMV_VENDA_PADRAO = new Set(['2.2.40', '2.2.41'])
+const CODTMV_BONIFICACAO_PADRAO = '2.2.48'
+const CODTMV_DEVOLUCAO_PADRAO = new Set(['1.2.83', '1.2.84'])
+
+/** Conjuntos configuráveis de `prepararVendas` — ver comentário de `PRODUTOS_FORA_DO_M3_PADRAO` acima. */
+export interface ConfigVendas {
+  codtmvVenda: Set<string>
+  codtmvBonificacao: string
+  codtmvDevolucao: Set<string>
+  produtosForaDoM3: Set<string>
+}
+
+export const CONFIG_VENDAS_PADRAO: ConfigVendas = {
+  codtmvVenda: CODTMV_VENDA_PADRAO,
+  codtmvBonificacao: CODTMV_BONIFICACAO_PADRAO,
+  codtmvDevolucao: CODTMV_DEVOLUCAO_PADRAO,
+  produtosForaDoM3: PRODUTOS_FORA_DO_M3_PADRAO,
+}
 
 /** Filtra ao período (por DATASAIDA) e calcula os campos derivados de cada linha de venda. */
-export function prepararVendas(rows: Row[], from: string, to: string): VendaLinha[] {
+export function prepararVendas(rows: Row[], from: string, to: string, config: ConfigVendas = CONFIG_VENDAS_PADRAO): VendaLinha[] {
   const out: VendaLinha[] = []
   for (const r of rows) {
     const data = String(r.DATASAIDA ?? '').slice(0, 10)
     if (!data || data < from || data > to) continue
 
     const codtmv = String(r.CODTMV ?? '')
-    if (!CODTMV_VENDA.has(codtmv) && codtmv !== CODTMV_BONIFICACAO && !CODTMV_DEVOLUCAO.has(codtmv)) continue
+    if (!config.codtmvVenda.has(codtmv) && codtmv !== config.codtmvBonificacao && !config.codtmvDevolucao.has(codtmv)) continue
     const distribuidor = String(r.ABREV_DISTRIBUIDOR ?? 'SEM DISTRIBUIDOR')
     const tipoMovimentoBruto: TipoMovimento =
-      CODTMV_DEVOLUCAO.has(codtmv) ? 'Devolucoes' : codtmv === CODTMV_BONIFICACAO ? 'Bonificacoes' : 'Vendas'
+      config.codtmvDevolucao.has(codtmv) ? 'Devolucoes' : codtmv === config.codtmvBonificacao ? 'Bonificacoes' : 'Vendas'
     // Corrigido 2026-08-05 (pedido do usuário): o conceito de bonificação é
     // O MESMO para todos os distribuidores, sem exceção — CODTMV=2.2.48
     // sempre conta como Bonificacoes, mesmo para Planep. A regra de negócio
@@ -206,7 +233,7 @@ export function prepararVendas(rows: Row[], from: string, to: string): VendaLinh
       placa: String(r.PLACA ?? '').trim(),
       idMov: String(r.IDMOV ?? ''),
       numeroMov: String(r.NUMEROMOV ?? '').trim(),
-      contaM3: !PRODUTOS_FORA_DO_M3.has(tipoProduto),
+      contaM3: !config.produtosForaDoM3.has(tipoProduto),
       m3Total,
       m3Minimo,
       m3PesoMinimo: m3Total * m3Minimo,
