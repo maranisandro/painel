@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { SortableTable, type SortableColumn } from '@/components/shared/SortableTable'
-import { fmtDateBR } from '@/components/shared/DateRangeInputs'
+import { fmtDateBR, SingleDateInput } from '@/components/shared/DateRangeInputs'
 import { hojeBrasil, diaAnteriorStr } from '@/lib/horario-brasil'
 import { CategoriaFiltro } from './CategoriaFiltro'
 
@@ -147,15 +147,7 @@ export function RelatorioDiaTab() {
   return (
     <div className="space-y-4 print:space-y-3">
       <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 print:hidden">
-        <div>
-          <label className="block text-xs text-slate-500">Data</label>
-          <input
-            type="date"
-            value={data}
-            onChange={(e) => setData(e.target.value)}
-            className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-          />
-        </div>
+        <SingleDateInput label="Data" valueIso={data} onChange={setData} />
         <button
           type="button"
           onClick={() => setData(diaAnteriorStr(hojeBrasil()))}

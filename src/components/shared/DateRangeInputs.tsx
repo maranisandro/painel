@@ -128,6 +128,57 @@ export function MiniCalendarButton({
   )
 }
 
+/**
+ * Um único campo de data com máscara dd/mm/aaaa + calendário — mesma ideia
+ * de `DateRangeInputs`, só que pra telas com uma data só (ex.: Relatório
+ * D-1), em vez do par De/Até. Pedido do usuário 2026-08-24: o Relatório D-1
+ * usava `<input type="date">` nativo, que segue o locale do navegador/SO em
+ * vez do padrão dd/mm/aaaa do resto do painel Fase3 — mesmo motivo já
+ * documentado acima para o De/Até.
+ */
+export function SingleDateInput({
+  label,
+  valueIso,
+  onChange,
+}: {
+  label: string
+  valueIso: string
+  onChange: (iso: string) => void
+}) {
+  const [text, setText] = useState(fmtDateBR(valueIso))
+
+  useEffect(() => setText(fmtDateBR(valueIso)), [valueIso])
+
+  return (
+    <div className="flex items-end gap-1">
+      <div>
+        <label className="block text-xs font-medium text-slate-600">{label}</label>
+        <input
+          type="text"
+          inputMode="numeric"
+          value={text}
+          onChange={(e) => {
+            const formatted = formatBRInput(e.target.value)
+            setText(formatted)
+            const iso = parseBRToIso(formatted)
+            if (iso) onChange(iso)
+          }}
+          placeholder="dd/mm/aaaa"
+          maxLength={10}
+          className="mt-1 w-28 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+        />
+      </div>
+      <MiniCalendarButton
+        valueIso={valueIso}
+        onSelect={(iso) => {
+          onChange(iso)
+          setText(fmtDateBR(iso))
+        }}
+      />
+    </div>
+  )
+}
+
 /** Par De/Até com máscara dd/mm/aaaa + calendário — ver MiniCalendarButton acima. */
 export function DateRangeInputs({
   from,
