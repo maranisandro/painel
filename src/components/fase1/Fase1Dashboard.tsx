@@ -2893,7 +2893,13 @@ function FragmentRow({
   referenceNow: number
   onJustificar: (tripKey: string, motivo: string, novaPrevisao: string | null) => Promise<boolean>
   /** Valor exibido na coluna "Consumo (km/l)" da linha — placa (ConsumoPlaca) ou motorista (ConsumoMotorista, atribuído pela data da nota); bug 2026-07-30: a linha usava só `consumo`, que nunca vem preenchido na aba Por Motorista */
-  consumoDisplay?: { kmPorLitro: number | null; temAlerta: boolean }
+  consumoDisplay?: {
+    kmPorLitro: number | null
+    temAlerta: boolean
+    /** pedido do usuário 2026-08-21: "fallback de último abastecimento por motorista" — mesmo indicador que ConsumoPlaca já tinha, agora também em ConsumoMotorista */
+    kmPorLitroEstimado?: boolean
+    kmPorLitroReferenciaEm?: string | null
+  }
   metaConsumoKmL: number
   /** Abre o modal de detalhamento completo (compartilhado com a aba Combustível) */
   onDetalhar: () => void
@@ -2977,6 +2983,14 @@ function FragmentRow({
             <span className={consumoDisplay.kmPorLitro >= metaConsumoKmL ? 'text-emerald-700' : 'text-red-600'}>
               {fmt(consumoDisplay.kmPorLitro, 2)}
               {consumoDisplay.temAlerta && ' ⚠️'}
+              {consumoDisplay.kmPorLitroEstimado && (
+                <sup
+                  className="ml-0.5 font-medium text-amber-700"
+                  title={`Estimado — sem abastecimento válido no período; último conhecido${consumoDisplay.kmPorLitroReferenciaEm ? ` em ${fmtDateBR(consumoDisplay.kmPorLitroReferenciaEm.slice(0, 10))}` : ''}`}
+                >
+                  est.
+                </sup>
+              )}
             </span>
           ) : (
             <span className="text-slate-400">—</span>

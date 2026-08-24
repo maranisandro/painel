@@ -146,6 +146,17 @@ export interface ConsumoPlaca {
   /** 0-100: % dos intervalos de diesel do período que vieram com alerta */
   scoreAnormalidade: number
   nivelAnormalidade: NivelAnormalidade
+  /**
+   * TODOS os intervalos de diesel válidos desta placa em todo o histórico até
+   * `to` (não só o período, não só o recorte exibido em `detalhe`) — base do
+   * fallback "último abastecimento conhecido" por MOTORISTA (pedido do
+   * usuário 2026-08-21), mesma ideia de `ultimoValido` internamente, mas
+   * exposta por completo porque o fallback por motorista precisa cruzar cada
+   * ponto com a timeline de vigência da placa (`agruparConsumoPorMotorista`),
+   * não só o último ponto desta placa especificamente — um motorista pode ter
+   * dirigido outra placa mais recentemente.
+   */
+  intervalosValidosHistorico: { data: string; kmPorLitro: number }[]
 }
 
 const KM_INTERVALO_MAX = 5000 // descarta saltos de hodômetro implausíveis (reset/troca de painel)
@@ -326,6 +337,7 @@ export function calcularConsumo(
     // período não tem nenhum intervalo válido próprio (pedido do usuário
     // 2026-08-05, ver `kmPorLitroEstimado` na interface).
     let ultimoValido: { data: string; kmPorLitro: number } | null = null
+    const intervalosValidosHistorico: { data: string; kmPorLitro: number }[] = []
     for (let i = 0; i < merged.length; i++) {
       const atual = merged[i]
       const noPeriodo = atual.dia >= from && atual.dia <= to
@@ -351,6 +363,7 @@ export function calcularConsumo(
           kmDesdeAnterior = delta
           kmPorLitroIntervalo = delta / atual.litrosDiesel
           ultimoValido = { data: atual.data, kmPorLitro: kmPorLitroIntervalo }
+          intervalosValidosHistorico.push(ultimoValido)
           kmRodadoHistorico += delta
           if (noPeriodo) {
             kmRodado += delta
@@ -495,6 +508,7 @@ export function calcularConsumo(
       totalIntervalos,
       scoreAnormalidade: score,
       nivelAnormalidade: nivel,
+      intervalosValidosHistorico,
     })
   }
   return out.sort((a, b) => b.scoreAnormalidade - a.scoreAnormalidade || (a.kmPorLitro ?? Infinity) - (b.kmPorLitro ?? Infinity))
@@ -536,6 +550,22 @@ export interface ConsumoMotorista {
   totalIntervalos: number
   scoreAnormalidade: number
   nivelAnormalidade: NivelAnormalidade
+  /**
+   * true = `kmPorLitro` não veio de nenhum abastecimento atribuível a este
+   * motorista DENTRO do período — é o último km/l válido encontrado no
+   * histórico completo do motorista (em qualquer placa que ele tenha
+   * dirigido), igual ao fallback que `ConsumoPlaca.kmPorLitroEstimado` já
+   * fazia por placa. Pedido do usuário 2026-08-21: "fallback de último
+   * abastecimento por motorista" — hoje, sem abastecimento atribuível no
+   * período (motorista novo, troca de caminhão no meio do período), o km/l
+   * simplesmente ficava em branco em vez de mostrar a última referência
+   * conhecida do próprio motorista.
+   */
+  kmPorLitroEstimado: boolean
+  /** data do abastecimento (em qualquer placa) que originou o km/l estimado — null quando kmPorLitroEstimado=false */
+  kmPorLitroReferenciaEm: string | null
+  /** placa em que ocorreu o abastecimento de referência do fallback — null quando kmPorLitroEstimado=false */
+  kmPorLitroReferenciaPlaca: string | null
 }
 
 /**
@@ -555,9 +585,41 @@ export function agruparConsumoPorMotorista(
     string,
     { kmRodado: number; litrosConsiderados: number; abastecimentos: number; alertasCount: number; totalIntervalos: number }
   >()
+  // Último intervalo válido de TODO o histórico (qualquer placa que o
+  // motorista tenha dirigido, não só a do período) — base do fallback
+  // "último abastecimento conhecido" quando o motorista não tem nenhum
+  // abastecimento atribuível no período (ver `kmPorLitroEstimado` na
+  // interface). Mesma ideia do `ultimoValido` de `calcularConsumo`, só que
+  // por motorista em vez de por placa.
+  const ultimoValidoPorMotorista = new Map<string, { data: string; kmPorLitro: number; placa: string }>()
+
+  function motoristaEm(timeline: { data: string; motorista: string }[], data: string): string | null {
+    // último registro da timeline com data ≤ abastecimento
+    let motorista: string | null = null
+    for (const t of timeline) {
+      if (t.data <= data) motorista = t.motorista
+      else break
+    }
+    return motorista
+  }
+
   for (const c of consumoPlacas) {
     const timeline = timelinePorPlaca.get(c.placa)
     if (!timeline || timeline.length === 0) continue
+
+    // Base do fallback — percorre TODO o histórico de intervalos válidos
+    // desta placa (não só o período), atribuindo cada um ao motorista que
+    // estava de posse do caminhão naquela data, e guarda sempre o mais
+    // recente por motorista.
+    for (const v of c.intervalosValidosHistorico) {
+      const motorista = motoristaEm(timeline, v.data)
+      if (!motorista) continue
+      const atual = ultimoValidoPorMotorista.get(motorista)
+      if (!atual || v.data > atual.data) {
+        ultimoValidoPorMotorista.set(motorista, { data: v.data, kmPorLitro: v.kmPorLitro, placa: c.placa })
+      }
+    }
+
     for (const d of c.detalhe) {
       if (!d.noPeriodo) continue
       // Paradas só de Arla/lubrificante (sem diesel, sem intervalo tentado)
@@ -567,12 +629,7 @@ export function agruparConsumoPorMotorista(
       // com um hodômetro travado/retrocedido).
       const intervaloTentado = d.kmDesdeAnterior !== null || d.alerta !== null
       if (!intervaloTentado) continue
-      // último registro da timeline com data ≤ abastecimento
-      let motorista: string | null = null
-      for (const t of timeline) {
-        if (t.data <= d.data) motorista = t.motorista
-        else break
-      }
+      const motorista = motoristaEm(timeline, d.data)
       if (!motorista) continue // abastecimento é anterior à 1ª nota conhecida da placa
       const entry =
         acc.get(motorista) ?? { kmRodado: 0, litrosConsiderados: 0, abastecimentos: 0, alertasCount: 0, totalIntervalos: 0 }
@@ -587,20 +644,35 @@ export function agruparConsumoPorMotorista(
       acc.set(motorista, entry)
     }
   }
-  return [...acc.entries()]
-    .map(([motorista, e]) => {
+
+  // Um motorista pode ter fallback (ultimoValidoPorMotorista) sem ter
+  // nenhuma entrada em `acc` — ex.: trocou de caminhão no meio do período e
+  // não abasteceu nenhuma vez com o novo. Sem isso ele nem apareceria na
+  // lista, em vez de aparecer com o km/l estimado do caminhão anterior.
+  const motoristas = new Set([...acc.keys(), ...ultimoValidoPorMotorista.keys()])
+
+  return [...motoristas]
+    .map((motorista) => {
+      const e = acc.get(motorista) ?? { kmRodado: 0, litrosConsiderados: 0, abastecimentos: 0, alertasCount: 0, totalIntervalos: 0 }
       const { score, nivel } = classificarAnormalidade(e.alertasCount, e.totalIntervalos)
+      const kmPorLitroPeriodo = e.litrosConsiderados > 0 ? e.kmRodado / e.litrosConsiderados : null
+      const fallback = ultimoValidoPorMotorista.get(motorista) ?? null
+      const kmPorLitro = kmPorLitroPeriodo ?? fallback?.kmPorLitro ?? null
+      const kmPorLitroEstimado = kmPorLitroPeriodo === null && fallback !== null
       return {
         motorista,
         kmRodado: e.kmRodado,
         litrosConsiderados: e.litrosConsiderados,
-        kmPorLitro: e.litrosConsiderados > 0 ? e.kmRodado / e.litrosConsiderados : null,
+        kmPorLitro,
         abastecimentos: e.abastecimentos,
         temAlerta: e.alertasCount > 0,
         alertasCount: e.alertasCount,
         totalIntervalos: e.totalIntervalos,
         scoreAnormalidade: score,
         nivelAnormalidade: nivel,
+        kmPorLitroEstimado,
+        kmPorLitroReferenciaEm: kmPorLitroEstimado ? fallback?.data ?? null : null,
+        kmPorLitroReferenciaPlaca: kmPorLitroEstimado ? fallback?.placa ?? null : null,
       }
     })
     .sort((a, b) => b.scoreAnormalidade - a.scoreAnormalidade || (a.kmPorLitro ?? Infinity) - (b.kmPorLitro ?? Infinity))
