@@ -33,6 +33,7 @@ export function SortableTable<T>({
   rowTitle,
   autoExpandKeys,
   renderFooter,
+  wrapHeaders,
 }: {
   columns: SortableColumn<T>[]
   rows: T[]
@@ -62,6 +63,16 @@ export function SortableTable<T>({
    * visível na tela, não a lista original completa.
    */
   renderFooter?: (rows: T[]) => ReactNode
+  /**
+   * Deixa o rótulo do cabeçalho quebrar em até 2 linhas em vez de forçar
+   * uma única linha — pedido do usuário 2026-08-24 (tabela "Por Nota
+   * Fiscal"): com muitas colunas de rótulo longo ("Faturamento Bruto Preço
+   * Base" etc.) cada coluna ficava larga o bastante pra empurrar a tabela
+   * inteira. Sem `whitespace-nowrap`, a coluna encolhe até a largura do
+   * conteúdo do corpo (números curtos) e o rótulo quebra em 2 linhas por
+   * cima, em vez de forçar 1 linha só.
+   */
+  wrapHeaders?: boolean
 }) {
   const [sortKey, setSortKey] = useState(defaultSortKey ?? columns[0]?.key)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(defaultSortDir)
@@ -113,7 +124,7 @@ export function SortableTable<T>({
             <th
               key={c.key}
               onClick={() => toggleSort(c.key)}
-              className={`cursor-pointer select-none whitespace-nowrap px-3 py-2 hover:bg-slate-100 ${c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : ''}`}
+              className={`cursor-pointer select-none px-3 py-2 hover:bg-slate-100 ${wrapHeaders ? 'whitespace-normal leading-tight' : 'whitespace-nowrap'} ${c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : ''}`}
               title="Clique para ordenar"
             >
               {c.label} {sortKey === c.key && (sortDir === 'asc' ? '▲' : '▼')}

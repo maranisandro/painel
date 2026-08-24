@@ -587,6 +587,7 @@ export function Fase3Dashboard() {
               rowKey={(n) => n.numeroMov}
               defaultSortKey="data"
               autoExpandKeys={notaFiscalFoco ? [notaFiscalFoco] : []}
+              wrapHeaders
               emptyMessage={
                 notaFiscalFoco
                   ? `NF ${notaFiscalFoco} não está no período selecionado.`
