@@ -378,7 +378,7 @@ export function MapaFrota({ locations, positions, selectedPlaca, focusCoord }: M
           para vê-los aqui.
         </div>
       )}
-      <div ref={mapRef} className="h-[600px] w-full rounded-xl border border-slate-200" />
+      <div ref={mapRef} className="h-[350px] w-full rounded-xl border border-slate-200 sm:h-[450px] lg:h-[600px]" />
     </div>
   )
 }

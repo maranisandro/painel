@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { getSessionUser, isAdmin, canEditModule, hasModuleAccess } from '@/lib/authz'
 import { LogoutButton } from '@/components/LogoutButton'
+import { MobileNav, type NavLink } from '@/components/dashboard/MobileNav'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const user = await getSessionUser()
@@ -20,41 +21,29 @@ export default async function DashboardLayout({ children }: { children: React.Re
   // própria visibilidade por AdminResource.
   const canSeeCadastros = admin || user.resourceCodes.length > 0 || canEditModule(user, 'fase3')
 
+  const links: NavLink[] = [
+    { href: '/dashboard', label: 'Início' },
+    ...(canSeeFase1 ? [{ href: '/dashboard/fase1', label: 'Transporte Rodoviário' }] : []),
+    ...(canSeeFase1 ? [{ href: '/dashboard/fase1/mapa', label: 'Rastreamento' }] : []),
+    ...(canSeeFase3 ? [{ href: '/dashboard/fase3', label: 'Venda Madeira Tratada' }] : []),
+    ...(canSeeFase5 ? [{ href: '/dashboard/fase5', label: 'Transporte de Madeira' }] : []),
+    ...(canSeeRh ? [{ href: '/dashboard/rh', label: 'Recursos Humanos' }] : []),
+    ...(admin ? [{ href: '/dashboard/datasets', label: 'Fontes de Dados' }] : []),
+    ...(canSeeCadastros ? [{ href: '/dashboard/admin', label: 'Cadastros' }] : []),
+  ]
+
   return (
     <div className="flex h-screen flex-col">
-      <header className="shrink-0 border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-none items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-6">
-            <Link href="/dashboard" className="text-lg font-semibold text-emerald-800">
+      <header className="relative shrink-0 border-b border-slate-200 bg-white">
+        <div className="mx-auto flex max-w-none items-center justify-between gap-3 px-4 py-3">
+          <div className="flex min-w-0 items-center gap-6">
+            <Link href="/dashboard" className="shrink-0 text-lg font-semibold text-emerald-800">
               Painel de Informações
             </Link>
-            <nav className="flex gap-4 text-sm text-slate-600">
-              <Link href="/dashboard" className="hover:text-emerald-700">Início</Link>
-              {canSeeFase1 && (
-                <Link href="/dashboard/fase1" className="hover:text-emerald-700">Transporte Rodoviário</Link>
-              )}
-              {canSeeFase1 && (
-                <Link href="/dashboard/fase1/mapa" className="hover:text-emerald-700">Rastreamento</Link>
-              )}
-              {canSeeFase3 && (
-                <Link href="/dashboard/fase3" className="hover:text-emerald-700">Venda Madeira Tratada</Link>
-              )}
-              {canSeeFase5 && (
-                <Link href="/dashboard/fase5" className="hover:text-emerald-700">Transporte de Madeira</Link>
-              )}
-              {canSeeRh && (
-                <Link href="/dashboard/rh" className="hover:text-emerald-700">Recursos Humanos</Link>
-              )}
-              {admin && (
-                <Link href="/dashboard/datasets" className="hover:text-emerald-700">Fontes de Dados</Link>
-              )}
-              {canSeeCadastros && (
-                <Link href="/dashboard/admin" className="hover:text-emerald-700">Cadastros</Link>
-              )}
-            </nav>
+            <MobileNav links={links} />
           </div>
-          <div className="flex items-center gap-3 text-sm text-slate-600">
-            <span>{user.name}</span>
+          <div className="flex shrink-0 items-center gap-3 text-sm text-slate-600">
+            <span className="hidden sm:inline">{user.name}</span>
             <LogoutButton />
           </div>
         </div>

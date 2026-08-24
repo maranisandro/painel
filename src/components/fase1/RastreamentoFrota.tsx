@@ -743,7 +743,7 @@ export function RastreamentoFrota({
         </details>
       )}
 
-      <div className="mb-4 flex gap-1 border-b border-slate-200">
+      <div className="mb-4 flex flex-wrap gap-1 border-b border-slate-200">
         {(['mapa', 'lista', 'permanencia', 'pernoite', 'noite-rodando', 'sem-comunicacao', 'omnilink-erros'] as const).map((t) => (
           <button
             key={t}
