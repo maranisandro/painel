@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { SortableTable, type SortableColumn } from '@/components/shared/SortableTable'
 import { fmtDateBR } from '@/components/shared/DateRangeInputs'
 import { hojeBrasil, diaAnteriorStr } from '@/lib/horario-brasil'
+import { CategoriaFiltro } from './CategoriaFiltro'
 
 interface VendaAgregada {
   chave: string
@@ -37,6 +38,7 @@ interface NotaFiscalResumo extends VendaAgregada {
 interface RelatorioDiaData {
   period: { from: string; to: string; toSolicitado: string }
   totalGeral: (VendaAgregada & { bonificacaoDoMes: number }) | null
+  categoriasDisponiveis: string[]
   porCategoria: VendaAgregada[]
   porDistribuidor: VendaAgregada[]
   porCliente: VendaAgregada[]
@@ -126,16 +128,18 @@ function TabelaResumo({ titulo, rows, rotuloChave }: { titulo: string; rows: Ven
  */
 export function RelatorioDiaTab() {
   const [data, setData] = useState(() => diaAnteriorStr(hojeBrasil()))
+  const [categorias, setCategorias] = useState<string[]>([])
   const [info, setInfo] = useState<RelatorioDiaData | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     setLoading(true)
-    fetch(`/api/fase3/data?from=${data}&to=${data}`)
+    const categoriasParam = categorias.length ? `&categorias=${encodeURIComponent(categorias.join(','))}` : ''
+    fetch(`/api/fase3/data?from=${data}&to=${data}${categoriasParam}`)
       .then((r) => r.json())
       .then(setInfo)
       .finally(() => setLoading(false))
-  }, [data])
+  }, [data, categorias])
 
   const numeroNotas = info?.porNota.filter((n) => n.tipoMovimento === 'Vendas').length ?? 0
   const total = info?.totalGeral ?? null
@@ -164,9 +168,20 @@ export function RelatorioDiaTab() {
         </button>
       </div>
 
+      <div className="print:hidden">
+        <CategoriaFiltro
+          categoriasDisponiveis={info?.categoriasDisponiveis ?? []}
+          porCategoria={info?.porCategoria ?? []}
+          selecionadas={categorias}
+          onChange={setCategorias}
+        />
+      </div>
+
       <div>
         <h2 className="text-lg font-semibold">Vendas de {fmtDateBR(data)}</h2>
-        <p className="text-xs text-slate-500">Todas as categorias e movimentos do dia — one page report.</p>
+        <p className="text-xs text-slate-500">
+          {categorias.length > 0 ? `Categorias: ${categorias.join(', ')}` : 'Todas as categorias'} — todos os movimentos do dia, one page report.
+        </p>
       </div>
 
       {loading ? (
