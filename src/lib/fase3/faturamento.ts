@@ -107,14 +107,17 @@ export interface VendaLinha {
    */
   flagBonificacao: boolean
   /**
-   * "preco_base" da nota original: PRECO_VENDIDO em venda normal, mas
-   * PRECO_MEDIO_TABELA4 quando `flagBonificacao` (não `bonificacaoOriginal`)
-   * é verdadeiro — mesmo numa linha classificada como "Vendas" pelo CODTMV.
-   * Usado em `agregarVendas`/`agruparCargas` para o faturamento bruto
-   * (equivalente a ".Fat. Bruto Venda" do Power BI); `valorBruto` continua
-   * com o preço REALMENTE cobrado, usado onde a pergunta é "quanto o
-   * cliente pagou de fato" (abaixo da tabela4, dispersão de preço, histórico
-   * de cliente).
+   * "preco_base" da nota original — ajustado pelo usuário 2026-08-24 (medida
+   * DAX): PRECO_VENDIDO quando abaixo do PRECO_MEDIO_TABELA4 (nunca puxa pra
+   * cima um preço já menor que a tabela) ou quando `flagBonificacao` é falso
+   * (venda normal, sem o flag bruto — não `bonificacaoOriginal`/CODTMV);
+   * PRECO_MEDIO_TABELA4 só quando `flagBonificacao` é verdadeiro E o preço
+   * vendido não é menor que ele. Ver `precoBase` em `prepararVendas` para os
+   * 4 ramos exatos. Usado em `agregarVendas`/`agruparCargas` para o
+   * faturamento bruto (equivalente a ".Fat. Bruto Venda" do Power BI);
+   * `valorBruto` continua com o preço REALMENTE cobrado, usado onde a
+   * pergunta é "quanto o cliente pagou de fato" (abaixo da tabela4,
+   * dispersão de preço, histórico de cliente).
    */
   precoBase: number
   /** QUANTIDADE × precoBase */
@@ -206,7 +209,22 @@ export function prepararVendas(rows: Row[], from: string, to: string, config: Co
     const m3Total = num(r.M3_TOTAL)
     const m3Minimo = num(r.m3_minimo)
     const flagBonificacao = String(r.BONIFICACAO ?? 'NAO').trim().toUpperCase() === 'SIM'
-    const precoBase = flagBonificacao ? precoMedioTabela4 : precoVendido
+    // Ajuste do usuário 2026-08-24, medida DAX original:
+    //   if [PRECO_VENDIDO] < [PRECO_MEDIO_TABELA4] then [PRECO_VENDIDO]
+    //   else if ([PRECO_MEDIO_TABELA4] = 0 and [BONIFICACAO] = "NAO") then [PRECO_VENDIDO]
+    //   else if [BONIFICACAO] = "NAO" then [PRECO_VENDIDO]
+    //   else [PRECO_MEDIO_TABELA4]
+    // Transcrito literalmente (mesmos 4 ramos, mesma ordem) mesmo o 2º ramo
+    // sendo redundante com o 3º (BONIFICACAO="NAO" já cobre o caso, com ou
+    // sem preco_medio_tabela4=0) — preserva a correspondência 1:1 com a
+    // medida original em vez de "simplificar" e arriscar divergir dela.
+    const precoBase = precoVendido < precoMedioTabela4
+      ? precoVendido
+      : precoMedioTabela4 === 0 && !flagBonificacao
+        ? precoVendido
+        : !flagBonificacao
+          ? precoVendido
+          : precoMedioTabela4
     const produto = String(r.PRODUTO ?? '').trim()
 
     out.push({
