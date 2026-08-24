@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ExcelButtons } from '@/components/admin/ExcelButtons'
+import { SortableTable, type SortableColumn } from '@/components/shared/SortableTable'
 
 interface QuotaSettings {
   id: string
@@ -253,6 +254,91 @@ export default function CotasVendaPage() {
   )
   const produtosSemM3 = produtos.filter((p) => !p.m3PorUnidade).length
 
+  const distribuidorColumns: SortableColumn<DistributorQuota>[] = [
+    {
+      key: 'codigo',
+      label: 'Código',
+      sortValue: (d) => d.codDistribuidor,
+      render: (d) => <span className="font-mono">{d.codDistribuidor}</span>,
+    },
+    {
+      key: 'nome',
+      label: 'Nome',
+      sortValue: (d) => d.nomeDistribuidor ?? '',
+      render: (d) => (
+        <button onClick={() => editarNomeDistribuidor(d)} className="text-left hover:underline" title="Clique para editar o nome">
+          {d.nomeDistribuidor ?? <span className="text-amber-600">sem nome — clique para definir</span>}
+        </button>
+      ),
+    },
+    {
+      key: 'meta',
+      label: 'Meta',
+      align: 'right',
+      sortValue: (d) => Number(d.metaValor),
+      render: (d) => fmtMoney(d.metaValor),
+    },
+    {
+      key: 'acoes',
+      label: '',
+      sortValue: () => 0,
+      render: (d) => (
+        <button onClick={() => excluirDistribuidor(d.id)} className="text-red-600 hover:underline">
+          excluir
+        </button>
+      ),
+    },
+  ]
+
+  const produtoColumns: SortableColumn<ProductQuota>[] = [
+    {
+      key: 'codigo',
+      label: 'Código',
+      sortValue: (p) => p.codigoPrd,
+      render: (p) => <span className="font-mono">{p.codigoPrd}</span>,
+    },
+    {
+      key: 'nome',
+      label: 'Nome',
+      sortValue: (p) => p.nomeProduto ?? '',
+      render: (p) => p.nomeProduto ?? '—',
+    },
+    {
+      key: 'm3PorUnidade',
+      label: 'M3/un.',
+      align: 'right',
+      sortValue: (p) => (p.m3PorUnidade ? Number(p.m3PorUnidade) : 0),
+      render: (p) => p.m3PorUnidade ?? <span className="text-amber-600">—</span>,
+    },
+    {
+      key: 'cotaUnidades',
+      label: 'Cota (un.)',
+      align: 'right',
+      sortValue: (p) => Number(p.cotaUnidades),
+      render: (p) => Number(p.cotaUnidades).toLocaleString('pt-BR'),
+    },
+    {
+      key: 'cotaM3',
+      label: 'Cota (m³)',
+      align: 'right',
+      sortValue: (p) => (p.m3PorUnidade ? Number(p.cotaUnidades) * Number(p.m3PorUnidade) : 0),
+      render: (p) =>
+        p.m3PorUnidade
+          ? (Number(p.cotaUnidades) * Number(p.m3PorUnidade)).toLocaleString('pt-BR', { maximumFractionDigits: 1 })
+          : '—',
+    },
+    {
+      key: 'acoes',
+      label: '',
+      sortValue: () => 0,
+      render: (p) => (
+        <button onClick={() => excluirProduto(p.id)} className="text-red-600 hover:underline">
+          excluir
+        </button>
+      ),
+    },
+  ]
+
   return (
     <div>
       <h1 className="text-xl font-semibold">Cotas de venda — Madeira Tratada</h1>
@@ -376,54 +462,25 @@ export default function CotasVendaPage() {
           </button>
         </div>
         {distError && <p className="mt-2 text-sm text-red-600">{distError}</p>}
-        <table className="mt-3 w-full text-sm">
-          <thead className="text-left text-slate-600">
-            <tr>
-              <th className="px-2 py-1">Código</th>
-              <th className="px-2 py-1">Nome</th>
-              <th className="px-2 py-1 text-right">Meta</th>
-              <th className="px-2 py-1"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {distribuidores.map((d) => (
-              <tr key={d.id} className="border-t border-slate-100">
-                <td className="px-2 py-1 font-mono">{d.codDistribuidor}</td>
-                <td className="px-2 py-1">
-                  <button onClick={() => editarNomeDistribuidor(d)} className="text-left hover:underline" title="Clique para editar o nome">
-                    {d.nomeDistribuidor ?? <span className="text-amber-600">sem nome — clique para definir</span>}
-                  </button>
-                </td>
-                <td className="px-2 py-1 text-right">{fmtMoney(d.metaValor)}</td>
-                <td className="px-2 py-1 text-right">
-                  <button onClick={() => excluirDistribuidor(d.id)} className="text-red-600 hover:underline">
-                    excluir
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {distribuidores.length === 0 && (
-              <tr>
-                <td colSpan={4} className="px-2 py-6 text-center text-slate-500">
-                  Nenhuma meta cadastrada para {monthLabel(month)}.
-                </td>
-              </tr>
-            )}
-          </tbody>
-          {distribuidores.length > 0 && (
-            <tfoot>
-              <tr className="border-t border-slate-200 font-medium">
-                <td className="px-2 py-1" colSpan={2}>
+        <div className="mt-3">
+          <SortableTable
+            columns={distribuidorColumns}
+            rows={distribuidores}
+            rowKey={(d) => d.id}
+            defaultSortKey="codigo"
+            defaultSortDir="asc"
+            emptyMessage={`Nenhuma meta cadastrada para ${monthLabel(month)}.`}
+            renderFooter={(rows) => (
+              <>
+                <td className="px-3 py-2" colSpan={2}>
                   Total
                 </td>
-                <td className="px-2 py-1 text-right">
-                  {fmtMoney(distribuidores.reduce((s, d) => s + Number(d.metaValor), 0))}
-                </td>
-                <td />
-              </tr>
-            </tfoot>
-          )}
-        </table>
+                <td className="px-3 py-2 text-right">{fmtMoney(rows.reduce((s, d) => s + Number(d.metaValor), 0))}</td>
+                <td className="px-3 py-2" />
+              </>
+            )}
+          />
+        </div>
       </section>
 
       {/* Cotas por produto */}
@@ -508,47 +565,14 @@ export default function CotasVendaPage() {
           className="mt-3 w-full max-w-xs rounded-md border border-slate-300 px-2 py-1.5 text-sm"
         />
         <div className="mt-2 max-h-[480px] overflow-y-auto">
-          <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-white text-left text-slate-600">
-              <tr>
-                <th className="px-2 py-1">Código</th>
-                <th className="px-2 py-1">Nome</th>
-                <th className="px-2 py-1 text-right">M3/un.</th>
-                <th className="px-2 py-1 text-right">Cota (un.)</th>
-                <th className="px-2 py-1 text-right">Cota (m³)</th>
-                <th className="px-2 py-1"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {produtosFiltrados.map((p) => (
-                <tr key={p.id} className="border-t border-slate-100">
-                  <td className="px-2 py-1 font-mono">{p.codigoPrd}</td>
-                  <td className="px-2 py-1">{p.nomeProduto ?? '—'}</td>
-                  <td className="px-2 py-1 text-right">{p.m3PorUnidade ?? <span className="text-amber-600">—</span>}</td>
-                  <td className="px-2 py-1 text-right">{Number(p.cotaUnidades).toLocaleString('pt-BR')}</td>
-                  <td className="px-2 py-1 text-right">
-                    {p.m3PorUnidade
-                      ? (Number(p.cotaUnidades) * Number(p.m3PorUnidade)).toLocaleString('pt-BR', {
-                          maximumFractionDigits: 1,
-                        })
-                      : '—'}
-                  </td>
-                  <td className="px-2 py-1 text-right">
-                    <button onClick={() => excluirProduto(p.id)} className="text-red-600 hover:underline">
-                      excluir
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {produtosFiltrados.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-2 py-6 text-center text-slate-500">
-                    Nenhuma cota cadastrada para {monthLabel(month)}.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+          <SortableTable
+            columns={produtoColumns}
+            rows={produtosFiltrados}
+            rowKey={(p) => p.id}
+            defaultSortKey="codigo"
+            defaultSortDir="asc"
+            emptyMessage={`Nenhuma cota cadastrada para ${monthLabel(month)}.`}
+          />
         </div>
         {produtos.length > 0 && (
           <p className="mt-2 text-xs text-slate-500">

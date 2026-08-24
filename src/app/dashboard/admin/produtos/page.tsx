@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ExcelButtons } from '@/components/admin/ExcelButtons'
+import { SortableTable, type SortableColumn } from '@/components/shared/SortableTable'
 
 interface ProductTypeRecord {
   id: string
@@ -205,6 +206,55 @@ export default function ProdutosPage() {
     return parts.join(', ')
   }
 
+  const columns: SortableColumn<ProductTypeRecord>[] = [
+    {
+      key: 'select',
+      label: '',
+      sortValue: () => 0,
+      render: (p) => (
+        <input
+          type="checkbox"
+          checked={selected.has(p.codigoPrd)}
+          onChange={() => toggleSelected(p.codigoPrd)}
+          className="h-3.5 w-3.5"
+        />
+      ),
+    },
+    {
+      key: 'codigoPrd',
+      label: 'Código',
+      sortValue: (p) => p.codigoPrd,
+      render: (p) => <span className="font-mono text-xs">{p.codigoPrd}</span>,
+    },
+    {
+      key: 'produtoNome',
+      label: 'Nome (ERP)',
+      sortValue: (p) => p.produtoNome ?? '',
+      render: (p) => p.produtoNome ?? '—',
+    },
+    {
+      key: 'tipoProduto',
+      label: 'Classificação',
+      sortValue: (p) => p.tipoProduto,
+      render: (p) => <span className="font-medium">{p.tipoProduto}</span>,
+    },
+    {
+      key: 'acoes',
+      label: '',
+      sortValue: () => 0,
+      render: (p) => (
+        <span className="whitespace-nowrap">
+          <button onClick={() => startEdit(p)} className="text-emerald-700 hover:underline">
+            Editar
+          </button>
+          <button onClick={() => remove(p.id)} className="ml-3 text-red-600 hover:underline">
+            Excluir
+          </button>
+        </span>
+      ),
+    },
+  ]
+
   return (
     <div className="space-y-6">
       <div>
@@ -352,6 +402,25 @@ export default function ProdutosPage() {
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
           <span className="font-medium">Produtos cadastrados ({filteredProductTypes.length})</span>
           <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-1.5 text-xs text-slate-600">
+              <input
+                type="checkbox"
+                checked={filteredProductTypes.length > 0 && filteredProductTypes.every((p) => selected.has(p.codigoPrd))}
+                onChange={() =>
+                  setSelected((prev) => {
+                    const allSelected = filteredProductTypes.every((p) => prev.has(p.codigoPrd))
+                    const next = new Set(prev)
+                    for (const p of filteredProductTypes) {
+                      if (allSelected) next.delete(p.codigoPrd)
+                      else next.add(p.codigoPrd)
+                    }
+                    return next
+                  })
+                }
+                className="h-3.5 w-3.5"
+              />
+              Selecionar todos
+            </label>
             <input
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
@@ -375,66 +444,14 @@ export default function ProdutosPage() {
           Importação espera as colunas <strong>Código</strong>, <strong>Nome (ERP)</strong> e{' '}
           <strong>Classificação</strong>. Código já cadastrado é atualizado; código novo é criado.
         </p>
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-slate-600">
-            <tr>
-              <th className="px-3 py-2">
-                <input
-                  type="checkbox"
-                  checked={filteredProductTypes.length > 0 && filteredProductTypes.every((p) => selected.has(p.codigoPrd))}
-                  onChange={() =>
-                    setSelected((prev) => {
-                      const allSelected = filteredProductTypes.every((p) => prev.has(p.codigoPrd))
-                      const next = new Set(prev)
-                      for (const p of filteredProductTypes) {
-                        if (allSelected) next.delete(p.codigoPrd)
-                        else next.add(p.codigoPrd)
-                      }
-                      return next
-                    })
-                  }
-                  className="h-3.5 w-3.5"
-                />
-              </th>
-              <th className="px-3 py-2">Código</th>
-              <th className="px-3 py-2">Nome (ERP)</th>
-              <th className="px-3 py-2">Classificação</th>
-              <th className="px-3 py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredProductTypes.map((p) => (
-              <tr key={p.id} className="border-t border-slate-100">
-                <td className="px-3 py-2">
-                  <input
-                    type="checkbox"
-                    checked={selected.has(p.codigoPrd)}
-                    onChange={() => toggleSelected(p.codigoPrd)}
-                    className="h-3.5 w-3.5"
-                  />
-                </td>
-                <td className="px-3 py-2 font-mono text-xs">{p.codigoPrd}</td>
-                <td className="px-3 py-2">{p.produtoNome ?? '—'}</td>
-                <td className="px-3 py-2 font-medium">{p.tipoProduto}</td>
-                <td className="px-3 py-2 text-right whitespace-nowrap">
-                  <button onClick={() => startEdit(p)} className="text-emerald-700 hover:underline">
-                    Editar
-                  </button>
-                  <button onClick={() => remove(p.id)} className="ml-3 text-red-600 hover:underline">
-                    Excluir
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {productTypes.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-500">
-                  Nenhum produto classificado.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+        <SortableTable
+          columns={columns}
+          rows={filteredProductTypes}
+          rowKey={(p) => p.id}
+          defaultSortKey="codigoPrd"
+          defaultSortDir="asc"
+          emptyMessage="Nenhum produto classificado."
+        />
       </div>
     </div>
   )

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { ExcelButtons } from '@/components/admin/ExcelButtons'
 import { LocationShapeMap } from '@/components/admin/LocationShapeMap'
+import { SortableTable, type SortableColumn } from '@/components/shared/SortableTable'
 
 type LocationType = 'UNIDADE' | 'CLIENTE' | 'CIDADE' | 'POSTO_GASOLINA' | 'OFICINA' | 'RESIDENCIA'
 
@@ -333,6 +334,76 @@ export default function LocaisPage() {
     return parts.join(', ')
   }
 
+  const columns: SortableColumn<Location>[] = [
+    { key: 'name', label: 'Nome', sortValue: (l) => l.name, render: (l) => <span className="font-medium">{l.name}</span> },
+    {
+      key: 'officialName',
+      label: 'Nome real (ERP)',
+      sortValue: (l) => l.officialName ?? '',
+      render: (l) => <span className="text-xs text-slate-500">{l.officialName ?? '—'}</span>,
+    },
+    {
+      key: 'type',
+      label: 'Tipo',
+      sortValue: (l) => TYPE_LABEL[l.type],
+      render: (l) => <span className={`rounded px-1.5 py-0.5 text-xs ${TYPE_BADGE[l.type]}`}>{TYPE_LABEL[l.type]}</span>,
+    },
+    {
+      key: 'matchColigada',
+      label: 'Coligada',
+      sortValue: (l) => l.matchColigada ?? -Infinity,
+      render: (l) => l.matchColigada ?? '—',
+    },
+    {
+      key: 'matchFilial',
+      label: 'Filial',
+      sortValue: (l) => l.matchFilial ?? -Infinity,
+      render: (l) => l.matchFilial ?? '—',
+    },
+    {
+      key: 'trecho',
+      label: 'Trecho do nome / Motorista',
+      sortValue: (l) => (l.type === 'RESIDENCIA' ? l.motoristaNome ?? '' : l.matchClientePattern ?? ''),
+      render: (l) => (l.type === 'RESIDENCIA' ? (l.motoristaNome ?? '—') : (l.matchClientePattern ?? '—')),
+    },
+    {
+      key: 'gps',
+      label: 'GPS',
+      sortValue: (l) => l.latitude ?? -Infinity,
+      render: (l) => (
+        <span className="text-xs text-slate-500">
+          {l.polygon && l.polygon.length >= 3
+            ? `Polígono (${l.polygon.length} pontos)`
+            : l.latitude != null && l.longitude != null
+              ? `${l.latitude.toFixed(4)}, ${l.longitude.toFixed(4)} (${l.raioMetros ?? 500}m)`
+              : '—'}
+        </span>
+      ),
+    },
+    {
+      key: 'rotas',
+      label: 'Rotas',
+      sortValue: (l) => (l._count?.routesFrom ?? 0) + (l._count?.routesTo ?? 0),
+      render: (l) => (l._count?.routesFrom ?? 0) + (l._count?.routesTo ?? 0),
+    },
+    {
+      key: 'acoes',
+      label: '',
+      align: 'right',
+      sortValue: () => 0,
+      render: (l) => (
+        <span className="whitespace-nowrap">
+          <button onClick={() => startEdit(l)} className="text-emerald-700 hover:underline">
+            Editar
+          </button>
+          <button onClick={() => remove(l.id)} className="ml-3 text-red-600 hover:underline">
+            Excluir
+          </button>
+        </span>
+      ),
+    },
+  ]
+
   return (
     <div className="space-y-6">
       <div>
@@ -648,51 +719,14 @@ export default function LocaisPage() {
           <strong>Longitude</strong> e <strong>Raio (m)</strong>. Nome já cadastrado é atualizado; nome novo é
           criado.
         </p>
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-slate-600">
-            <tr>
-              <th className="px-3 py-2">Nome</th>
-              <th className="px-3 py-2">Nome real (ERP)</th>
-              <th className="px-3 py-2">Tipo</th>
-              <th className="px-3 py-2">Coligada</th>
-              <th className="px-3 py-2">Filial</th>
-              <th className="px-3 py-2">Trecho do nome / Motorista</th>
-              <th className="px-3 py-2">GPS</th>
-              <th className="px-3 py-2">Rotas</th>
-              <th className="px-3 py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredLocations.map((l) => (
-              <tr key={l.id} className="border-t border-slate-100">
-                <td className="px-3 py-2 font-medium">{l.name}</td>
-                <td className="px-3 py-2 text-xs text-slate-500">{l.officialName ?? '—'}</td>
-                <td className="px-3 py-2">
-                  <span className={`rounded px-1.5 py-0.5 text-xs ${TYPE_BADGE[l.type]}`}>{TYPE_LABEL[l.type]}</span>
-                </td>
-                <td className="px-3 py-2">{l.matchColigada ?? '—'}</td>
-                <td className="px-3 py-2">{l.matchFilial ?? '—'}</td>
-                <td className="px-3 py-2">{l.type === 'RESIDENCIA' ? (l.motoristaNome ?? '—') : (l.matchClientePattern ?? '—')}</td>
-                <td className="px-3 py-2 text-xs text-slate-500">
-                  {l.polygon && l.polygon.length >= 3
-                    ? `Polígono (${l.polygon.length} pontos)`
-                    : l.latitude != null && l.longitude != null
-                      ? `${l.latitude.toFixed(4)}, ${l.longitude.toFixed(4)} (${l.raioMetros ?? 500}m)`
-                      : '—'}
-                </td>
-                <td className="px-3 py-2">{(l._count?.routesFrom ?? 0) + (l._count?.routesTo ?? 0)}</td>
-                <td className="px-3 py-2 text-right">
-                  <button onClick={() => startEdit(l)} className="text-emerald-700 hover:underline">
-                    Editar
-                  </button>
-                  <button onClick={() => remove(l.id)} className="ml-3 text-red-600 hover:underline">
-                    Excluir
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <SortableTable
+          columns={columns}
+          rows={filteredLocations}
+          rowKey={(l) => l.id}
+          defaultSortKey="name"
+          defaultSortDir="asc"
+          emptyMessage="Nenhum local cadastrado."
+        />
       </div>
     </div>
   )

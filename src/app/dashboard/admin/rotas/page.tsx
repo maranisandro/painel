@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ExcelButtons } from '@/components/admin/ExcelButtons'
+import { SortableTable, type SortableColumn } from '@/components/shared/SortableTable'
 
 interface Location {
   id: string
@@ -260,6 +261,131 @@ export default function RotasPage() {
 
   const unidades = locations.filter((l) => l.type === 'UNIDADE')
 
+  const allFilteredSelected = filteredRoutes.length > 0 && filteredRoutes.every((r) => selected.has(r.id))
+
+  function toggleSelectAll() {
+    setSelected((prev) => {
+      const allSelected = filteredRoutes.every((r) => prev.has(r.id))
+      const next = new Set(prev)
+      for (const r of filteredRoutes) {
+        if (allSelected) next.delete(r.id)
+        else next.add(r.id)
+      }
+      return next
+    })
+  }
+
+  const columns: SortableColumn<Route>[] = [
+    {
+      key: 'select',
+      label: '',
+      sortValue: () => 0,
+      render: (r) => (
+        <input
+          type="checkbox"
+          checked={selected.has(r.id)}
+          onChange={() => toggleSelected(r.id)}
+          className="h-3.5 w-3.5"
+        />
+      ),
+    },
+    {
+      key: 'origem',
+      label: 'Origem',
+      sortValue: (r) => r.origin.name,
+      render: (r) => <span className="font-medium">{r.origin.name}</span>,
+    },
+    {
+      key: 'destino',
+      label: 'Destino',
+      sortValue: (r) => r.destination.name,
+      render: (r) => r.destination.name,
+    },
+    {
+      key: 'asfalto',
+      label: 'Asfalto',
+      align: 'right',
+      sortValue: (r) => num(r.distanceAsphaltKm),
+      render: (r) => num(r.distanceAsphaltKm),
+    },
+    {
+      key: 'terra',
+      label: 'Terra',
+      align: 'right',
+      sortValue: (r) => num(r.distanceDirtKm),
+      render: (r) => num(r.distanceDirtKm),
+    },
+    {
+      key: 'total',
+      label: 'Total (km)',
+      align: 'right',
+      sortValue: (r) => num(r.distanceAsphaltKm) + num(r.distanceDirtKm),
+      render: (r) => (
+        <span className="font-medium">{num(r.distanceAsphaltKm) + num(r.distanceDirtKm)}</span>
+      ),
+    },
+    {
+      key: 'vCheio',
+      label: 'V. cheio',
+      align: 'right',
+      sortValue: (r) => (r.speedLoadedKmh ? num(r.speedLoadedKmh) : 0),
+      render: (r) => (r.speedLoadedKmh ? num(r.speedLoadedKmh) : '—'),
+    },
+    {
+      key: 'vVazio',
+      label: 'V. vazio',
+      align: 'right',
+      sortValue: (r) => (r.speedEmptyKmh ? num(r.speedEmptyKmh) : 0),
+      render: (r) => (r.speedEmptyKmh ? num(r.speedEmptyKmh) : '—'),
+    },
+    {
+      key: 'carga',
+      label: 'Carga',
+      align: 'right',
+      sortValue: (r) => r.loadMinutes ?? 0,
+      render: (r) => r.loadMinutes ?? '—',
+    },
+    {
+      key: 'descarga',
+      label: 'Descarga',
+      align: 'right',
+      sortValue: (r) => r.unloadMinutes ?? 0,
+      render: (r) => r.unloadMinutes ?? '—',
+    },
+    {
+      key: 'idaVolta',
+      label: 'Ida+volta (dias)',
+      align: 'right',
+      sortValue: (r) => (r.expectedRoundTripDays ? Number(r.expectedRoundTripDays) : 0),
+      render: (r) => (
+        <span className="font-medium">
+          {r.expectedRoundTripDays ? Number(r.expectedRoundTripDays).toLocaleString('pt-BR') : '—'}
+        </span>
+      ),
+    },
+    {
+      key: 'composicao',
+      label: 'Composição fixa',
+      sortValue: (r) => r.fixedComposition ?? '',
+      render: (r) => r.fixedComposition ?? '—',
+    },
+    {
+      key: 'acoes',
+      label: '',
+      sortValue: () => 0,
+      render: (r) => (
+        <span className="whitespace-nowrap">
+          <button onClick={() => startEdit(r)} className="text-emerald-700 hover:underline">
+            Editar
+          </button>
+          <button onClick={() => remove(r.id)} className="ml-3 text-red-600 hover:underline">
+            Excluir
+          </button>
+        </span>
+      ),
+    },
+  ]
+
   return (
     <div className="space-y-6">
       <div>
@@ -485,81 +611,24 @@ export default function RotasPage() {
         )}
         {bulkMsg && <p className="border-b border-slate-100 px-4 py-2 text-xs text-slate-600">{bulkMsg}</p>}
 
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-slate-600">
-            <tr>
-              <th className="px-3 py-2">
-                <input
-                  type="checkbox"
-                  checked={filteredRoutes.length > 0 && filteredRoutes.every((r) => selected.has(r.id))}
-                  onChange={() =>
-                    setSelected((prev) => {
-                      const allSelected = filteredRoutes.every((r) => prev.has(r.id))
-                      const next = new Set(prev)
-                      for (const r of filteredRoutes) {
-                        if (allSelected) next.delete(r.id)
-                        else next.add(r.id)
-                      }
-                      return next
-                    })
-                  }
-                  className="h-3.5 w-3.5"
-                />
-              </th>
-              <th className="px-3 py-2">Origem</th>
-              <th className="px-3 py-2">Destino</th>
-              <th className="px-3 py-2 text-right">Asfalto</th>
-              <th className="px-3 py-2 text-right">Terra</th>
-              <th className="px-3 py-2 text-right">Total (km)</th>
-              <th className="px-3 py-2 text-right">V. cheio</th>
-              <th className="px-3 py-2 text-right">V. vazio</th>
-              <th className="px-3 py-2 text-right">Carga</th>
-              <th className="px-3 py-2 text-right">Descarga</th>
-              <th className="px-3 py-2 text-right">Ida+volta (dias)</th>
-              <th className="px-3 py-2">Composição fixa</th>
-              <th className="px-3 py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredRoutes.map((r) => (
-              <tr key={r.id} className="border-t border-slate-100">
-                <td className="px-3 py-2">
-                  <input
-                    type="checkbox"
-                    checked={selected.has(r.id)}
-                    onChange={() => toggleSelected(r.id)}
-                    className="h-3.5 w-3.5"
-                  />
-                </td>
-                <td className="px-3 py-2 font-medium">{r.origin.name}</td>
-                <td className="px-3 py-2">{r.destination.name}</td>
-                <td className="px-3 py-2 text-right">{num(r.distanceAsphaltKm)}</td>
-                <td className="px-3 py-2 text-right">{num(r.distanceDirtKm)}</td>
-                <td className="px-3 py-2 text-right font-medium">
-                  {num(r.distanceAsphaltKm) + num(r.distanceDirtKm)}
-                </td>
-                <td className="px-3 py-2 text-right">{r.speedLoadedKmh ? num(r.speedLoadedKmh) : '—'}</td>
-                <td className="px-3 py-2 text-right">{r.speedEmptyKmh ? num(r.speedEmptyKmh) : '—'}</td>
-                <td className="px-3 py-2 text-right">{r.loadMinutes ?? '—'}</td>
-                <td className="px-3 py-2 text-right">{r.unloadMinutes ?? '—'}</td>
-                <td className="px-3 py-2 text-right font-medium">
-                  {r.expectedRoundTripDays
-                    ? Number(r.expectedRoundTripDays).toLocaleString('pt-BR')
-                    : '—'}
-                </td>
-                <td className="px-3 py-2">{r.fixedComposition ?? '—'}</td>
-                <td className="px-3 py-2 text-right whitespace-nowrap">
-                  <button onClick={() => startEdit(r)} className="text-emerald-700 hover:underline">
-                    Editar
-                  </button>
-                  <button onClick={() => remove(r.id)} className="ml-3 text-red-600 hover:underline">
-                    Excluir
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <label className="flex items-center gap-1.5 border-b border-slate-100 px-4 py-2 text-xs text-slate-600">
+          <input
+            type="checkbox"
+            checked={allFilteredSelected}
+            onChange={toggleSelectAll}
+            className="h-3.5 w-3.5"
+          />
+          Selecionar todos
+        </label>
+
+        <SortableTable
+          columns={columns}
+          rows={filteredRoutes}
+          rowKey={(r) => r.id}
+          defaultSortKey="origem"
+          defaultSortDir="asc"
+          emptyMessage="Nenhuma rota cadastrada."
+        />
       </div>
     </div>
   )

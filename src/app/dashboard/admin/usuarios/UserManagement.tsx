@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { SortableTable, type SortableColumn } from '@/components/shared/SortableTable'
 
 type Role = 'ADMIN' | 'EDITOR' | 'VIEWER'
 
@@ -194,6 +195,109 @@ export function UserManagement({
     router.refresh()
   }
 
+  const columns: SortableColumn<UserRow>[] = [
+    {
+      key: 'user',
+      label: 'Usuário',
+      sortValue: (user) => user.name,
+      render: (user) => (
+        <>
+          <p className="font-medium">{user.name}</p>
+          <p className="text-xs text-slate-500">{user.email}</p>
+        </>
+      ),
+    },
+    {
+      key: 'role',
+      label: 'Perfil',
+      sortValue: (user) => roleLabel[user.role],
+      render: (user) => roleLabel[user.role],
+    },
+    {
+      key: 'modules',
+      label: 'Acesso às fases',
+      sortValue: (user) => (user.role === 'ADMIN' ? Number.POSITIVE_INFINITY : user.moduleCodes.length),
+      render: (user) =>
+        user.role === 'ADMIN' ? (
+          <span className="text-emerald-700">Todas as fases</span>
+        ) : user.moduleCodes.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            {user.moduleCodes.map((code) => {
+              const assignedModule = modules.find((item) => item.code === code)
+              return (
+                <span key={code} className="rounded bg-slate-100 px-2 py-0.5 text-xs">
+                  {code.startsWith('fase') ? `Fase ${assignedModule?.phase ?? code}` : (assignedModule?.name ?? code)}
+                </span>
+              )
+            })}
+          </div>
+        ) : (
+          <span className="text-amber-700">Nenhuma fase</span>
+        ),
+    },
+    {
+      key: 'resources',
+      label: 'Acesso aos cadastros',
+      sortValue: (user) => (user.role === 'ADMIN' ? Number.POSITIVE_INFINITY : user.resourceCodes.length),
+      render: (user) =>
+        user.role === 'ADMIN' ? (
+          <span className="text-emerald-700">Todos os cadastros</span>
+        ) : user.resourceCodes.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            {user.resourceCodes.map((code) => {
+              const assignedResource = resources.find((item) => item.code === code)
+              return (
+                <span key={code} className="rounded bg-slate-100 px-2 py-0.5 text-xs">
+                  {assignedResource?.name ?? code}
+                </span>
+              )
+            })}
+          </div>
+        ) : (
+          <span className="text-slate-400">Nenhum</span>
+        ),
+    },
+    {
+      key: 'situacao',
+      label: 'Situação',
+      sortValue: (user) => (user.active ? 0 : 1),
+      render: (user) => (
+        <span className={user.active ? 'text-emerald-700' : 'text-slate-400'}>
+          {user.active ? 'Ativo' : 'Inativo'}
+        </span>
+      ),
+    },
+    {
+      key: 'senha',
+      label: 'Senha',
+      sortValue: (user) => (user.mustChangePassword ? 0 : 1),
+      render: (user) =>
+        user.mustChangePassword ? (
+          <span className="text-amber-700">Troca pendente</span>
+        ) : (
+          <span className="text-slate-500">Definida</span>
+        ),
+    },
+    {
+      key: 'acoes',
+      label: '',
+      align: 'right',
+      sortValue: () => 0,
+      render: (user) => (
+        <>
+          <button onClick={() => openEdit(user)} className="text-emerald-700 hover:underline">
+            Editar
+          </button>
+          {user.id !== currentUserId && (
+            <button onClick={() => resetPassword(user)} className="ml-3 text-amber-700 hover:underline">
+              Redefinir senha
+            </button>
+          )}
+        </>
+      ),
+    },
+  ]
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -273,98 +377,14 @@ export function UserManagement({
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-slate-600">
-            <tr>
-              <th className="px-4 py-3">Usuário</th>
-              <th className="px-4 py-3">Perfil</th>
-              <th className="px-4 py-3">Acesso às fases</th>
-              <th className="px-4 py-3">Acesso aos cadastros</th>
-              <th className="px-4 py-3">Situação</th>
-              <th className="px-4 py-3">Senha</th>
-              <th className="px-4 py-3"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((user) => (
-              <tr key={user.id} className="border-t border-slate-100">
-                <td className="px-4 py-3">
-                  <p className="font-medium">{user.name}</p>
-                  <p className="text-xs text-slate-500">{user.email}</p>
-                </td>
-                <td className="px-4 py-3">{roleLabel[user.role]}</td>
-                <td className="px-4 py-3">
-                  {user.role === 'ADMIN' ? (
-                    <span className="text-emerald-700">Todas as fases</span>
-                  ) : user.moduleCodes.length > 0 ? (
-                    <div className="flex flex-wrap gap-1">
-                      {user.moduleCodes.map((code) => {
-                        const assignedModule = modules.find((item) => item.code === code)
-                        return (
-                          <span key={code} className="rounded bg-slate-100 px-2 py-0.5 text-xs">
-                            {code.startsWith('fase') ? `Fase ${assignedModule?.phase ?? code}` : (assignedModule?.name ?? code)}
-                          </span>
-                        )
-                      })}
-                    </div>
-                  ) : (
-                    <span className="text-amber-700">Nenhuma fase</span>
-                  )}
-                </td>
-                <td className="px-4 py-3">
-                  {user.role === 'ADMIN' ? (
-                    <span className="text-emerald-700">Todos os cadastros</span>
-                  ) : user.resourceCodes.length > 0 ? (
-                    <div className="flex flex-wrap gap-1">
-                      {user.resourceCodes.map((code) => {
-                        const assignedResource = resources.find((item) => item.code === code)
-                        return (
-                          <span key={code} className="rounded bg-slate-100 px-2 py-0.5 text-xs">
-                            {assignedResource?.name ?? code}
-                          </span>
-                        )
-                      })}
-                    </div>
-                  ) : (
-                    <span className="text-slate-400">Nenhum</span>
-                  )}
-                </td>
-                <td className="px-4 py-3">
-                  <span className={user.active ? 'text-emerald-700' : 'text-slate-400'}>
-                    {user.active ? 'Ativo' : 'Inativo'}
-                  </span>
-                </td>
-                <td className="px-4 py-3">
-                  {user.mustChangePassword ? (
-                    <span className="text-amber-700">Troca pendente</span>
-                  ) : (
-                    <span className="text-slate-500">Definida</span>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <button onClick={() => openEdit(user)} className="text-emerald-700 hover:underline">
-                    Editar
-                  </button>
-                  {user.id !== currentUserId && (
-                    <button
-                      onClick={() => resetPassword(user)}
-                      className="ml-3 text-amber-700 hover:underline"
-                    >
-                      Redefinir senha
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {filtered.length === 0 && (
-              <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
-                  Nenhum usuário encontrado.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+        <SortableTable
+          columns={columns}
+          rows={filtered}
+          rowKey={(user) => user.id}
+          defaultSortKey="user"
+          defaultSortDir="asc"
+          emptyMessage="Nenhum usuário encontrado."
+        />
       </div>
 
       {editing && (

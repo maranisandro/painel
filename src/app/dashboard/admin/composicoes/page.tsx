@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { ExcelButtons } from '@/components/admin/ExcelButtons'
 import { formatBRInput, parseBRToIso, fmtDateBR, MiniCalendarButton } from '@/components/shared/DateRangeInputs'
+import { SortableTable, type SortableColumn } from '@/components/shared/SortableTable'
 
 interface CompositionRecord {
   id: string
@@ -36,6 +37,14 @@ const SPEC_EMPTY = {
 
 function n(v: string | null): string {
   return v ? Number(v).toLocaleString('pt-BR') : '—'
+}
+
+// numEixos é texto livre (ex.: "9 eixos"), mas ordena melhor pelo número
+// no início — cai para 0 quando não há dígito.
+function leadingNumber(v: string | null): number {
+  if (!v) return 0
+  const m = v.match(/\d+([.,]\d+)?/)
+  return m ? Number(m[0].replace(',', '.')) : 0
 }
 
 const COMPOSITIONS = [
@@ -366,6 +375,58 @@ export default function ComposicoesPage() {
     }
     loadSpecs()
   }
+
+  const specColumns: SortableColumn<CompositionSpecRecord>[] = [
+    {
+      key: 'composition',
+      label: 'Composição',
+      sortValue: (s) => s.composition,
+      render: (s) => <span className="font-medium">{s.composition}</span>,
+    },
+    {
+      key: 'numEixos',
+      label: 'Nº de eixos',
+      sortValue: (s) => leadingNumber(s.numEixos),
+      filterValue: (s) => s.numEixos ?? '',
+      render: (s) => s.numEixos ?? '—',
+    },
+    {
+      key: 'pbtcMaximoTon',
+      label: 'PBTC máx.',
+      align: 'right',
+      sortValue: (s) => (s.pbtcMaximoTon ? Number(s.pbtcMaximoTon) : 0),
+      render: (s) => `${n(s.pbtcMaximoTon)} t`,
+    },
+    {
+      key: 'tara',
+      label: 'Tara',
+      align: 'right',
+      sortValue: (s) => (s.taraMinTon ? Number(s.taraMinTon) : 0),
+      render: (s) => `${n(s.taraMinTon)}–${n(s.taraMaxTon)} t`,
+    },
+    {
+      key: 'cargaLiquida',
+      label: 'Carga líquida (limite)',
+      align: 'right',
+      sortValue: (s) => (s.cargaLiquidaMinTon ? Number(s.cargaLiquidaMinTon) : 0),
+      render: (s) => <span className="font-medium">{n(s.cargaLiquidaMinTon)}–{n(s.cargaLiquidaMaxTon)} t</span>,
+    },
+    {
+      key: 'acoes',
+      label: '',
+      sortValue: () => 0,
+      render: (s) => (
+        <span className="whitespace-nowrap">
+          <button onClick={() => startEditSpec(s)} className="text-emerald-700 hover:underline">
+            Editar
+          </button>
+          <button onClick={() => removeSpec(s.id)} className="ml-3 text-red-600 hover:underline">
+            Excluir
+          </button>
+        </span>
+      ),
+    },
+  ]
 
   return (
     <div className="space-y-6">
@@ -778,48 +839,14 @@ export default function ComposicoesPage() {
                 className="rounded-md border border-slate-300 px-2 py-1 text-sm"
               />
             </div>
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-left text-slate-600">
-                <tr>
-                  <th className="px-3 py-2">Composição</th>
-                  <th className="px-3 py-2">Nº de eixos</th>
-                  <th className="px-3 py-2 text-right">PBTC máx.</th>
-                  <th className="px-3 py-2 text-right">Tara</th>
-                  <th className="px-3 py-2 text-right">Carga líquida (limite)</th>
-                  <th className="px-3 py-2"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredSpecs.map((s) => (
-                  <tr key={s.id} className="border-t border-slate-100">
-                    <td className="px-3 py-2 font-medium">{s.composition}</td>
-                    <td className="px-3 py-2">{s.numEixos ?? '—'}</td>
-                    <td className="px-3 py-2 text-right">{n(s.pbtcMaximoTon)} t</td>
-                    <td className="px-3 py-2 text-right">
-                      {n(s.taraMinTon)}–{n(s.taraMaxTon)} t
-                    </td>
-                    <td className="px-3 py-2 text-right font-medium">
-                      {n(s.cargaLiquidaMinTon)}–{n(s.cargaLiquidaMaxTon)} t
-                    </td>
-                    <td className="px-3 py-2 text-right whitespace-nowrap">
-                      <button onClick={() => startEditSpec(s)} className="text-emerald-700 hover:underline">
-                        Editar
-                      </button>
-                      <button onClick={() => removeSpec(s.id)} className="ml-3 text-red-600 hover:underline">
-                        Excluir
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                {filteredSpecs.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-500">
-                      Nenhum limite de peso cadastrado.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+            <SortableTable
+              columns={specColumns}
+              rows={filteredSpecs}
+              rowKey={(s) => s.id}
+              defaultSortKey="composition"
+              defaultSortDir="asc"
+              emptyMessage="Nenhum limite de peso cadastrado."
+            />
           </div>
         </div>
       )}
