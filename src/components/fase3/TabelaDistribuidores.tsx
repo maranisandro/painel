@@ -34,19 +34,26 @@ function fmtMoeda(n: number | null): string {
   return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 2 })
 }
 
-/** % abaixo do mínimo ponderado — pedido do usuário 2026-08-04: "no painel mensal, clientes abaixo do mínimo, colocar o % abaixo" (só o rótulo "abaixo do mínimo" não dizia o quanto). */
-function percAbaixo(v: VendaAgregada): number | null {
+/**
+ * % que o R$/m³ realmente vendido representa da Meta de destino — pedido do
+ * usuário 2026-08-24: "colocar o % que preço médio [é] para meta de
+ * destino". 100% = bateu a meta exatamente; abaixo disso = vendeu abaixo do
+ * mínimo esperado. Antes só mostrava o "% abaixo" (2026-08-04), e só no
+ * caso abaixo do mínimo — agora sempre, nos dois casos.
+ */
+function pctMeta(v: VendaAgregada): number | null {
   if (v.valorM3Vendido == null || v.precoPonderado == null || v.precoPonderado === 0) return null
-  return ((v.precoPonderado - v.valorM3Vendido) / v.precoPonderado) * 100
+  return (v.valorM3Vendido / v.precoPonderado) * 100
 }
 
 function SituacaoBadge({ v }: { v: VendaAgregada }) {
   if (v.valorM3Vendido == null) return <span className="text-slate-400">sem m³</span>
-  if (!v.abaixoDoMinimo) return <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">dentro do mínimo</span>
-  const perc = percAbaixo(v)
+  const perc = pctMeta(v)
+  const percTexto = perc != null ? ` (${perc.toLocaleString('pt-BR', { maximumFractionDigits: 1, minimumFractionDigits: 1 })}%)` : ''
+  if (!v.abaixoDoMinimo) return <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">dentro do mínimo{percTexto}</span>
   return (
     <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-      abaixo do mínimo{perc != null ? ` (${perc.toLocaleString('pt-BR', { maximumFractionDigits: 1, minimumFractionDigits: 1 })}%)` : ''}
+      abaixo do mínimo{percTexto}
     </span>
   )
 }

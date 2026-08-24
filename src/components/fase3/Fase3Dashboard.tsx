@@ -255,6 +255,16 @@ function fmtPct(n: number | null): string {
   if (n == null) return '—'
   return n.toLocaleString('pt-BR', { style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1 })
 }
+/**
+ * % que o R$/m³ realmente vendido representa da Meta de destino — pedido do
+ * usuário 2026-08-24: "colocar o % que preço médio [é] para meta de
+ * destino". Fração (não 0-100) pra compor direto com `fmtPct` acima; 100%
+ * = bateu a meta exatamente, abaixo disso = vendeu abaixo do mínimo.
+ */
+function pctMeta(v: { valorM3Vendido: number | null; precoPonderado: number | null }): number | null {
+  if (v.valorM3Vendido == null || v.precoPonderado == null || v.precoPonderado === 0) return null
+  return v.valorM3Vendido / v.precoPonderado
+}
 /** 'YYYY-MM' -> 'MM/AAAA' */
 function fmtMes(iso: string): string {
   const [ano, mes] = iso.split('-')
@@ -294,9 +304,9 @@ function renderProdutoDistribuidorCliente(produto: string, linhas: (Distribuidor
             <td className="px-2 py-1">
               {l.valorM3Vendido != null &&
                 (l.abaixoDoMinimo ? (
-                  <span className="rounded bg-red-100 px-1.5 py-0.5 font-medium text-red-700">abaixo do mínimo</span>
+                  <span className="rounded bg-red-100 px-1.5 py-0.5 font-medium text-red-700">abaixo do mínimo ({fmtPct(pctMeta(l))})</span>
                 ) : (
-                  <span className="rounded bg-emerald-100 px-1.5 py-0.5 font-medium text-emerald-800">dentro do mínimo</span>
+                  <span className="rounded bg-emerald-100 px-1.5 py-0.5 font-medium text-emerald-800">dentro do mínimo ({fmtPct(pctMeta(l))})</span>
                 ))}
             </td>
           </tr>
@@ -577,9 +587,9 @@ export function Fase3Dashboard() {
                     n.valorM3Vendido == null ? (
                       <span className="text-slate-400">sem m³</span>
                     ) : n.abaixoDoMinimo ? (
-                      <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">abaixo do mínimo</span>
+                      <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">abaixo do mínimo ({fmtPct(pctMeta(n))})</span>
                     ) : (
-                      <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">dentro do mínimo</span>
+                      <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">dentro do mínimo ({fmtPct(pctMeta(n))})</span>
                     ),
                 },
               ]}
@@ -1164,9 +1174,9 @@ export function Fase3Dashboard() {
                 p.valorM3Vendido == null ? (
                   <span className="text-slate-400">sem m³</span>
                 ) : p.abaixoDoMinimo ? (
-                  <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">abaixo do mínimo</span>
+                  <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">abaixo do mínimo ({fmtPct(pctMeta(p))})</span>
                 ) : (
-                  <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">dentro do mínimo</span>
+                  <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">dentro do mínimo ({fmtPct(pctMeta(p))})</span>
                 ),
             },
           ]}
@@ -1210,9 +1220,9 @@ export function Fase3Dashboard() {
                 c.valorM3Vendido == null ? (
                   <span className="text-slate-400">sem m³</span>
                 ) : c.abaixoDoMinimo ? (
-                  <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">abaixo do mínimo</span>
+                  <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">abaixo do mínimo ({fmtPct(pctMeta(c))})</span>
                 ) : (
-                  <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">dentro do mínimo</span>
+                  <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">dentro do mínimo ({fmtPct(pctMeta(c))})</span>
                 ),
             },
           ]}
@@ -1329,9 +1339,9 @@ export function Fase3Dashboard() {
                 p.valorM3Vendido == null ? (
                   <span className="text-slate-400">sem m³</span>
                 ) : p.abaixoDoMinimo ? (
-                  <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">abaixo do mínimo</span>
+                  <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">abaixo do mínimo ({fmtPct(pctMeta(p))})</span>
                 ) : (
-                  <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">dentro do mínimo</span>
+                  <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">dentro do mínimo ({fmtPct(pctMeta(p))})</span>
                 ),
             },
           ]}

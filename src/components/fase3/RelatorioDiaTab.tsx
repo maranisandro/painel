@@ -55,6 +55,20 @@ function fmtMoeda(n: number | null | undefined): string {
   return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 2 })
 }
 
+/**
+ * % que o R$/m³ realmente vendido representa da Meta de destino — pedido do
+ * usuário 2026-08-24: "colocar o % que preço médio [é] para meta de
+ * destino". 100% = bateu a meta exatamente; abaixo de 100% = vendeu abaixo
+ * do mínimo esperado.
+ */
+function pctMeta(v: { valorM3Vendido: number | null; precoPonderado: number | null }): number | null {
+  if (v.valorM3Vendido == null || v.precoPonderado == null || v.precoPonderado === 0) return null
+  return (v.valorM3Vendido / v.precoPonderado) * 100
+}
+function fmtPct(n: number | null): string {
+  return n == null ? '' : ` (${n.toLocaleString('pt-BR', { maximumFractionDigits: 1, minimumFractionDigits: 1 })}%)`
+}
+
 function totalFooter(rows: VendaAgregada[]) {
   const faturamentoLiquido = rows.reduce((s, r) => s + r.faturamentoLiquido, 0)
   const vendasUN = rows.reduce((s, r) => s + r.vendasUN, 0)
@@ -90,9 +104,9 @@ function colunasResumo(rotuloChave: string): SortableColumn<VendaAgregada>[] {
         r.valorM3Vendido == null ? (
           <span className="text-slate-400">sem m³</span>
         ) : r.abaixoDoMinimo ? (
-          <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">abaixo do mínimo</span>
+          <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">abaixo do mínimo{fmtPct(pctMeta(r))}</span>
         ) : (
-          <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">dentro do mínimo</span>
+          <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">dentro do mínimo{fmtPct(pctMeta(r))}</span>
         ),
     },
   ]
@@ -200,6 +214,11 @@ export function RelatorioDiaTab() {
             <div className="rounded-lg border border-slate-200 bg-white p-3">
               <p className="text-xs text-slate-500">R$/m³ vendido</p>
               <p className="text-lg font-semibold">{fmtMoeda(total?.valorM3Vendido ?? null)}</p>
+              {total && pctMeta(total) != null && (
+                <p className={`text-xs font-medium ${total.abaixoDoMinimo ? 'text-red-700' : 'text-emerald-700'}`}>
+                  {pctMeta(total)!.toLocaleString('pt-BR', { maximumFractionDigits: 1, minimumFractionDigits: 1 })}% da meta
+                </p>
+              )}
             </div>
             <div className="rounded-lg border border-slate-200 bg-white p-3">
               <p className="text-xs text-slate-500">Meta de destino</p>

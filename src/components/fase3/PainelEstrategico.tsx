@@ -146,10 +146,15 @@ function fmtMes(iso: string): string {
   if (!ano || !mes) return iso
   return `${mes}/${ano}`
 }
-/** % abaixo do mínimo ponderado — pedido do usuário 2026-08-04: "no painel mensal, clientes abaixo do mínimo, colocar o % abaixo". */
+/**
+ * % que o R$/m³ realmente vendido representa da Meta de destino — pedido do
+ * usuário 2026-08-24: "colocar o % que preço médio [é] para meta de
+ * destino". Antes só existia o "% abaixo" (2026-08-04), só no caso abaixo
+ * do mínimo — agora sempre, nos dois casos (100% = bateu a meta exatamente).
+ */
 function percAbaixo(v: { valorM3Vendido: number | null; precoPonderado: number | null }): number | null {
   if (v.valorM3Vendido == null || v.precoPonderado == null || v.precoPonderado === 0) return null
-  return ((v.precoPonderado - v.valorM3Vendido) / v.precoPonderado) * 100
+  return (v.valorM3Vendido / v.precoPonderado) * 100
 }
 function fmtPerc(n: number | null): string {
   if (n == null) return ''
@@ -269,7 +274,7 @@ export function PainelEstrategico() {
         ) : m.abaixoDoMinimo ? (
           <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">abaixo do mínimo{fmtPerc(percAbaixo(m))}</span>
         ) : (
-          <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">meta batida</span>
+          <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">meta batida{fmtPerc(percAbaixo(m))}</span>
         ),
     },
   ]
@@ -674,7 +679,7 @@ export function PainelEstrategico() {
                             ) : t.abaixoDoMinimo ? (
                               <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-700">abaixo{fmtPerc(percAbaixo(t))}</span>
                             ) : (
-                              <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-800">ok</span>
+                              <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-800">ok{fmtPerc(percAbaixo(t))}</span>
                             )}
                           </td>
                         </tr>
@@ -777,7 +782,7 @@ export function PainelEstrategico() {
                                 ) : m.abaixoDoMinimo ? (
                                   <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-700">abaixo{fmtPerc(percAbaixo(m))}</span>
                                 ) : (
-                                  <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-800">ok</span>
+                                  <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-800">ok{fmtPerc(percAbaixo(m))}</span>
                                 )}
                               </td>
                             </tr>
@@ -816,7 +821,7 @@ export function PainelEstrategico() {
                                 ) : c.abaixoDoMinimo ? (
                                   <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-700">abaixo{fmtPerc(percAbaixo(c))}</span>
                                 ) : (
-                                  <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-800">ok</span>
+                                  <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-800">ok{fmtPerc(percAbaixo(c))}</span>
                                 )}
                               </td>
                             </tr>
