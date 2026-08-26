@@ -1,4 +1,5 @@
 import { horasCalendarioUtil, horasCalendarioUtilNoIntervalo } from './calendario-util'
+import { haversineKm } from '@/lib/geo'
 
 /**
  * Disponibilidade Mecânica e Eficiência Operacional (pedido do usuário
@@ -18,6 +19,8 @@ export interface ManutencaoPeriodo {
 export interface PosicaoSimples {
   capturedAt: string
   speedKmh: number | null
+  lat?: number | null
+  lng?: number | null
 }
 
 export interface DisponibilidadePlaca {
@@ -41,6 +44,9 @@ const LIMIAR_VELOCIDADE_RODANDO_KMH = 5
 // contínuo" — provável parada real ou gap de sincronização do rastreador,
 // não deslocamento (mesmo raciocínio de SALTO_GPS_MAXIMO_KM em critica.ts).
 const GAP_MAXIMO_MINUTOS = 30
+// Mesmo salto máximo já usado em critica.ts (kmPercorridoGps) — descarta
+// erro grosseiro de GPS antes de estimar velocidade por distância.
+const SALTO_GPS_MAXIMO_KM = 5
 
 /** Soma, em horas, os intervalos entre posições consecutivas em que a placa estava com velocidade acima do limiar (GPS real, não estimativa). */
 export function horasRodandoGps(posicoesOrdenadas: PosicaoSimples[]): number {
@@ -50,8 +56,33 @@ export function horasRodandoGps(posicoesOrdenadas: PosicaoSimples[]): number {
     const atual = posicoesOrdenadas[i]
     const deltaMin = (Date.parse(atual.capturedAt) - Date.parse(anterior.capturedAt)) / 60_000
     if (deltaMin <= 0 || deltaMin > GAP_MAXIMO_MINUTOS) continue
-    const rodando =
+    let rodando =
       (anterior.speedKmh ?? 0) > LIMIAR_VELOCIDADE_RODANDO_KMH || (atual.speedKmh ?? 0) > LIMIAR_VELOCIDADE_RODANDO_KMH
+
+    // Achado real 2026-08-26 (placa TAK5C12, madrugada 24→25/08): o
+    // rastreador Omnilink às vezes manda velocidade "-" (sem leitura
+    // instantânea) mesmo com a placa realmente em deslocamento — sem este
+    // fallback, o trecho inteiro "some" de qualquer cálculo baseado em
+    // velocidade, mesmo com posições reais mostrando o caminhão mudando de
+    // lugar. Só entra quando NENHUMA das duas leituras tem velocidade (não
+    // sobrescreve um "0 km/h" real, que continua contando como parado);
+    // mesma técnica de distância haversine já usada em `critica.ts`
+    // (`kmPercorridoGps`), descartando saltos de GPS implausíveis.
+    if (
+      !rodando &&
+      anterior.speedKmh == null &&
+      atual.speedKmh == null &&
+      anterior.lat != null &&
+      anterior.lng != null &&
+      atual.lat != null &&
+      atual.lng != null
+    ) {
+      const distKm = haversineKm({ lat: anterior.lat, lng: anterior.lng }, { lat: atual.lat, lng: atual.lng })
+      if (distKm <= SALTO_GPS_MAXIMO_KM) {
+        const velEstimadaKmh = distKm / (deltaMin / 60)
+        rodando = velEstimadaKmh > LIMIAR_VELOCIDADE_RODANDO_KMH
+      }
+    }
     if (rodando) minutos += deltaMin
   }
   return minutos / 60

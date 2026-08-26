@@ -192,6 +192,17 @@ model OmnilinkSyncPlaca {
   status          OmnilinkSyncStatus
   rowsRecebidas   Int                @default(0) @map("rows_recebidas")
   ultimaPosicaoEm DateTime?          @map("ultima_posicao_em")
+  // Fim da janela [inicio, fim] efetivamente consultada nesta tentativa —
+  // achado real 2026-08-24 (RHX5D99 de novo "sem comunicação" com dado novo
+  // confirmado ao vivo no Omnilink via Insomnia, mesmo sintoma do achado de
+  // 2026-08-21 mas causa DIFERENTE): sem isso, `inicio` da próxima tentativa
+  // só olhava a última posição JÁ SALVA (`ultimaConhecida`) — se a placa
+  // ficasse dias sem nenhuma posição nova (ex.: em manutenção), a janela de
+  // busca (`JANELA_MAXIMA_MS`, 24h) ficava CONGELADA sempre no mesmo
+  // intervalo antigo, nunca avançando pra alcançar o presente, mesmo com
+  // dado novo real disponível no Omnilink fora dessa janela. Ver uso em
+  // `fetchOmnilinkPosicoes`.
+  buscadoAte      DateTime?          @map("buscado_ate")
   mensagem        String?
   manual          Boolean            @default(false)
   createdAt       DateTime           @default(now()) @map("created_at")

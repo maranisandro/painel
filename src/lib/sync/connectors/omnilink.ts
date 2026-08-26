@@ -319,6 +319,23 @@ export async function fetchOmnilinkPosicoes(
   })
   const ultimaPosicaoPorPlaca = new Map(ultimasPosicoes.map((p) => [p.placa, p._max.capturedAt]))
 
+  // Fim da janela efetivamente consultada na última tentativa desta placa
+  // (achado real 2026-08-24, RHX5D99 "sem comunicação" de novo com dado novo
+  // confirmado ao vivo na Omnilink): sem isso, `inicio` só olhava a última
+  // posição JÁ SALVA — se a placa ficasse dias sem NENHUMA posição nova
+  // (ex.: em manutenção, ou o rastreador manda velocidade "-" numa janela
+  // parada), a janela de busca (`JANELA_MAXIMA_MS`) ficava CONGELADA sempre
+  // no mesmo intervalo antigo, nunca avançando até o presente mesmo com
+  // dado novo real disponível fora dessa janela. Usar o fim da última busca
+  // (mesmo sem posição nova) como piso adicional faz a janela sempre avançar
+  // a cada execução.
+  const ultimosBuscados = await prisma.omnilinkSyncPlaca.groupBy({
+    by: ['placa'],
+    where: { placa: { in: placas }, buscadoAte: { not: null } },
+    _max: { buscadoAte: true },
+  })
+  const buscadoAtePorPlaca = new Map(ultimosBuscados.map((p) => [p.placa, p._max.buscadoAte]))
+
   // IMPORTANTE (achado ao vivo 2026-07-30): se UMA única placa do array não
   // for reconhecida pela conta Omnilink, a API rejeita a consulta INTEIRA
   // com "Placa não localizada" — não filtra, não avisa qual. Como nem toda
@@ -331,7 +348,10 @@ export async function fetchOmnilinkPosicoes(
   const linhas: ExternalRow[] = []
   for (const placa of placas) {
     const ultimaConhecida = ultimaPosicaoPorPlaca.get(placa)
-    const inicio = ultimaConhecida && ultimaConhecida > inicioPadrao ? ultimaConhecida : inicioPadrao
+    const buscadoAteAnterior = buscadoAtePorPlaca.get(placa)
+    let inicio = inicioPadrao
+    if (ultimaConhecida && ultimaConhecida > inicio) inicio = ultimaConhecida
+    if (buscadoAteAnterior && buscadoAteAnterior > inicio) inicio = buscadoAteAnterior
     const fim = new Date(Math.min(agora.getTime(), inicio.getTime() + JANELA_MAXIMA_MS))
     const resultado = await fetchPosicoesDaPlaca(source, placa, inicio, fim)
     linhas.push(...resultado.linhas)
@@ -354,6 +374,11 @@ export async function fetchOmnilinkPosicoes(
           status: resultado.status,
           rowsRecebidas: resultado.linhas.length,
           ultimaPosicaoEm,
+          // Só grava quando a busca realmente completou (OK/NAO_LOCALIZADA)
+          // — em ERRO não dá pra saber até onde a API chegou a responder,
+          // então a próxima tentativa deve repetir a MESMA janela, não
+          // avançar sobre um trecho que pode não ter sido checado de verdade.
+          buscadoAte: resultado.status === 'ERRO' ? null : fim,
           mensagem: resultado.mensagem,
         },
       })

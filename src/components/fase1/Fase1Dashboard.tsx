@@ -2285,6 +2285,42 @@ export function Fase1Dashboard() {
                   )
                 },
               },
+              // Cliente/NF da viagem em atraso — pedido do usuário 2026-08-26:
+              // "colocar uma opção nos atrasos para ir para NF da viagem para
+              // entender quando problemas de fila qual o cliente". Cliente já
+              // aparece direto na linha (resposta imediata); "Ver NF" muda a
+              // aba pra "Por Nota Fiscal" E ajusta o período pro dia da saída
+              // dessa viagem — sem isso a nota não apareceria lá (a aba
+              // Por Nota Fiscal respeita o filtro de período global, que pode
+              // estar num mês diferente do da viagem atrasada).
+              {
+                key: 'cliente',
+                label: 'Cliente',
+                sortValue: ({ group }) => String(group.trips[0]?.NOMEFANTASIA ?? ''),
+                render: ({ group }) => String(group.trips[0]?.NOMEFANTASIA ?? '—'),
+              },
+              {
+                key: 'nf',
+                label: 'NF',
+                sortValue: ({ group }) => String(group.trips[0]?.NUMEROMOV ?? ''),
+                render: ({ group }) => {
+                  const nf = String(group.trips[0]?.NUMEROMOV ?? '')
+                  if (!nf || !group.ultimaSaida) return <span className="text-slate-400">—</span>
+                  return (
+                    <button
+                      onClick={() => {
+                        setFrom(group.ultimaSaida)
+                        setTo(group.ultimaSaida)
+                        setAba('nota')
+                      }}
+                      className="font-mono text-xs text-emerald-700 underline decoration-dotted hover:text-emerald-900"
+                      title={`Ver nota fiscal ${nf} (${fmtDate(group.ultimaSaida)})`}
+                    >
+                      {nf}
+                    </button>
+                  )
+                },
+              },
             ]}
           />
         </div>

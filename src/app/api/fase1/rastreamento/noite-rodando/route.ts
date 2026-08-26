@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
 
   const porGrupo = new Map<
     string,
-    { placa: string; noite: string; capturedAt: string; speedKmh: number | null; latitude: number; longitude: number; localizacao: string | null }[]
+    { placa: string; noite: string; capturedAt: string; speedKmh: number | null; lat: number; lng: number; localizacao: string | null }[]
   >()
   for (const p of posicoes) {
     const dia = diaBrasilDe(p.capturedAt)
@@ -68,8 +68,8 @@ export async function GET(req: NextRequest) {
       noite,
       capturedAt: p.capturedAt.toISOString(),
       speedKmh: p.speedKmh,
-      latitude: p.latitude,
-      longitude: p.longitude,
+      lat: p.latitude,
+      lng: p.longitude,
       localizacao: p.localizacao,
     })
     porGrupo.set(chave, lista)
