@@ -1173,7 +1173,17 @@ export function Fase1Dashboard() {
     // projetadoFechamento) é dividida pelo KM/peso também projetados no
     // mesmo ritmo (kmProjetado/pesoProjetado) — as duas pontas da conta
     // projetadas juntas, não uma projetada contra a outra realizada.
-    const mesAberto = data ? data.params.custoMesAtual.diasDecorridos < data.params.custoMesAtual.diasDoMes : false
+    // Bug real corrigido 2026-08-27 (usuário filtrou julho/2026, mês já
+    // fechado, e mesmo assim viu "Estimado (mês fechando no ritmo atual)"):
+    // `data.params.custoMesAtual` é SEMPRE sobre o mês corrente DE VERDADE
+    // (hoje), calculado no servidor independente do período filtrado no
+    // painel — sem essa segunda checagem, "mesAberto" dava true mesmo
+    // olhando um mês passado fechado, e a estimativa mostrada era do mês
+    // atual (errado), não do período em tela. Só mostra a estimativa quando
+    // o filtro `to` realmente cai dentro do mês corrente.
+    const filtroNoMesAtual = data ? to.slice(0, 7).replace('-', '') === data.params.custoMesAtual.ym : false
+    const mesAberto =
+      data && filtroNoMesAtual ? data.params.custoMesAtual.diasDecorridos < data.params.custoMesAtual.diasDoMes : false
     const custoPorKmEstimado =
       mesAberto && data && kmProjetado > 0 ? data.params.custoMesAtual.projetadoFechamento / kmProjetado : null
     const custoPorToneladaEstimado =
@@ -1258,6 +1268,22 @@ export function Fase1Dashboard() {
             quantidade,
             custoPorUnidade: custoProporcional / quantidade,
           }))
+        // Custo por TON pelo peso de balança — pedido do usuário 2026-08-27:
+        // "colocar os custos de TON para o carvão e maravalha pelo peso de
+        // balança assim como fez no cavaco". Cavaco já mostra TON porque a
+        // nota fiscal já vem nessa unidade (`entry.porUnidade`, acima); para
+        // Carvão/Maravalha, cuja nota vem em MDC/M3, não existe quantidade em
+        // TON na nota — usa direto o peso líquido pesado na balança
+        // (`entry.pesoT`, mesmo dado de "X t transportadas" já exibido no
+        // card). Rótulo "TON (balança)" para nunca confundir com uma
+        // quantidade de TON que viesse da própria nota fiscal.
+        if (!unidades.some((u) => u.unidade === 'TON') && entry.pesoT > 0) {
+          unidades.push({
+            unidade: 'TON (balança)',
+            quantidade: entry.pesoT,
+            custoPorUnidade: custoProporcional / entry.pesoT,
+          })
+        }
         return { produto, pesoT: entry.pesoT, pctPeso, custoProporcional, unidades }
       })
       .sort((a, b) => b.pesoT - a.pesoT)
@@ -1883,10 +1909,15 @@ export function Fase1Dashboard() {
                       {u.unidade} = R$ {fmt(u.custoPorUnidade, 2)}/{u.unidade}.
                     </p>
                   ))}
-                  {p.unidades.length > 1 && (
+                  {p.unidades.filter((u) => u.unidade !== 'TON (balança)').length > 1 && (
                     <p className="text-amber-700">
                       Este produto tem notas em mais de uma unidade de medida (campo CODUND do ERP) — a quantidade de
-                      cada unidade nunca é somada com a de outra, senão o resultado mistura {p.unidades.map((u) => u.unidade).join(' com ')}.
+                      cada unidade nunca é somada com a de outra, senão o resultado mistura{' '}
+                      {p.unidades
+                        .filter((u) => u.unidade !== 'TON (balança)')
+                        .map((u) => u.unidade)
+                        .join(' com ')}
+                      .
                     </p>
                   )}
                   {(data?.params.fatorConversaoMdc[p.produto] ?? 0) > 0 && (

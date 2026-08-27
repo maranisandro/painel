@@ -331,12 +331,25 @@ export async function GET(req: NextRequest) {
   // Manutenção (placa) e férias (motorista) sobrepondo o período selecionado
   // (pedido do usuário): o caminhão/motorista continua contando na meta —
   // isso só serve para o painel explicar o desvio de performance.
+  // Bug real corrigido 2026-08-27 (usuário Bruno: colocou uma placa em
+  // manutenção pelo botão rápido, "não aplicou o início" — placa voltava a
+  // aparecer sem manutenção): a condição `startDate <= periodEnd` também
+  // excluía um registro EM ABERTO (endDate null) sempre que o filtro de
+  // período do painel (`to`) estivesse antes de hoje — o botão rápido sempre
+  // cria com `startDate = hoje`, então bastava o usuário estar olhando um
+  // período que não alcança hoje (comum: filtro num mês anterior) para o
+  // registro recém-criado sumir da lista, mesmo intacto no banco. "Só
+  // funcionava com outro usuário" batia porque a sessão de outro usuário
+  // normalmente tinha o filtro padrão (mês corrente, `to` = hoje). Um período
+  // EM ABERTO (`endDate: null`) é estado ATUAL — sempre entra, independente
+  // do filtro; só um período já FECHADO precisa mesmo se sobrepor ao
+  // intervalo filtrado para aparecer.
   const [maintenanceRecords, vacationRecords] = await Promise.all([
     prisma.vehicleMaintenance.findMany({
-      where: { startDate: { lte: periodEnd }, OR: [{ endDate: null }, { endDate: { gte: fromDate } }] },
+      where: { OR: [{ endDate: null }, { startDate: { lte: periodEnd }, endDate: { gte: fromDate } }] },
     }),
     prisma.driverVacation.findMany({
-      where: { startDate: { lte: periodEnd }, OR: [{ endDate: null }, { endDate: { gte: fromDate } }] },
+      where: { OR: [{ endDate: null }, { startDate: { lte: periodEnd }, endDate: { gte: fromDate } }] },
     }),
   ])
   const manutencoes = maintenanceRecords.map((m) => ({
