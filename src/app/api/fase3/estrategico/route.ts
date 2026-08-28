@@ -46,6 +46,11 @@ export async function GET(req: NextRequest) {
   // mesmo padrão de /api/fase3/data.
   const marcasParam = req.nextUrl.searchParams.get('marcas')
   const marcasSelecionadas = marcasParam ? marcasParam.split(',').filter(Boolean) : null
+  // Filtro por Distribuidor em checkbox — pedido do usuário 2026-08-24:
+  // "colocar mais um filtro de distribuidor nos painéis de venda de
+  // madeira" — mesmo padrão de /api/fase3/data.
+  const distribuidoresParam = req.nextUrl.searchParams.get('distribuidores')
+  const distribuidoresSelecionados = distribuidoresParam ? distribuidoresParam.split(',').filter(Boolean) : null
   // Filtro por cliente em combo de pesquisa (pedido do usuário 2026-08-05) —
   // mesmo padrão de /api/fase3/data.
   const clienteParam = req.nextUrl.searchParams.get('cliente')
@@ -79,6 +84,10 @@ export async function GET(req: NextRequest) {
   // princípio de categoriasDisponiveis, o combo de busca mostra o universo
   // inteiro do ano, não só o que sobrou depois de outros filtros.
   const clientesDisponiveis = [...new Set(linhasAno.map((l) => l.cliente || '—'))].sort()
+  // Distribuidores disponíveis SEMPRE sobre linhasAno (não filtrado) — mesmo
+  // princípio de categoriasDisponiveis/marcasDisponiveis acima.
+  const distribuidoresDisponiveis = [...new Set(linhasAno.map((l) => l.distribuidor))].sort()
+  const porDistribuidorTodos = agregarVendas(linhasAno, (l) => l.distribuidor)
 
   // Um card clicável precisa sempre mostrar TODAS as suas próprias opções
   // (com a % real), mesmo quando uma delas já está selecionada — senão,
@@ -89,9 +98,12 @@ export async function GET(req: NextRequest) {
     ? linhasAno.filter((l) => categoriasSelecionadas.includes(l.tipoProduto))
     : linhasAno
   const linhasMarca = marcasSelecionadas ? linhasCategoria.filter((l) => marcasSelecionadas.includes(l.marca)) : linhasCategoria
-  const linhasClienteFiltro = clienteSelecionado
-    ? linhasMarca.filter((l) => (l.cliente || '—') === clienteSelecionado)
+  const linhasDistribuidorFiltro = distribuidoresSelecionados
+    ? linhasMarca.filter((l) => distribuidoresSelecionados.includes(l.distribuidor))
     : linhasMarca
+  const linhasClienteFiltro = clienteSelecionado
+    ? linhasDistribuidorFiltro.filter((l) => (l.cliente || '—') === clienteSelecionado)
+    : linhasDistribuidorFiltro
   const linhasSemFiltroTabela = subTiposSelecionados
     ? linhasClienteFiltro.filter((l) => subTiposSelecionados.includes(l.subTipoProduto))
     : linhasClienteFiltro
@@ -320,6 +332,8 @@ export async function GET(req: NextRequest) {
     insightMouraoPecas,
     marcasDisponiveis,
     porMarca,
+    distribuidoresDisponiveis,
+    porDistribuidorTodos,
     insightDiametroMourao,
     evolucaoMouraoPecas,
     perdaEstimadaTotal,

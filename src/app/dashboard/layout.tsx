@@ -14,6 +14,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const canSeeFase3 = hasModuleAccess(user, 'fase3')
   const canSeeFase5 = hasModuleAccess(user, 'fase5')
   const canSeeRh = hasModuleAccess(user, 'rh')
+  const canSeeAbastecimento = hasModuleAccess(user, 'abastecimento')
   // Acesso granular por tela de Cadastro (pedido do usuário 2026-08-14) — o
   // link "Cadastros" aparece se o usuário tem pelo menos UM recurso
   // concedido (ou fase3, que ainda usa o gate de módulo inteiro pra Cotas
@@ -28,6 +29,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     ...(canSeeFase3 ? [{ href: '/dashboard/fase3', label: 'Venda Madeira Tratada' }] : []),
     ...(canSeeFase5 ? [{ href: '/dashboard/fase5', label: 'Transporte de Madeira' }] : []),
     ...(canSeeRh ? [{ href: '/dashboard/rh', label: 'Recursos Humanos' }] : []),
+    ...(canSeeAbastecimento ? [{ href: '/dashboard/abastecimento', label: 'Abastecimento' }] : []),
     ...(admin ? [{ href: '/dashboard/datasets', label: 'Fontes de Dados' }] : []),
     ...(canSeeCadastros ? [{ href: '/dashboard/admin', label: 'Cadastros' }] : []),
   ]

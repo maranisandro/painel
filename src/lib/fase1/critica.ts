@@ -82,13 +82,18 @@ const MIN_OCORRENCIAS_TRAVADO = 3
  * normalmente sob um rótulo de produto diferente — duas fontes conflitantes
  * de hodômetro na Officium para o mesmo veículo).
  */
-export function achadosHodometroTravado(rows: Row[], placasConhecidas: Set<string>): AchadoDetectado[] {
+export function achadosHodometroTravado(
+  rows: Row[],
+  placasConhecidas: Set<string>,
+  produtoMatch: RegExp = DIESEL_MATCH,
+  produtoLabel: string = 'diesel',
+): AchadoDetectado[] {
   const porPlaca = new Map<string, { data: string; pedometer: number }[]>()
   for (const r of rows) {
     const placa = String((r as Row).PLACA ?? '').trim().toUpperCase()
     if (!placa || !placasConhecidas.has(placa)) continue
     const produto = String((r as Row).produto ?? '').trim()
-    if (!DIESEL_MATCH.test(produto)) continue
+    if (!produtoMatch.test(produto)) continue
     const pedometer = Number((r as Row).pedometer) || 0
     if (pedometer <= 0) continue
     const data = String((r as Row).date ?? '')
@@ -115,7 +120,7 @@ export function achadosHodometroTravado(rows: Row[], placasConhecidas: Set<strin
           // e reconhecível separadamente.
           chave: `${placa}|${sorted[inicioSerie].pedometer}|${sorted[inicioSerie].data}`,
           titulo: `Placa ${placa} — hodômetro parado em ${sorted[inicioSerie].pedometer.toLocaleString('pt-BR')} km`,
-          descricao: `${ocorrencias} abastecimentos de diesel seguidos com o MESMO hodômetro (${sorted[inicioSerie].pedometer.toLocaleString('pt-BR')} km), de ${fmtDateBR(sorted[inicioSerie].data)} a ${fmtDateBR(sorted[i - 1].data)} — sensor/telemetria provavelmente travado, ou há uma segunda fonte de hodômetro conflitante para a mesma placa na Officium.`,
+          descricao: `${ocorrencias} abastecimentos de ${produtoLabel} seguidos com o MESMO hodômetro (${sorted[inicioSerie].pedometer.toLocaleString('pt-BR')} km), de ${fmtDateBR(sorted[inicioSerie].data)} a ${fmtDateBR(sorted[i - 1].data)} — sensor/telemetria provavelmente travado, ou há uma segunda fonte de hodômetro conflitante para a mesma placa na Officium.`,
         })
       }
       inicioSerie = i
@@ -137,13 +142,17 @@ export function achadosHodometroTravado(rows: Row[], placasConhecidas: Set<strin
  * este achado SEMPRE soa (não depende de atingir um score "crítico" como em
  * `achadosAnormalidadeCritica" — uma única queda já é, por regra, inválida).
  */
-export function achadosHodometroRegrediu(rows: Row[], placasConhecidas: Set<string>): AchadoDetectado[] {
+export function achadosHodometroRegrediu(
+  rows: Row[],
+  placasConhecidas: Set<string>,
+  produtoMatch: RegExp = DIESEL_MATCH,
+): AchadoDetectado[] {
   const porPlaca = new Map<string, { data: string; pedometer: number }[]>()
   for (const r of rows) {
     const placa = String((r as Row).PLACA ?? '').trim().toUpperCase()
     if (!placa || !placasConhecidas.has(placa)) continue
     const produto = String((r as Row).produto ?? '').trim()
-    if (!DIESEL_MATCH.test(produto)) continue
+    if (!produtoMatch.test(produto)) continue
     const pedometer = Number((r as Row).pedometer) || 0
     if (pedometer <= 0) continue
     const data = String((r as Row).date ?? '')
@@ -188,14 +197,19 @@ const LIMIAR_DIAS_SEM_ABASTECER = 10
  * viagens). Cobre o caso "veículo pode estar parado, ou abastecendo fora do
  * sistema" mesmo quando não há evidência direta de uso.
  */
-export function achadosSemAbastecimentoProlongado(rows: Row[], placasConhecidas: Set<string>): AchadoDetectado[] {
+export function achadosSemAbastecimentoProlongado(
+  rows: Row[],
+  placasConhecidas: Set<string>,
+  produtoMatch: RegExp = DIESEL_MATCH,
+  produtoLabel: string = 'diesel',
+): AchadoDetectado[] {
   const hoje = new Date().toISOString().slice(0, 10)
   const ultimoDieselPorPlaca = new Map<string, string>()
   for (const r of rows) {
     const placa = String((r as Row).PLACA ?? '').trim().toUpperCase()
     if (!placa || !placasConhecidas.has(placa)) continue
     const produto = String((r as Row).produto ?? '').trim()
-    if (!DIESEL_MATCH.test(produto)) continue
+    if (!produtoMatch.test(produto)) continue
     const data = String((r as Row).date ?? '')
     if (!data) continue
     const atual = ultimoDieselPorPlaca.get(placa)
@@ -210,7 +224,7 @@ export function achadosSemAbastecimentoProlongado(rows: Row[], placasConhecidas:
         categoria: 'sem_abastecimento_prolongado',
         chave: `${placa}|${ultima}`,
         titulo: `Placa ${placa} — ${dias} dias sem abastecer`,
-        descricao: `Último abastecimento de diesel registrado em ${fmtDateBR(ultima)} — ${dias} dias atrás. Confira se o veículo está parado (manutenção/férias do motorista) ou se o abastecimento está sendo feito fora do sistema (posto não integrado à Officium).`,
+        descricao: `Último abastecimento de ${produtoLabel} registrado em ${fmtDateBR(ultima)} — ${dias} dias atrás. Confira se o veículo está parado (manutenção/férias do motorista) ou se o abastecimento está sendo feito fora do sistema (posto não integrado à Officium).`,
       })
     }
   }

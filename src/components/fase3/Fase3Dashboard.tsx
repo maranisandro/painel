@@ -420,6 +420,7 @@ export function Fase3Dashboard() {
   const [to, setTo] = useState(todayStr())
   const [categorias, setCategorias] = useState<string[]>([CATEGORIA_PADRAO])
   const [marcas, setMarcas] = useState<string[]>([])
+  const [distribuidores, setDistribuidores] = useState<string[]>([])
   const [clienteFiltro, setClienteFiltro] = useState<string | null>(null)
   const [data, setData] = useState<ApiData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -470,14 +471,15 @@ export function Fase3Dashboard() {
     const subTiposParam = subTiposFiltro.size ? `&subtipos=${encodeURIComponent([...subTiposFiltro].join(','))}` : ''
     const clienteParam = clienteFiltro ? `&cliente=${encodeURIComponent(clienteFiltro)}` : ''
     const marcasParam = marcas.length ? `&marcas=${encodeURIComponent(marcas.join(','))}` : ''
+    const distribuidoresParam = distribuidores.length ? `&distribuidores=${encodeURIComponent(distribuidores.join(','))}` : ''
     const tipoMovimentoParam = tipoMovimentoFiltro.size ? `&tipoMovimento=${encodeURIComponent([...tipoMovimentoFiltro].join(','))}` : ''
     fetch(
-      `/api/fase3/data?from=${from}&to=${to}&categorias=${encodeURIComponent(categorias.join(','))}${tabelasParam}${subTiposParam}${clienteParam}${marcasParam}${tipoMovimentoParam}`,
+      `/api/fase3/data?from=${from}&to=${to}&categorias=${encodeURIComponent(categorias.join(','))}${tabelasParam}${subTiposParam}${clienteParam}${marcasParam}${distribuidoresParam}${tipoMovimentoParam}`,
     )
       .then((r) => r.json())
       .then(setData)
       .finally(() => setLoading(false))
-  }, [from, to, categorias, tabelasFiltro, subTiposFiltro, clienteFiltro, marcas, tipoMovimentoFiltro])
+  }, [from, to, categorias, tabelasFiltro, subTiposFiltro, clienteFiltro, marcas, distribuidores, tipoMovimentoFiltro])
 
   return (
     <div className="space-y-6">

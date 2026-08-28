@@ -73,6 +73,13 @@ export async function GET(req: NextRequest) {
   // filtro de checkbox no topo do painel, igual à categoria.
   const marcasParam = req.nextUrl.searchParams.get('marcas')
   const marcasSelecionadas = marcasParam ? marcasParam.split(',').filter(Boolean) : null
+  // Filtro por Distribuidor em checkbox — pedido do usuário 2026-08-24:
+  // "colocar mais um filtro de distribuidor nos painéis de venda de
+  // madeira". Universo pequeno e conhecido (PLANEP/TOP TOP/EXTRA/...),
+  // mesmo padrão de checkbox de Categoria/Marca (não é combo de busca como
+  // Cliente, que tem milhares de opções).
+  const distribuidoresParam = req.nextUrl.searchParams.get('distribuidores')
+  const distribuidoresSelecionados = distribuidoresParam ? distribuidoresParam.split(',').filter(Boolean) : null
   // Filtro por cliente em combo de pesquisa (pedido do usuário 2026-08-05:
   // "no painel mensal e estratégico colocar um filtro por cliente em um
   // combo de pesquisa") — seleção única, não em lista de checkbox como
@@ -142,13 +149,21 @@ export async function GET(req: NextRequest) {
   // categoriasDisponiveis: o combo de busca sempre mostra o universo inteiro
   // do período, não só o que sobrou depois de outros filtros.
   const clientesDisponiveis = [...new Set(linhasPeriodo.map((l) => l.cliente || '—'))].sort()
+  // Distribuidores disponíveis SEMPRE sobre linhasPeriodo (não filtrado pelo
+  // próprio distribuidor) — mesmo princípio de categoriasDisponiveis/
+  // marcasDisponiveis acima.
+  const distribuidoresDisponiveis = [...new Set(linhasPeriodo.map((l) => l.distribuidor))].sort()
+  const porDistribuidorTodos = agregarVendas(linhasPeriodo, (l) => l.distribuidor)
   const linhasCategoria = categoriasSelecionadas
     ? linhasPeriodo.filter((l) => categoriasSelecionadas.includes(l.tipoProduto))
     : linhasPeriodo
   const linhasMarca = marcasSelecionadas ? linhasCategoria.filter((l) => marcasSelecionadas.includes(l.marca)) : linhasCategoria
-  const linhasClienteFiltro = clienteSelecionado
-    ? linhasMarca.filter((l) => (l.cliente || '—') === clienteSelecionado)
+  const linhasDistribuidorFiltro = distribuidoresSelecionados
+    ? linhasMarca.filter((l) => distribuidoresSelecionados.includes(l.distribuidor))
     : linhasMarca
+  const linhasClienteFiltro = clienteSelecionado
+    ? linhasDistribuidorFiltro.filter((l) => (l.cliente || '—') === clienteSelecionado)
+    : linhasDistribuidorFiltro
   // Ver /api/fase3/estrategico para o motivo de cada variante: os PRÓPRIOS
   // cards de ICMS/Mourão-Peças precisam sempre mostrar todas as opções.
   const linhasSemFiltroTabela = subTiposSelecionados
@@ -414,6 +429,8 @@ export async function GET(req: NextRequest) {
     insightMouraoPecas,
     marcasDisponiveis,
     porMarca,
+    distribuidoresDisponiveis,
+    porDistribuidorTodos,
     insightDiametroMourao,
     porDistribuidor,
     porDistribuidorCliente,

@@ -383,6 +383,11 @@ async function main() {
     // 6` só serve para ordenar depois das fases; a UI trata code sem prefixo
     // "fase" como módulo comum, sem o rótulo "Fase N" (ver dashboard/page.tsx).
     { code: 'rh', name: 'Recursos Humanos', phase: 6, active: true },
+    // Idem "rh": módulo transversal (não é fase de negócio produção/venda) —
+    // pedido do usuário 2026-08-27, análise de abastecimento/consumo sobre
+    // TODO o universo de equipamentos (não só a frota de transporte da Fase
+    // 1). `active: false` até o desenvolvimento ficar pronto pra revisão.
+    { code: 'abastecimento', name: 'Abastecimento', phase: 7, active: false },
   ]
   for (const m of modules) {
     // `active` também precisa sincronizar no update — antes só atualizava o

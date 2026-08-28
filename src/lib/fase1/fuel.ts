@@ -164,13 +164,16 @@ const KM_INTERVALO_MAX = 5000 // descarta saltos de hodômetro implausíveis (re
 // "OLEO DIESEL S10", "SERVICO ABASTECIMENTO DIESEL" — tudo que a Officium usa
 // hoje). Arla32/gasolina/etanol/lubrificante continuam aparecendo na coluna
 // Produto, só não entram na conta (pedido do usuário 2026-07-30).
-const DIESEL_MATCH = /DIESEL/i
+// Exportadas (2026-08-27) para reuso pelo módulo Abastecimento
+// (`src/lib/abastecimento/`), que precisa das mesmas categorias mas sobre o
+// universo inteiro de equipamentos (não só a frota de transporte).
+export const DIESEL_MATCH = /DIESEL/i
 // Arla32 (aditivo do escapamento) — pedido do usuário 2026-08-03: "preciso
 // ter a média de arla por km". Cobre "ARLA 32 (GRUPO 30)" e "SERVICO
 // ABASTECIMENTO ARLA", os dois nomes que a Officium usa hoje.
-const ARLA_MATCH = /ARLA/i
-const GASOLINA_MATCH = /GASOLINA/i
-const ETANOL_MATCH = /ETANOL/i
+export const ARLA_MATCH = /ARLA/i
+export const GASOLINA_MATCH = /GASOLINA/i
+export const ETANOL_MATCH = /ETANOL/i
 // Faixa normal de mercado (pedido do usuário 2026-08-14): 3%-5% de Arla por
 // litro de diesel queimado. Alerta só fora de uma margem mais larga que a
 // faixa normal, pra não sinalizar toda variação pequena — abaixo de 1,5% é
@@ -191,7 +194,7 @@ const ARLA_PCT_MAX_ALERTA = 8
  * (fusão de fracionado, ver abaixo) — nunca para decidir SE algo é diesel
  * (isso continua sendo `DIESEL_MATCH` direto, já correto).
  */
-function categoriaProduto(produto: string): string {
+export function categoriaProduto(produto: string): string {
   if (DIESEL_MATCH.test(produto)) return 'DIESEL'
   if (ARLA_MATCH.test(produto)) return 'ARLA'
   if (GASOLINA_MATCH.test(produto)) return 'GASOLINA'
