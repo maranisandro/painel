@@ -42,3 +42,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Claude Code local session state - never share between sessions/agents
+.claude/settings.local.json
+.claude/worktrees/
