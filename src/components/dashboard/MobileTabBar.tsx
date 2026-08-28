@@ -2,13 +2,13 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useState } from 'react'
-import { CloseIcon, MoreIcon, type IconComponent } from '@/components/shared/ui/icons'
+import { useState, type ReactNode } from 'react'
+import { CloseIcon, MoreIcon } from '@/components/shared/ui/icons'
 
 export interface NavLink {
   href: string
   label: string
-  icon: IconComponent
+  icon: ReactNode
 }
 
 const MAX_TABS = 4
@@ -28,7 +28,6 @@ export function MobileTabBar({ links }: { links: NavLink[] }) {
       >
         {primary.map((l) => {
           const active = pathname === l.href
-          const Icon = l.icon
           return (
             <Link
               key={l.href}
@@ -37,7 +36,7 @@ export function MobileTabBar({ links }: { links: NavLink[] }) {
                 active ? 'text-brand-700' : 'text-neutral-500'
               }`}
             >
-              <Icon className="h-5 w-5" />
+              {l.icon}
               <span className="truncate px-1">{l.label}</span>
             </Link>
           )
@@ -72,7 +71,6 @@ export function MobileTabBar({ links }: { links: NavLink[] }) {
             </div>
             <nav className="flex flex-col gap-1 pb-2">
               {overflow.map((l) => {
-                const Icon = l.icon
                 return (
                   <Link
                     key={l.href}
@@ -80,7 +78,7 @@ export function MobileTabBar({ links }: { links: NavLink[] }) {
                     onClick={() => setDrawerOpen(false)}
                     className="flex items-center gap-3 rounded-(--radius-md) px-3 py-2.5 text-sm text-neutral-700 hover:bg-neutral-100"
                   >
-                    <Icon className="h-5 w-5 text-neutral-500" />
+                    {l.icon}
                     {l.label}
                   </Link>
                 )
