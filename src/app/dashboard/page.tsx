@@ -36,12 +36,15 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-8">
-      <Callout tone={producao ? 'danger' : 'info'} title={producao ? 'PRODUÇÃO' : 'DEV'}>
+      {/* Ambiente + versão (pedido do usuário 2026-08-17: "conseguirmos diferenciar
+       * as versões dev e produção") — tirado do cabeçalho (ficava apertado ao lado
+       * do menu) e movido para um card discreto aqui na home. */}
+      <Callout tone={producao ? 'danger' : 'neutral'} title={producao ? 'PRODUÇÃO' : 'DEV'}>
         <span className="font-mono opacity-80">{process.env.NEXT_PUBLIC_BUILD_VERSION ?? 'sem versão'}</span>
       </Callout>
 
       <section>
-        <SectionHeading>Negócios</SectionHeading>
+        <SectionHeading as="h1">Negócios</SectionHeading>
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {modules.map((m) => {
             const Icon = moduleIcon(m.code)

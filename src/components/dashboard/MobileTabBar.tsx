@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { CloseIcon, MoreIcon } from '@/components/shared/ui/icons'
 
 export interface NavLink {
@@ -20,14 +20,23 @@ export function MobileTabBar({ links }: { links: NavLink[] }) {
   const primary = links.slice(0, MAX_TABS)
   const overflow = links.slice(MAX_TABS)
 
+  useEffect(() => {
+    if (!drawerOpen) return
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setDrawerOpen(false)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [drawerOpen])
+
   return (
     <>
       <nav
-        className="flex shrink-0 border-t border-neutral-200 bg-white md:hidden"
+        className="flex shrink-0 border-t border-neutral-200 bg-white pb-[env(safe-area-inset-bottom)] md:hidden"
         aria-label="Navegação principal"
       >
         {primary.map((l) => {
-          const active = pathname === l.href
+          const active = pathname === l.href || (l.href !== '/dashboard' && pathname.startsWith(l.href + '/'))
           return (
             <Link
               key={l.href}
@@ -60,7 +69,7 @@ export function MobileTabBar({ links }: { links: NavLink[] }) {
           onClick={() => setDrawerOpen(false)}
         >
           <div
-            className="rounded-t-(--radius-lg) border-t border-neutral-200 bg-white p-2"
+            className="rounded-t-(--radius-ui-lg) border-t border-neutral-200 bg-white p-2"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-2 py-2">
@@ -76,7 +85,7 @@ export function MobileTabBar({ links }: { links: NavLink[] }) {
                     key={l.href}
                     href={l.href}
                     onClick={() => setDrawerOpen(false)}
-                    className="flex items-center gap-3 rounded-(--radius-md) px-3 py-2.5 text-sm text-neutral-700 hover:bg-neutral-100"
+                    className="flex items-center gap-3 rounded-(--radius-ui-md) px-3 py-2.5 text-sm text-neutral-700 hover:bg-neutral-100"
                   >
                     {l.icon}
                     {l.label}

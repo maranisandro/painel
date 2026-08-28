@@ -23,6 +23,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const canSeeFase5 = hasModuleAccess(user, 'fase5')
   const canSeeRh = hasModuleAccess(user, 'rh')
   const canSeeAbastecimento = hasModuleAccess(user, 'abastecimento')
+  // Acesso granular por tela de Cadastro (pedido do usuário 2026-08-14) — o link
+  // "Cadastros" aparece se o usuário tem pelo menos UM recurso concedido (ou fase3,
+  // que ainda usa o gate de módulo inteiro pra Cotas de venda) ou é admin; cada card
+  // individual em /dashboard/admin decide a própria visibilidade por AdminResource.
   const canSeeCadastros = admin || user.resourceCodes.length > 0 || canEditModule(user, 'fase3')
 
   const links: NavLink[] = [
@@ -48,16 +52,20 @@ export default async function DashboardLayout({ children }: { children: React.Re
   ]
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-dvh flex-col">
       <header className="shrink-0 border-b border-neutral-200 bg-white print:hidden">
         <div className="mx-auto flex max-w-none items-center justify-between gap-3 px-4 py-3">
           <div className="flex min-w-0 items-center gap-6">
             <Link href="/dashboard" className="shrink-0 text-lg font-semibold text-brand-800">
               Painel de Informações
             </Link>
-            <nav className="hidden gap-4 text-sm text-neutral-600 md:flex">
+            <nav className="hidden min-w-0 flex-nowrap gap-4 overflow-x-auto text-sm text-neutral-600 md:flex">
               {links.map((l) => (
-                <Link key={l.href} href={l.href} className="flex items-center gap-1.5 hover:text-brand-700">
+                <Link
+                  key={l.href}
+                  href={l.href}
+                  className="flex shrink-0 items-center gap-1.5 hover:text-brand-700"
+                >
                   {l.icon}
                   {l.label}
                 </Link>
