@@ -27,6 +27,19 @@ function getAppEnv(): 'producao' | 'dev' {
   return process.env.NEXT_PUBLIC_BUILD_VERSION ? 'producao' : 'dev';
 }
 
+// S10 (revisão de segurança 2026-07-25, "sem CSP/HSTS/hardening HTTP") —
+// CSP fica em `src/middleware.ts` (precisa de nonce por request, gerado a
+// cada requisição). HSTS de propósito NÃO está aqui: o painel roda em HTTP
+// puro, sem TLS/Nginx na frente (decisão já tomada do grupo, ver [[01 -
+// Stack e Arquitetura]]), e HSTS não tem nenhum efeito fora de HTTPS.
+// Revisitar quando/se o painel ganhar TLS na frente.
+const SECURITY_HEADERS = [
+  { key: 'X-Content-Type-Options', value: 'nosniff' },
+  { key: 'X-Frame-Options', value: 'DENY' },
+  { key: 'Referrer-Policy', value: 'same-origin' },
+  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+];
+
 const nextConfig: NextConfig = {
   // Imagem Docker enxuta (só o necessário pra rodar, sem node_modules
   // inteiro) — pedido do usuário 2026-08-12, migração para servidor com
@@ -35,6 +48,9 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_BUILD_VERSION: getBuildVersion(),
     NEXT_PUBLIC_APP_ENV: getAppEnv(),
+  },
+  async headers() {
+    return [{ source: '/(.*)', headers: SECURITY_HEADERS }];
   },
 };
 

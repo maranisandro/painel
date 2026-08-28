@@ -47,3 +47,6 @@ next-env.d.ts
 # Claude Code local session state - never share between sessions/agents
 .claude/settings.local.json
 .claude/worktrees/
+
+# fallback local de auditoria (src/lib/audit.ts) - nunca versionar, pode conter dado sensível
+/logs/

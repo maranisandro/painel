@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { headers } from "next/headers";
 import "./globals.css";
 import { Providers } from "./providers";
 
@@ -27,11 +28,17 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-export default function RootLayout({
+// S10 (CSP com nonce, ver src/middleware.ts) — precisa ler o nonce aqui via
+// `headers()` para o Next.js aplicá-lo automaticamente nos <script> que ele
+// mesmo injeta (bootstrap/chunks); só ler já força renderização dinâmica por
+// request, que é o que faz a detecção funcionar. Não precisamos usar o
+// valor diretamente — a leitura em si já ativa o comportamento.
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  await headers();
   return (
     <html
       lang="pt-BR"
