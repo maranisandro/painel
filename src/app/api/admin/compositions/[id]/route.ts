@@ -43,13 +43,19 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const auth = await requireResourceEditor('composicoes')
   if ('error' in auth) return auth.error
   const { id } = await params
-  await prisma.plateComposition.delete({ where: { id } })
+  const deleted = await prisma.plateComposition.delete({ where: { id } })
+  // `details` grava a placa (pedido do usuário 2026-08-28: ponderar o
+  // gráfico "KM médio por placa" pela data em que a placa saiu da
+  // estrutura) — antes disso o registro de auditoria só tinha o `id` da
+  // composição, que não dá pra recuperar depois de deletado; sem a placa
+  // aqui, saídas anteriores a esta correção não são rastreáveis.
   await logAudit({
     userId: auth.user.id,
     userName: auth.user.name,
     action: 'DELETE',
     entity: 'PlateComposition',
     entityId: id,
+    details: { placa: deleted.placa, composition: deleted.composition },
   })
   return NextResponse.json({ ok: true })
 }

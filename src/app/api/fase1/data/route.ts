@@ -147,6 +147,36 @@ export async function GET(req: NextRequest) {
   // placa "sumiu" porque parou de rodar ou porque mudou de composição.
   const composicoesAtuais = await composicoesAtuaisComDesde(resolveComposition)
 
+  // Entrada/saída de placa na estrutura — pedido do usuário 2026-08-28:
+  // ponderar "KM médio por placa" (gráfico "Performance vs meses
+  // anteriores") pelos dias que a placa esteve de fato na frota no mês, em
+  // vez de contar qualquer placa com viagem no mês como uma placa inteira.
+  // Entrada = createdAt do primeiro registro de PlateComposition da placa
+  // (funciona também para meses passados, já que createdAt sempre existiu).
+  // Saída = data do DELETE de PlateComposition mais recente para a placa,
+  // lido da auditoria — só rastreável a partir de 2026-08-28 (quando o
+  // handler de DELETE passou a gravar a placa em `details`; exclusões
+  // anteriores a isso não têm placa recuperável, ver `03 - Changelog`).
+  const primeiraComposicaoPorPlaca = await prisma.plateComposition.groupBy({
+    by: ['placa'],
+    _min: { createdAt: true },
+  })
+  const entradaPlaca: Record<string, string> = {}
+  for (const c of primeiraComposicaoPorPlaca) {
+    if (c._min.createdAt) entradaPlaca[c.placa] = c._min.createdAt.toISOString().slice(0, 10)
+  }
+  const exclusoesComposicao = await prisma.auditLog.findMany({
+    where: { entity: 'PlateComposition', action: 'DELETE' },
+    select: { createdAt: true, details: true },
+  })
+  const saidaPlaca: Record<string, string> = {}
+  for (const e of exclusoesComposicao) {
+    const placa = (e.details as { placa?: string } | null)?.placa
+    if (!placa) continue
+    const data = e.createdAt.toISOString().slice(0, 10)
+    if (!saidaPlaca[placa] || data > saidaPlaca[placa]) saidaPlaca[placa] = data
+  }
+
   // Devolve TODAS as viagens enriquecidas (desde a carga inicial): o cliente
   // aplica o período e os filtros de dimensão — assim o comparativo mensal
   // também responde à cross-filtragem do painel.
@@ -453,5 +483,6 @@ export async function GET(req: NextRequest) {
     manutencoes,
     ferias,
     composicoesAtuais,
+    entradaSaidaPlaca: { entrada: entradaPlaca, saida: saidaPlaca },
   })
 }

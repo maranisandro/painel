@@ -93,6 +93,15 @@ interface ApiData {
    * normalmente nas estatísticas até o dia da mudança.
    */
   composicoesAtuais: Record<string, { composicao: string; desde: string | null }>
+  /**
+   * Entrada/saída de placa na estrutura (pedido do usuário 2026-08-28) —
+   * `entrada` = data do primeiro cadastro de composição da placa (YYYY-MM-DD,
+   * funciona para qualquer mês); `saida` = data da exclusão de composição
+   * mais recente, só rastreável a partir de 2026-08-28 (auditoria não
+   * gravava a placa antes disso). Usado só para ponderar o gráfico
+   * "Performance vs meses anteriores — KM médio por placa".
+   */
+  entradaSaidaPlaca: { entrada: Record<string, string>; saida: Record<string, string> }
 }
 
 /** Composições que saíram do escopo do Transporte Rodoviário (Fase 1) — hoje só Tritrem Florestal (transporte de madeira, achado 2026-08-19). */
@@ -819,9 +828,37 @@ export function Fase1Dashboard() {
   // Comparativo mensal: respeita os filtros de dimensão (produto, UPC,
   // composição, placa, frete) mas NÃO o período — é uma série entre meses,
   // sempre no mesmo nº de dias (corte em D-1).
+  //
+  // KM médio por placa ponderado por dias na estrutura (pedido do usuário
+  // 2026-08-28): uma placa que só esteve na frota parte do mês (entrou ou
+  // saiu no meio) conta proporcionalmente menos no denominador, em vez de
+  // contar como uma placa inteira igual a quem ficou o mês todo — evita que
+  // o KM médio caia/suba artificialmente só porque o Nº de placas distintas
+  // com viagem mudou. "Saída da estrutura" = a mais antiga entre: exclusão
+  // da composição (auditoria, só rastreável a partir de 2026-08-28 — ver
+  // `entradaSaidaPlaca`) ou mudança para uma composição fora do escopo do
+  // Transporte Rodoviário (mesmo mecanismo de `composicoesAtuais`/
+  // `COMPOSICOES_FORA_DE_FASE1` já usado no resto do painel). O campo
+  // `placas` continua sendo a contagem simples (nº de placas ativas no
+  // mês, plotado como linha própria no gráfico) — só `kmPorPlaca` usa o
+  // denominador ponderado.
   const monthlyComparison = useMemo(() => {
     if (!data) return []
     const { cutoffDay, mesAtual, diasDoMesAtual } = data.params
+    const { entrada: entradaPlaca, saida: saidaPlacaExcluida } = data.entradaSaidaPlaca
+
+    const saidaPlaca: Record<string, string> = { ...saidaPlacaExcluida }
+    for (const [placa, info] of Object.entries(data.composicoesAtuais)) {
+      if (info.desde && COMPOSICOES_FORA_DE_FASE1.has(info.composicao)) {
+        if (!saidaPlaca[placa] || info.desde < saidaPlaca[placa]) saidaPlaca[placa] = info.desde
+      }
+    }
+
+    const diasNoMes = (mes: string) => {
+      const [ano, m] = mes.split('-').map(Number)
+      return new Date(ano, m, 0).getDate()
+    }
+
     const porMes = new Map<string, { km: number; placas: Set<string> }>()
     for (const t of data.trips) {
       if (!matchesDims(t)) continue
@@ -838,7 +875,24 @@ export function Fase1Dashboard() {
     const ordenado = [...porMes.entries()].sort(([a], [b]) => a.localeCompare(b))
     let kmPorPlacaAnterior: number | null = null
     return ordenado.map(([mes, v]) => {
-      const kmPorPlaca = v.placas.size ? Math.round(v.km / v.placas.size) : 0
+      const diasConsiderados = mes === mesAtual ? cutoffDay : diasNoMes(mes)
+      const inicioMes = `${mes}-01`
+      const fimMesConsiderado = `${mes}-${String(diasConsiderados).padStart(2, '0')}`
+      let pesoTotal = 0
+      for (const placa of v.placas) {
+        const entrada = entradaPlaca[placa]
+        const saida = saidaPlaca[placa]
+        const inicio = entrada && entrada > inicioMes ? entrada : inicioMes
+        const fim = saida && saida < fimMesConsiderado ? saida : fimMesConsiderado
+        const diasAtivos =
+          inicio <= fim
+            ? Math.floor(
+                (new Date(`${fim}T00:00:00`).getTime() - new Date(`${inicio}T00:00:00`).getTime()) / 86_400_000,
+              ) + 1
+            : 1 // teve viagem no mês, então conta pelo menos 1 dia mesmo se as datas de entrada/saída forem inconsistentes com isso
+        pesoTotal += Math.min(1, diasAtivos / diasConsiderados)
+      }
+      const kmPorPlaca = pesoTotal > 0 ? Math.round(v.km / pesoTotal) : 0
       // % de ganho/perda do KM médio por placa vs. o mês anterior (pedido do
       // usuário 2026-08-17) — null no primeiro mês da série (sem anterior).
       const variacaoPct =
@@ -2065,7 +2119,7 @@ export function Fase1Dashboard() {
       <MonthlyPerformanceChart
         data={monthlyComparison}
         title="Performance vs meses anteriores — KM médio por placa"
-        subtitle={`Segue os filtros do painel · do dia 1º ao dia ${data.params.cutoffDay} de cada mês (D-1) · média por placa evita distorção quando o nº de caminhões varia · ◆ = tendência do mês atual no fechamento`}
+        subtitle={`Segue os filtros do painel · do dia 1º ao dia ${data.params.cutoffDay} de cada mês (D-1) · média por placa ponderada por dias na estrutura, evita distorção quando o nº de caminhões varia · ◆ = tendência do mês atual no fechamento`}
       />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
