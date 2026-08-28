@@ -29,7 +29,7 @@
 - Modify: `src/app/globals.css`
 
 **Interfaces:**
-- Produces: utilitários Tailwind `bg-brand-{50..900}`, `text-brand-*`, `border-brand-*` (mesma escala do `emerald-*` padrão), `bg-neutral-{50..900}` etc. (mesma escala do `slate-*` padrão), `rounded-[--radius-sm|md|lg]` via variáveis, `shadow-*` via variáveis. Usados pelas tasks 3, 5 e 6.
+- Produces: utilitários Tailwind `bg-brand-{50..900}`, `text-brand-*`, `border-brand-*` (mesma escala do `emerald-*` padrão), `bg-neutral-{50..900}` etc. (mesma escala do `slate-*` padrão), `rounded-(--radius-sm|md|lg)` via variáveis, `shadow-*` via variáveis. Usados pelas tasks 3, 5 e 6.
 
 - [ ] **Step 1: Adicionar a escala de tokens no `@theme inline` de `globals.css`**
 
@@ -304,7 +304,7 @@ import type { HTMLAttributes } from 'react'
 export function Card({ className, children, ...rest }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={`rounded-[--radius-lg] border border-neutral-200 bg-white shadow-[--shadow-sm] ${className ?? ''}`}
+      className={`rounded-(--radius-lg) border border-neutral-200 bg-white shadow-(--shadow-sm) ${className ?? ''}`}
       {...rest}
     >
       {children}
@@ -398,7 +398,7 @@ export function Callout({
   children: React.ReactNode
 }) {
   return (
-    <div className={`rounded-[--radius-md] border p-3 text-sm ${TONE_CLASSES[tone]}`}>
+    <div className={`rounded-(--radius-md) border p-3 text-sm ${TONE_CLASSES[tone]}`}>
       {title && <p className="font-semibold">{title}</p>}
       <div className={title ? 'mt-1' : undefined}>{children}</div>
     </div>
@@ -495,7 +495,7 @@ export function MobileTabBar({ links }: { links: NavLink[] }) {
           onClick={() => setDrawerOpen(false)}
         >
           <div
-            className="rounded-t-[--radius-lg] border-t border-neutral-200 bg-white p-2"
+            className="rounded-t-(--radius-lg) border-t border-neutral-200 bg-white p-2"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-2 py-2">
@@ -512,7 +512,7 @@ export function MobileTabBar({ links }: { links: NavLink[] }) {
                     key={l.href}
                     href={l.href}
                     onClick={() => setDrawerOpen(false)}
-                    className="flex items-center gap-3 rounded-[--radius-md] px-3 py-2.5 text-sm text-neutral-700 hover:bg-neutral-100"
+                    className="flex items-center gap-3 rounded-(--radius-md) px-3 py-2.5 text-sm text-neutral-700 hover:bg-neutral-100"
                   >
                     <Icon className="h-5 w-5 text-neutral-500" />
                     {l.label}
