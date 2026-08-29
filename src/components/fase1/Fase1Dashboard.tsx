@@ -108,6 +108,19 @@ interface ApiData {
 const COMPOSICOES_FORA_DE_FASE1 = new Set(['Tritrem Florestal'])
 
 /**
+ * Bug real corrigido (2026-08-29): a pré-carga inicial de composições
+ * (`scripts/backfill-composicoes.ts`, 2026-07-24) deu `createdAt` = essa
+ * mesma data para as 277 placas de uma vez só — usar isso como "data de
+ * entrada na frota" fazia o ponderador de "KM médio por placa" tratar toda
+ * placa pré-existente como se tivesse acabado de entrar em 24/07,
+ * encolhendo o denominador pra quase zero e fazendo o "KM médio" mostrar
+ * quase o KM TOTAL do mês (achado do usuário: valor de julho batendo com
+ * o total, não uma média). `entrada` só é um sinal confiável para placas
+ * cadastradas DEPOIS da pré-carga (createdAt > este corte).
+ */
+const DATA_BACKFILL_COMPOSICOES = '2026-07-24'
+
+/**
  * "Ver cálculo" dos cards de Custo R$/km e R$/tonelada (pedido do usuário
  * 2026-07-30) — mostra, passo a passo, como o custo do mês corrente foi
  * projetado (lançado × média histórica × dias) e como chegou no resultado
@@ -880,7 +893,8 @@ export function Fase1Dashboard() {
       const fimMesConsiderado = `${mes}-${String(diasConsiderados).padStart(2, '0')}`
       let pesoTotal = 0
       for (const placa of v.placas) {
-        const entrada = entradaPlaca[placa]
+        const entradaBruta = entradaPlaca[placa]
+        const entrada = entradaBruta && entradaBruta > DATA_BACKFILL_COMPOSICOES ? entradaBruta : null
         const saida = saidaPlaca[placa]
         const inicio = entrada && entrada > inicioMes ? entrada : inicioMes
         const fim = saida && saida < fimMesConsiderado ? saida : fimMesConsiderado
