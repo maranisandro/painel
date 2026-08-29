@@ -14,16 +14,26 @@ import { NextRequest, NextResponse } from 'next/server'
  * Renomeado de `middleware.ts` para `proxy.ts` (Next.js 16 depreciou o
  * convention `middleware`, ver aviso de build "The middleware file
  * convention is deprecated. Please use proxy instead").
+ *
+ * Bug real corrigido (2026-08-29): faltava liberar `fonts.googleapis.com`
+ * (style-src) e `fonts.gstatic.com` (font-src) — o próprio Google Maps
+ * carrega uma folha de estilo de fonte pra desenhar os controles/ícones
+ * internos (setas de navegação, InfoWindow), e sem isso o mapa de
+ * Rastreamento (`/dashboard/fase1/mapa`) ficava com o clique nos
+ * marcadores quebrado (achado do usuário: "não tem mais as informações da
+ * placa quando clica no ícone"). `img-src` também ampliado pra
+ * `*.googleapis.com`/`*.gstatic.com` — os tiles de mapa/satélite vêm de
+ * vários subdomínios (khms0-3, mts0-3 etc.), não só os dois hosts fixos.
  */
 export function proxy(request: NextRequest) {
   const nonce = Buffer.from(crypto.randomUUID()).toString('base64')
   const cspHeader = `
     default-src 'self';
     script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://maps.googleapis.com https://maps.gstatic.com;
-    style-src 'self' 'unsafe-inline';
-    img-src 'self' data: https://maps.gstatic.com https://maps.googleapis.com;
+    style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+    img-src 'self' data: https://*.googleapis.com https://*.gstatic.com;
     connect-src 'self' https://maps.googleapis.com;
-    font-src 'self' data:;
+    font-src 'self' data: https://fonts.gstatic.com;
     frame-ancestors 'none';
     object-src 'none';
     base-uri 'self';
