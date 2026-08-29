@@ -82,6 +82,7 @@ export function MonthlyPerformanceChart({
     km: number
     kmPorPlaca: number
     placas: number
+    viagens: number
     variacaoPct: number | null
     tendencia: number | null
   }[]
@@ -109,6 +110,7 @@ export function MonthlyPerformanceChart({
             <Tooltip
               formatter={(v, name, entry) => {
                 if (name === 'Placas') return [fmtKm(v), 'Placas']
+                if (name === 'Viagens') return [fmtKm(v), 'Viagens']
                 if (name === 'KM médio por placa') {
                   const pct = (entry?.payload as { variacaoPct?: number | null } | undefined)?.variacaoPct
                   const pctTxt = pct === null || pct === undefined ? '' : ` (${fmtPct(pct)} vs mês anterior)`

@@ -872,7 +872,7 @@ export function Fase1Dashboard() {
       return new Date(ano, m, 0).getDate()
     }
 
-    const porMes = new Map<string, { km: number; placas: Set<string> }>()
+    const porMes = new Map<string, { km: number; placas: Set<string>; viagens: number }>()
     for (const t of data.trips) {
       if (!matchesDims(t)) continue
       const d = String(t.DATASAIDA ?? '').slice(0, 10)
@@ -880,9 +880,14 @@ export function Fase1Dashboard() {
       if (Number(d.slice(8, 10)) > cutoffDay) continue
       const mes = d.slice(0, 7)
       if (mes > mesAtual) continue
-      const acc = porMes.get(mes) ?? { km: 0, placas: new Set<string>() }
+      const acc = porMes.get(mes) ?? { km: 0, placas: new Set<string>(), viagens: 0 }
       acc.km += Number(t.KM_RODADO) || 0
       acc.placas.add(String(t.PLACA ?? ''))
+      // `data.trips` já vem agregado por viagem (aggregateTrips no servidor,
+      // ver src/app/api/fase1/data/route.ts) — cada linha é 1 viagem, então
+      // basta contar linhas (pedido do usuário 2026-08-29: linha de
+      // "viagens no mês" no gráfico de performance).
+      acc.viagens += 1
       porMes.set(mes, acc)
     }
     const ordenado = [...porMes.entries()].sort(([a], [b]) => a.localeCompare(b))
@@ -919,6 +924,7 @@ export function Fase1Dashboard() {
         label: `${MESES[Number(mes.slice(5, 7)) - 1]}/${mes.slice(2, 4)}`,
         km: Math.round(v.km),
         placas: v.placas.size,
+        viagens: v.viagens,
         kmPorPlaca,
         variacaoPct,
         tendencia:
