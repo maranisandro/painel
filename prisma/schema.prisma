@@ -31,6 +31,7 @@ model User {
   updatedAt          DateTime           @updatedAt @map("updated_at")
   moduleAccesses     UserModuleAccess[]
   adminAccesses      UserAdminAccess[]
+  usageEvents        UsageEvent[]
 
   @@map("users")
 }
@@ -48,6 +49,29 @@ model AuditLog {
   @@index([entity, entityId])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+enum UsageEventType {
+  PAGE_VIEW
+  HEARTBEAT
+}
+
+// Rastreamento de uso (pedido do usuário 2026-08-28/29) — page view a cada
+// navegação, heartbeat a cada 30s só com a aba visível/em foco (ver
+// src/components/dashboard/UsageTracker.tsx). `module` é derivado do path
+// no servidor para agregação (ex. /dashboard/fase1/mapa -> "fase1").
+model UsageEvent {
+  id         String         @id @default(uuid())
+  userId     String         @map("user_id")
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type       UsageEventType
+  path       String
+  module     String
+  occurredAt DateTime       @default(now()) @map("occurred_at")
+
+  @@index([userId, occurredAt])
+  @@index([module, occurredAt])
+  @@map("usage_events")
 }
 
 // ============================================================

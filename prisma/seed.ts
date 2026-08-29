@@ -410,6 +410,7 @@ async function main() {
     { code: 'manutencao', name: 'Manutenção', position: 7 },
     { code: 'ferias', name: 'Férias', position: 8 },
     { code: 'tickets_viagem', name: 'Tickets de viagem', position: 9 },
+    { code: 'estatisticas-uso', name: 'Estatísticas de Uso', position: 10 },
   ]
   for (const r of adminResources) {
     await prisma.adminResource.upsert({ where: { code: r.code }, update: { name: r.name, position: r.position }, create: r })
