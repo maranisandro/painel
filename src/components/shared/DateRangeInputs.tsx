@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 // Máscara dd/mm/aaaa para filtros de período (padrão do painel) — o input
 // nativo type="date" segue o locale do navegador/SO, que nem sempre é pt-BR
@@ -37,16 +38,23 @@ export function MiniCalendarButton({
   onSelect: (iso: string) => void
 }) {
   const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
   const [view, setView] = useState(() => {
     const d = valueIso ? new Date(`${valueIso}T00:00:00`) : new Date()
     return { y: d.getFullYear(), m: d.getMonth() }
   })
-  const ref = useRef<HTMLDivElement>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const popoverRef = useRef<HTMLDivElement>(null)
+  // Largura do popover (w-64 = 16rem) — usada só pra decidir o lado que cabe na tela.
+  const POPOVER_WIDTH = 256
 
   useEffect(() => {
     if (!open) return
     function onClickOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+      const target = e.target as Node
+      if (buttonRef.current?.contains(target)) return
+      if (popoverRef.current?.contains(target)) return
+      setOpen(false)
     }
     document.addEventListener('mousedown', onClickOutside)
     return () => document.removeEventListener('mousedown', onClickOutside)
@@ -55,6 +63,20 @@ export function MiniCalendarButton({
   function abrir() {
     const d = valueIso ? new Date(`${valueIso}T00:00:00`) : new Date()
     setView({ y: d.getFullYear(), m: d.getMonth() })
+    // Bug real (pedido do usuário 2026-08-29): o popover era `position:
+    // absolute` dentro do próprio filtro, então ficava cortado pelo
+    // `overflow-x-hidden`/scrollbar do <main> do dashboard sempre que o
+    // botão "Até" (perto da borda direita da barra de filtros) tentava abrir
+    // pra fora da área visível — nenhum ajuste de alinhamento esquerda/
+    // direita resolve isso, porque o corte é do container pai, não da
+    // posição. Corrigido renderizando o calendário num portal direto no
+    // `document.body`, com `position: fixed` calculada a partir da posição
+    // real do botão na tela — escapa de qualquer `overflow` de ancestral.
+    const rect = buttonRef.current?.getBoundingClientRect()
+    if (rect) {
+      const left = rect.right + POPOVER_WIDTH > window.innerWidth ? rect.right - POPOVER_WIDTH : rect.left
+      setPos({ top: rect.bottom + 4, left })
+    }
     setOpen(true)
   }
 
@@ -66,8 +88,9 @@ export function MiniCalendarButton({
   })
 
   return (
-    <div className="relative" ref={ref}>
+    <div className="relative">
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => (open ? setOpen(false) : abrir())}
         title="Escolher data no calendário"
@@ -75,55 +98,63 @@ export function MiniCalendarButton({
       >
         📅
       </button>
-      {open && (
-        <div className="absolute z-20 mt-1 w-64 rounded-md border border-slate-200 bg-white p-2 shadow-lg">
-          <div className="flex items-center justify-between px-1 pb-1">
-            <button
-              type="button"
-              onClick={() => setView((v) => (v.m === 0 ? { y: v.y - 1, m: 11 } : { y: v.y, m: v.m - 1 }))}
-              className="rounded px-2 py-0.5 text-slate-600 hover:bg-slate-100"
-            >
-              ‹
-            </button>
-            <span className="text-sm font-medium capitalize">{monthLabel}</span>
-            <button
-              type="button"
-              onClick={() => setView((v) => (v.m === 11 ? { y: v.y + 1, m: 0 } : { y: v.y, m: v.m + 1 }))}
-              className="rounded px-2 py-0.5 text-slate-600 hover:bg-slate-100"
-            >
-              ›
-            </button>
-          </div>
-          <div className="grid grid-cols-7 gap-0.5 text-center text-[11px] text-slate-400">
-            {DIAS_SEMANA.map((d, i) => (
-              <span key={i}>{d}</span>
-            ))}
-          </div>
-          <div className="grid grid-cols-7 gap-0.5">
-            {Array.from({ length: firstWeekday }).map((_, i) => (
-              <span key={`vazio-${i}`} />
-            ))}
-            {Array.from({ length: daysInMonth }).map((_, i) => {
-              const day = i + 1
-              const iso = `${view.y}-${String(view.m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-              const isSelected = iso === valueIso
-              return (
-                <button
-                  key={day}
-                  type="button"
-                  onClick={() => {
-                    onSelect(iso)
-                    setOpen(false)
-                  }}
-                  className={`rounded py-1 text-xs hover:bg-emerald-100 ${isSelected ? 'bg-emerald-700 text-white hover:bg-emerald-700' : 'text-slate-700'}`}
-                >
-                  {day}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      )}
+      {open &&
+        pos &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            style={{ top: pos.top, left: pos.left }}
+            className="fixed z-50 w-64 rounded-md border border-slate-200 bg-white p-2 shadow-lg"
+          >
+            <div className="flex items-center justify-between px-1 pb-1">
+              <button
+                type="button"
+                onClick={() => setView((v) => (v.m === 0 ? { y: v.y - 1, m: 11 } : { y: v.y, m: v.m - 1 }))}
+                className="rounded px-2 py-0.5 text-slate-600 hover:bg-slate-100"
+              >
+                ‹
+              </button>
+              <span className="text-sm font-medium capitalize">{monthLabel}</span>
+              <button
+                type="button"
+                onClick={() => setView((v) => (v.m === 11 ? { y: v.y + 1, m: 0 } : { y: v.y, m: v.m + 1 }))}
+                className="rounded px-2 py-0.5 text-slate-600 hover:bg-slate-100"
+              >
+                ›
+              </button>
+            </div>
+            <div className="grid grid-cols-7 gap-0.5 text-center text-[11px] text-slate-400">
+              {DIAS_SEMANA.map((d, i) => (
+                <span key={i}>{d}</span>
+              ))}
+            </div>
+            <div className="grid grid-cols-7 gap-0.5">
+              {Array.from({ length: firstWeekday }).map((_, i) => (
+                <span key={`vazio-${i}`} />
+              ))}
+              {Array.from({ length: daysInMonth }).map((_, i) => {
+                const day = i + 1
+                const iso = `${view.y}-${String(view.m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+                const isSelected = iso === valueIso
+                return (
+                  <button
+                    key={day}
+                    type="button"
+                    onClick={() => {
+                      onSelect(iso)
+                      setOpen(false)
+                    }}
+                    className={`rounded py-1 text-xs hover:bg-emerald-100 ${isSelected ? 'bg-emerald-700 text-white hover:bg-emerald-700' : 'text-slate-700'}`}
+                  >
+                    {day}
+                  </button>
+                )
+              })}
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }
