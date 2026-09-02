@@ -50,3 +50,7 @@ next-env.d.ts
 
 # fallback local de auditoria (src/lib/audit.ts) - nunca versionar, pode conter dado sensível
 /logs/
+
+# planilhas de trabalho usadas para testar importações - dado de negócio, nunca versionar
+*.xlsx
+*.xls

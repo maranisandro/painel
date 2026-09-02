@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSessionUser, hasModuleAccess } from '@/lib/authz'
-import { getDatasetView } from '@/lib/semantic/dataset-view'
+import { getDatasetView, getUltimaAtualizacao } from '@/lib/semantic/dataset-view'
 import {
   prepararFuncionarios,
   linhasQuadroAtual,
@@ -35,9 +35,11 @@ export async function GET(req: NextRequest) {
     view = [] // dataset ainda não sincronizado
   }
   const rows = prepararFuncionarios(view)
+  const ultimaAtualizacao = await getUltimaAtualizacao(['rh_funcionarios'])
 
   return NextResponse.json({
     period: { from, to },
+    ultimaAtualizacao,
     quadroAtual: linhasQuadroAtual(rows),
     desligamentos: linhasDesligamentosPeriodo(rows, from, to),
     transferencias: linhasTransferenciasPeriodo(rows, from, to),

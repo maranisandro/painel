@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { SortableTable } from '@/components/shared/SortableTable'
+import { UltimaAtualizacao } from '@/components/shared/ui/UltimaAtualizacao'
 import { CriticaModeloTab } from './CriticaModeloTab'
 
 interface ResumoEquipamento {
@@ -43,6 +44,7 @@ interface AbastecimentoData {
   geral: ResumoGeral
   porEquipamento: ResumoEquipamento[]
   registros: RegistroBruto[]
+  ultimaAtualizacao: string | null
 }
 
 type Aba = 'resumo' | 'critica'
@@ -121,6 +123,7 @@ export function AbastecimentoDashboard() {
     <div className="space-y-4">
       <div>
         <h1 className="text-xl font-semibold">Abastecimento</h1>
+        <UltimaAtualizacao iso={data?.ultimaAtualizacao} />
         <p className="text-sm text-slate-500">
           Consumo, custo e volume de todos os equipamentos que abastecem pela Officium — não só a frota de transporte
           (742 equipamentos hoje: caminhões, tratores, colhedeiras, geradores etc.).

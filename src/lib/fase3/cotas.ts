@@ -49,6 +49,80 @@ export async function resolverConfigVendas(): Promise<ConfigVendas> {
   }
 }
 
+// ============================================================
+// Fator de bonificação — versionado por ano/mês (pedido do usuário
+// 2026-08-31: "preciso que este fator seja um parametro... 2026 (todo o
+// ano de 2026 com este valor) / 202601 (o valor para o mes de janeiro)
+// caso não tenha mês e ano cadastrado usa o ultimo (data) que existir")
+// ============================================================
+
+const PREFIXO_FATOR_BONIFICACAO = 'FATOR_BONIFICACAO_MES_'
+/** Mesmo valor hardcoded que já era o fallback antes deste cadastro por data existir. */
+const FATOR_BONIFICACAO_PADRAO = 0.7142
+
+export interface FatorBonificacaoCadastrado {
+  /** ordinal ano*12+mês (mês=1 quando o cadastro é só de ANO, ou o mês exato quando é MÊS) — usado só pra achar "o último que existe" */
+  inicioOrdinal: number
+  ano: number
+  /** null = cadastro de ANO inteiro (código "..._2026"); número = cadastro de MÊS específico (código "..._202601") */
+  mes: number | null
+  valor: number
+}
+
+/** Código "..._2026" → {ano:2026, mes:null}; "..._202601" → {ano:2026, mes:1}; qualquer outro sufixo é ignorado (não é desta família de parâmetro). */
+function parseChaveFatorBonificacao(code: string): { ano: number; mes: number | null } | null {
+  if (!code.startsWith(PREFIXO_FATOR_BONIFICACAO)) return null
+  const sufixo = code.slice(PREFIXO_FATOR_BONIFICACAO.length)
+  if (/^\d{4}$/.test(sufixo)) return { ano: Number(sufixo), mes: null }
+  if (/^\d{6}$/.test(sufixo)) {
+    const ano = Number(sufixo.slice(0, 4))
+    const mes = Number(sufixo.slice(4, 6))
+    if (mes < 1 || mes > 12) return null
+    return { ano, mes }
+  }
+  return null
+}
+
+/** Busca todos os `FATOR_BONIFICACAO_MES_*` cadastrados em Cadastros → Parâmetros. */
+export async function carregarFatoresBonificacao(): Promise<FatorBonificacaoCadastrado[]> {
+  const rows = await prisma.parameter.findMany({
+    where: { code: { startsWith: PREFIXO_FATOR_BONIFICACAO } },
+    select: { code: true, valueNumber: true },
+  })
+  const out: FatorBonificacaoCadastrado[] = []
+  for (const r of rows) {
+    if (r.valueNumber === null) continue
+    const chave = parseChaveFatorBonificacao(r.code)
+    if (!chave) continue
+    out.push({ ...chave, inicioOrdinal: chave.ano * 12 + (chave.mes ?? 1), valor: Number(r.valueNumber) })
+  }
+  return out
+}
+
+/**
+ * Resolve o fator pro mês `mes` ("YYYY-MM"): mês exato cadastrado > ano
+ * exato cadastrado > cadastro mais recente (ano ou mês) anterior ou igual
+ * a `mes` (carrega o último valor conhecido pra frente — nunca usa um
+ * valor futuro pra calcular um mês passado) > fallback fixo 0,7142 quando
+ * nada foi cadastrado ainda.
+ */
+export function resolverFatorBonificacao(mes: string, cadastrados: FatorBonificacaoCadastrado[]): number {
+  const [anoStr, mesStr] = mes.split('-')
+  const ano = Number(anoStr)
+  const mesNum = Number(mesStr)
+
+  const exatoMes = cadastrados.find((c) => c.ano === ano && c.mes === mesNum)
+  if (exatoMes) return exatoMes.valor
+
+  const exatoAno = cadastrados.find((c) => c.ano === ano && c.mes === null)
+  if (exatoAno) return exatoAno.valor
+
+  const alvoOrdinal = ano * 12 + mesNum
+  const anteriores = cadastrados.filter((c) => c.inicioOrdinal <= alvoOrdinal)
+  if (anteriores.length === 0) return FATOR_BONIFICACAO_PADRAO
+  return anteriores.reduce((mais, c) => (c.inicioOrdinal > mais.inicioOrdinal ? c : mais)).valor
+}
+
 /**
  * CODCFO (cadastro de clientes, dataset `fase3_clientes`) → nome do cliente.
  * Pedido do usuário 2026-08-13: "para informações de cota foi utilizado o
@@ -72,6 +146,65 @@ export async function carregarNomesClientes(): Promise<Map<string, string>> {
   for (const r of view as Record<string, unknown>[]) {
     const codigo = String(r.CODCFO ?? '').trim()
     const nome = String(r.CLIENTE ?? '').trim()
+    if (codigo && nome) map.set(codigo, nome)
+  }
+  return map
+}
+
+/**
+ * CODDISTRIBUIDOR (mesmo código de `DistributorQuota.codDistribuidor`) →
+ * ABREV_DISTRIBUIDOR — pedido do usuário 2026-09-02: a planilha-matriz de
+ * cotas (aba "MetaDistribuidor") só tem o código, sem nome, deixando
+ * `nomeDistribuidor` em branco após a importação; o nome a usar é o mesmo
+ * bucket já exibido em todo o painel de vendas (`DISTRIBUIDORES_CONHECIDOS`
+ * em `faturamento.ts`), não o nome jurídico completo do cadastro de clientes
+ * (`carregarNomesClientes`, usado só para abrir vendas por cliente).
+ */
+// "C99999999" é um código placeholder usado na planilha-matriz para a
+// Planep (não é um CODDISTRIBUIDOR real do Oracle, por isso nunca aparece em
+// `fase3_vendas_madeira_tratada`) — confirmado pelo usuário 2026-09-02.
+const NOMES_DISTRIBUIDOR_PLACEHOLDER: Record<string, string> = { C99999999: 'PLANEP' }
+
+export async function carregarNomesDistribuidoresVendas(): Promise<Map<string, string>> {
+  let view: Awaited<ReturnType<typeof getDatasetView>> = []
+  try {
+    view = await getDatasetView('fase3_vendas_madeira_tratada')
+  } catch {
+    return new Map()
+  }
+  const map = new Map<string, string>(Object.entries(NOMES_DISTRIBUIDOR_PLACEHOLDER))
+  for (const r of view as Record<string, unknown>[]) {
+    const codigo = String(r.CODDISTRIBUIDOR ?? '').trim()
+    const nome = String(r.ABREV_DISTRIBUIDOR ?? '').trim()
+    if (codigo && nome) map.set(codigo, nome)
+  }
+  return map
+}
+
+/**
+ * CODIGOPRD (mesmo código de `ProductQuota.codigoPrd`) → PRODUTO (descrição
+ * completa usada nas vendas) — pedido do usuário 2026-09-02: conferir se o
+ * "Nome Fantasia" da aba "Sheet" da planilha-matriz bate com o nome usado
+ * nas vendas. Achado real na conferência: a maioria diverge só por a
+ * planilha usar um nome mais curto (sem o sufixo "- ORIGEM FLORESTA
+ * PLANTADA"), mas alguns códigos têm categoria diferente entre planilha e
+ * vendas (ex. "CAIBRO" na planilha vs. "MOURÃO" nas vendas para o mesmo
+ * código) — decisão do usuário: NÃO sobrescrever automaticamente (manter o
+ * nome cadastrado/importado da planilha), só avisar a divergência para
+ * revisão manual da planilha-base. Ver uso em
+ * `product-quotas/import-matriz/route.ts`.
+ */
+export async function carregarNomesProdutosVendas(): Promise<Map<string, string>> {
+  let view: Awaited<ReturnType<typeof getDatasetView>> = []
+  try {
+    view = await getDatasetView('fase3_vendas_madeira_tratada')
+  } catch {
+    return new Map()
+  }
+  const map = new Map<string, string>()
+  for (const r of view as Record<string, unknown>[]) {
+    const codigo = String(r.CODIGOPRD ?? '').trim()
+    const nome = String(r.PRODUTO ?? '').trim()
     if (codigo && nome) map.set(codigo, nome)
   }
   return map

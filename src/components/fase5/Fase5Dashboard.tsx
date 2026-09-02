@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { calcularConsumo, type ConsumoPlaca } from '@/lib/fase1/fuel'
 import { SortableTable } from '@/components/shared/SortableTable'
+import { UltimaAtualizacao } from '@/components/shared/ui/UltimaAtualizacao'
 
 interface PlacaTritrem {
   placa: string
@@ -22,6 +23,7 @@ interface FaseData {
   trips: Record<string, unknown>[]
   abastecimento: { PLACA: string; date: string; pedometer: number; amount: number; produto: string }[]
   metaConsumoKmL: number
+  ultimaAtualizacao: string | null
 }
 
 interface LinhaTritrem {
@@ -159,6 +161,7 @@ export function Fase5Dashboard() {
     <div className="space-y-4">
       <div>
         <h1 className="text-xl font-semibold">Transporte Interno de Madeira</h1>
+        <UltimaAtualizacao iso={data?.ultimaAtualizacao} />
         <p className="text-sm text-slate-500">Acompanhamento das placas transferidas para composições de transporte de madeira (ex.: Tritrem Florestal).</p>
       </div>
 

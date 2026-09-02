@@ -142,4 +142,30 @@ export async function getDatasetView(datasetCode: string): Promise<Row[]> {
   return view
 }
 
+/**
+ * Data/hora da última atualização de dados de um painel, para exibir ao
+ * usuário (pedido do usuário 2026-08-31: "colocar em cada painel qual foi a
+ * data da última atualização de dados"). Usa o fim da última sincronização
+ * BEM-SUCEDIDA de cada dataset (SyncRun.status = SUCCESS) — `SyncSchedule.
+ * lastRunAt` marca toda tentativa, inclusive as que falharam, e não serve
+ * pra isso. Quando o painel depende de mais de um dataset, retorna a mais
+ * ANTIGA entre eles (pior caso: garante que todo dado visível no painel é
+ * de até aquela data). `null` = algum dos datasets nunca sincronizou com
+ * sucesso.
+ */
+export async function getUltimaAtualizacao(datasetCodes: string[]): Promise<Date | null> {
+  const runs = await prisma.syncRun.findMany({
+    where: { status: 'SUCCESS', dataset: { code: { in: datasetCodes } } },
+    orderBy: { finishedAt: 'desc' },
+    select: { finishedAt: true, dataset: { select: { code: true } } },
+  })
+  const maisRecentePorDataset = new Map<string, Date>()
+  for (const run of runs) {
+    if (!run.finishedAt) continue
+    if (!maisRecentePorDataset.has(run.dataset.code)) maisRecentePorDataset.set(run.dataset.code, run.finishedAt)
+  }
+  if (maisRecentePorDataset.size < datasetCodes.length) return null
+  return new Date(Math.min(...[...maisRecentePorDataset.values()].map((d) => d.getTime())))
+}
+
 export { applyComputedColumns }

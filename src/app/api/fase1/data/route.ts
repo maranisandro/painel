@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSessionUser, hasModuleAccess } from '@/lib/authz'
 import { prisma } from '@/lib/prisma'
-import { getDatasetView } from '@/lib/semantic/dataset-view'
+import { getDatasetView, getUltimaAtualizacao } from '@/lib/semantic/dataset-view'
 import { aggregateTrips, enrichTrips } from '@/lib/fase1/trips'
 import { buildRouteMatcher } from '@/lib/fase1/route-match'
 import { buildCompositionResolver, applyCompositionOverrides, composicoesAtuaisComDesde } from '@/lib/fase1/composition'
@@ -440,9 +440,11 @@ export async function GET(req: NextRequest) {
     abastecimento = [] // dataset ainda não sincronizado
   }
   const metaConsumoKmL = paramNumber(all, 'META_CONSUMO_KM_L', 2, calendar)
+  const ultimaAtualizacao = await getUltimaAtualizacao(['fase1_vendas_transporte', 'fase1_abastecimento'])
 
   return NextResponse.json({
     period: { from, to },
+    ultimaAtualizacao,
     params: {
       metaKm,
       ritmoKm,

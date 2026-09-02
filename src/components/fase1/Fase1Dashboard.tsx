@@ -10,6 +10,7 @@ import { SortableTable } from '@/components/shared/SortableTable'
 import { CriticaModeloTab } from './CriticaModeloTab'
 import { Fase1Estrategico } from './Fase1Estrategico'
 import { Fase1Disponibilidade } from './Fase1Disponibilidade'
+import { UltimaAtualizacao } from '@/components/shared/ui/UltimaAtualizacao'
 type Trip = Record<string, unknown>
 
 interface Justificativa {
@@ -20,6 +21,7 @@ interface Justificativa {
 
 interface ApiData {
   period: { from: string; to: string }
+  ultimaAtualizacao: string | null
   params: {
     metaKm: number
     ritmoKm: number
@@ -1763,6 +1765,7 @@ export function Fase1Dashboard() {
         <div>
           <p className="text-xs uppercase tracking-wide text-slate-500">Fase 1</p>
           <h1 className="text-xl font-semibold">Transporte Rodoviário</h1>
+          <UltimaAtualizacao iso={data?.ultimaAtualizacao} />
           <p className="text-sm text-slate-500">
             Clique nos gráficos/tabela para filtrar; Ctrl+clique agrupa valores.
           </p>

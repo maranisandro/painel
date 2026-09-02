@@ -530,22 +530,34 @@ export function agregarVendas(linhas: VendaLinha[], chaveFn: (l: VendaLinha) => 
  * bruto do subconjunto (Formula 1, líquido de desconto) menos a devolução
  * DESSE MESMO subconjunto — mesma relação bruto→líquido da Formula 5,
  * restrita às linhas bonificado=SIM.
+ *
+ * Correção do usuário 2026-08-31: fórmula passa a ser (líquido − base) ×
+ * fator (era líquido − base×fator), e o fator passa a variar por
+ * mês/ano — `resolverFator(mes)` resolve o valor certo pra cada mês
+ * tocado pelo período (ver `resolverFatorBonificacao` em
+ * `src/lib/fase3/cotas.ts`). Quando `linhas` cobre mais de um mês, cada
+ * mês usa o SEU fator (não um fator único pro período todo) — soma dos
+ * resultados mensais.
  */
-export function calcularBonificacaoDoMes(linhas: VendaLinha[], fatorBonificacaoMes: number): number {
-  let bruto = 0
-  let devolucao = 0
-  let base = 0
+export function calcularBonificacaoDoMes(linhas: VendaLinha[], resolverFator: (mes: string) => number): number {
+  const porMes = new Map<string, { bruto: number; devolucao: number; base: number }>()
   for (const l of linhas) {
     if (!l.flagBonificacao) continue
+    const acc = porMes.get(l.mes) ?? { bruto: 0, devolucao: 0, base: 0 }
     if (l.tipoMovimento === 'Devolucoes') {
-      devolucao += l.valorBruto
-      continue
+      acc.devolucao += l.valorBruto
+    } else {
+      acc.bruto += l.valorBruto - l.desconto
+      acc.base += l.valorBase - l.desconto
     }
-    bruto += l.valorBruto - l.desconto
-    base += l.valorBase - l.desconto
+    porMes.set(l.mes, acc)
   }
-  const liquido = bruto - devolucao
-  return liquido - base * fatorBonificacaoMes
+  let total = 0
+  for (const [mes, { bruto, devolucao, base }] of porMes) {
+    const liquido = bruto - devolucao
+    total += (liquido - base) * resolverFator(mes)
+  }
+  return total
 }
 
 export interface MesProduto {

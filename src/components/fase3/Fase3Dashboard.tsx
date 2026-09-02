@@ -15,6 +15,7 @@ import { MelhorCargaTab } from './MelhorCargaTab'
 import { ClientesTab } from './ClientesTab'
 import { ClientesPotenciaisTab } from './ClientesPotenciaisTab'
 import { RelatorioDiaTab } from './RelatorioDiaTab'
+import { UltimaAtualizacao } from '@/components/shared/ui/UltimaAtualizacao'
 
 // Cores fixas por identidade — mesmo padrão de cores já usado em
 // BonificacoesTab: âmbar = "o que foi realizado", cinza = "referência/meta".
@@ -144,6 +145,7 @@ interface NotaFiscal extends VendaAgregada {
 
 interface ApiData {
   period: { from: string; to: string; toSolicitado: string }
+  ultimaAtualizacao: string | null
   hoje: {
     data: string
     incluidoNoOficial: boolean
@@ -485,6 +487,7 @@ export function Fase3Dashboard() {
     <div className="space-y-6">
       <div className="print:hidden">
         <h1 className="text-xl font-semibold">Fase 3 — Venda de Madeira Tratada</h1>
+        <UltimaAtualizacao iso={data?.ultimaAtualizacao} />
         <p className="mt-1 text-sm text-slate-500">
           Perda de preço: valor por m³ realmente vendido comparado ao preço mínimo esperado (ICMS do
           estado × tipo de produto), por distribuidor.

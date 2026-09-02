@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getSessionUser, hasModuleAccess } from '@/lib/authz'
 import { prisma } from '@/lib/prisma'
-import { getDatasetView } from '@/lib/semantic/dataset-view'
+import { getDatasetView, getUltimaAtualizacao } from '@/lib/semantic/dataset-view'
 import { buildCompositionResolver, composicoesAtuaisComDesde } from '@/lib/fase1/composition'
 import { resolveParameter, calendarVarsFor } from '@/lib/semantic/parameters'
 
@@ -57,5 +57,7 @@ export async function GET() {
     metaConsumoKmL = 2
   }
 
-  return NextResponse.json({ placas, trips: allTrips, abastecimento, metaConsumoKmL })
+  const ultimaAtualizacao = await getUltimaAtualizacao(['fase1_vendas_transporte', 'fase1_abastecimento'])
+
+  return NextResponse.json({ placas, trips: allTrips, abastecimento, metaConsumoKmL, ultimaAtualizacao })
 }

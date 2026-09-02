@@ -363,6 +363,53 @@ export function RastreamentoFrota({
     setCarregandoSemComunicacao(false)
   }
 
+  // Atualização individual sob demanda — pedido do usuário 2026-09-02: "ainda
+  // esta com atrasos e erros de sincronização" mesmo com o sync automático e
+  // o "revalidar em lote" (omnilink-erros) rodando. Reaproveita o backend já
+  // existente (`/api/fase1/rastreamento/buscar-agora`, 2026-08-17), que já
+  // consulta só ESSA placa numa janela de 6h — não busca a frota inteira.
+  // Cooldown de 2 min por placa (client-side, baseado em `ultimaTentativaEm`
+  // que a própria lista já traz) evita clique repetido martelando a Omnilink
+  // sem necessidade, dado o volume alto de dados de lá.
+  const COOLDOWN_ATUALIZACAO_MS = 2 * 60_000
+  const [atualizandoPlaca, setAtualizandoPlaca] = useState<string | null>(null)
+  const [erroAtualizacao, setErroAtualizacao] = useState<{ placa: string; mensagem: string } | null>(null)
+  // `Date.now()` não pode ser lido direto durante o render (regra de pureza
+  // do React) — mantém um "relógio" em estado, atualizado só enquanto esta
+  // aba está aberta, pro botão contar o cooldown regressivamente.
+  const [nowMs, setNowMs] = useState(0)
+  useEffect(() => {
+    if (tab !== 'sem-comunicacao') return
+    const id = setInterval(() => setNowMs(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [tab])
+
+  function cooldownRestanteMs(ultimaTentativaEm: string | null): number {
+    if (!ultimaTentativaEm || nowMs === 0) return 0
+    const passado = nowMs - new Date(ultimaTentativaEm).getTime()
+    return Math.max(0, COOLDOWN_ATUALIZACAO_MS - passado)
+  }
+
+  async function atualizarPlacaAgora(placa: string) {
+    setAtualizandoPlaca(placa)
+    setErroAtualizacao(null)
+    try {
+      const res = await fetch('/api/fase1/rastreamento/buscar-agora', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ placa }),
+      })
+      const body = await res.json().catch(() => null)
+      if (!res.ok) {
+        setErroAtualizacao({ placa, mensagem: body?.error ?? 'Falha ao buscar posição' })
+        return
+      }
+      await loadSemComunicacao()
+    } finally {
+      setAtualizandoPlaca(null)
+    }
+  }
+
   useEffect(() => {
     if (tab === 'sem-comunicacao') void loadSemComunicacao()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1118,47 +1165,65 @@ export function RastreamentoFrota({
                   <th className="px-3 py-2" title="Confirma se conseguimos falar com a Omnilink — 'OK · 0 posições' significa que a consulta funcionou, só não veio dado novo do rastreador">
                     Última consulta à Omnilink
                   </th>
+                  <th className="px-3 py-2"></th>
                 </tr>
               </thead>
               <tbody>
-                {semComunicacaoFiltrada.map((r) => (
-                  <tr key={r.placa} className="border-t border-slate-100">
-                    <td className="px-3 py-2 font-mono font-medium">{r.placa}</td>
-                    <td className="px-3 py-2">
-                      {r.situacao === 'SEM_RASTREADOR' ? (
-                        <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700">sem rastreador</span>
-                      ) : (
-                        <span className="rounded bg-red-100 px-2 py-0.5 text-xs text-red-800">sem comunicação</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2">
-                      {r.minutosSemComunicacao != null ? fmtDuracao(r.minutosSemComunicacao) : 'nunca'}
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap" title={r.ultimaPosicaoEm ? fmtDataHora(r.ultimaPosicaoEm) : ''}>
-                      {r.ultimaPosicaoEm ? fmtDataHora(r.ultimaPosicaoEm) : '—'}
-                    </td>
-                    <td className="max-w-xs truncate px-3 py-2 text-slate-600" title={r.localizacao ?? ''}>
-                      {r.localizacao ?? '—'}
-                    </td>
-                    <td className="px-3 py-2 text-slate-600">
-                      {r.ultimaTentativaEm ? (
-                        <>
-                          {fmtDataHora(r.ultimaTentativaEm)} ·{' '}
-                          {r.ultimoStatusSincronizacao === 'NAO_LOCALIZADA'
-                            ? 'placa não localizada'
-                            : r.ultimoStatusSincronizacao === 'ERRO'
-                              ? 'erro na consulta'
-                              : `OK · ${r.ultimasLinhasRecebidas ?? 0} posição(ões) nova(s)`}
-                        </>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {semComunicacaoFiltrada.map((r) => {
+                  const restanteMs = cooldownRestanteMs(r.ultimaTentativaEm)
+                  const atualizando = atualizandoPlaca === r.placa
+                  return (
+                    <tr key={r.placa} className="border-t border-slate-100">
+                      <td className="px-3 py-2 font-mono font-medium">{r.placa}</td>
+                      <td className="px-3 py-2">
+                        {r.situacao === 'SEM_RASTREADOR' ? (
+                          <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700">sem rastreador</span>
+                        ) : (
+                          <span className="rounded bg-red-100 px-2 py-0.5 text-xs text-red-800">sem comunicação</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        {r.minutosSemComunicacao != null ? fmtDuracao(r.minutosSemComunicacao) : 'nunca'}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap" title={r.ultimaPosicaoEm ? fmtDataHora(r.ultimaPosicaoEm) : ''}>
+                        {r.ultimaPosicaoEm ? fmtDataHora(r.ultimaPosicaoEm) : '—'}
+                      </td>
+                      <td className="max-w-xs truncate px-3 py-2 text-slate-600" title={r.localizacao ?? ''}>
+                        {r.localizacao ?? '—'}
+                      </td>
+                      <td className="px-3 py-2 text-slate-600">
+                        {r.ultimaTentativaEm ? (
+                          <>
+                            {fmtDataHora(r.ultimaTentativaEm)} ·{' '}
+                            {r.ultimoStatusSincronizacao === 'NAO_LOCALIZADA'
+                              ? 'placa não localizada'
+                              : r.ultimoStatusSincronizacao === 'ERRO'
+                                ? 'erro na consulta'
+                                : `OK · ${r.ultimasLinhasRecebidas ?? 0} posição(ões) nova(s)`}
+                          </>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <button
+                          onClick={() => void atualizarPlacaAgora(r.placa)}
+                          disabled={atualizando || restanteMs > 0}
+                          title={restanteMs > 0 ? `Aguarde ${Math.ceil(restanteMs / 1000)}s — evita sobrecarregar a Omnilink com pedidos repetidos` : 'Consulta só esta placa na Omnilink, agora'}
+                          className="rounded-md border border-slate-300 px-2.5 py-1 text-xs hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {atualizando ? 'Atualizando…' : restanteMs > 0 ? `Aguarde ${Math.ceil(restanteMs / 1000)}s` : 'Atualizar agora'}
+                        </button>
+                        {erroAtualizacao?.placa === r.placa && (
+                          <p className="mt-1 text-right text-xs text-red-600">{erroAtualizacao.mensagem}</p>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
                 {!carregandoSemComunicacao && semComunicacaoFiltrada.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
+                    <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
                       Nenhuma placa sem rastreador ou sem comunicação — tudo em dia.
                     </td>
                   </tr>

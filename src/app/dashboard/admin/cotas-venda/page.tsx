@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ExcelButtons } from '@/components/admin/ExcelButtons'
+import { ImportarMatrizCotas } from '@/components/admin/ImportarMatrizCotas'
 import { SortableTable, type SortableColumn } from '@/components/shared/SortableTable'
 
 interface QuotaSettings {
@@ -345,6 +346,15 @@ export default function CotasVendaPage() {
       <p className="mt-1 text-sm text-slate-500">
         Metas mensais ajustáveis: volume total, distribuição por faixa de ICMS, meta por distribuidor e por produto.
       </p>
+
+      <div className="mt-3">
+        <ImportarMatrizCotas onImported={() => void load(month)} />
+        <p className="mt-1 text-xs text-slate-500">
+          Planilha-base (produto × mês e distribuidor × mês, abas &ldquo;plancotas&rdquo; e &ldquo;MetaDistribuidor&rdquo;) — importa todos os
+          meses de uma vez, atualiza o que já existe e cria o que falta. Não cobre Configuração do mês (volume/ICMS),
+          que continua manual abaixo.
+        </p>
+      </div>
 
       <div className="mt-4 flex items-center gap-2">
         <label className="text-sm font-medium text-slate-600">Mês</label>

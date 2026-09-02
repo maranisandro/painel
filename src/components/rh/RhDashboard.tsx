@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { DateRangeInputs, fmtDateBR } from '@/components/shared/DateRangeInputs'
 import { SortableTable, type SortableColumn } from '@/components/shared/SortableTable'
+import { UltimaAtualizacao } from '@/components/shared/ui/UltimaAtualizacao'
 import { hojeBrasil } from '@/lib/horario-brasil'
 import { SelectableBarChart, TurnoverChart } from './Charts'
 import {
@@ -25,6 +26,7 @@ function monthStart(): string {
 
 interface ApiData {
   period: { from: string; to: string }
+  ultimaAtualizacao: string | null
   quadroAtual: FuncionarioRow[]
   desligamentos: FuncionarioRow[]
   transferencias: FuncionarioRow[]
@@ -312,6 +314,7 @@ export function RhDashboard() {
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold">Recursos Humanos</h1>
+        <UltimaAtualizacao iso={data?.ultimaAtualizacao} />
         <p className="mt-1 text-sm text-slate-500">
           Quadro atual (Ativo/Férias/Outros — sempre a situação de hoje) e desligamentos no período selecionado.
           Transferências internas (sem ônus para o cedente) não entram como desligamento.

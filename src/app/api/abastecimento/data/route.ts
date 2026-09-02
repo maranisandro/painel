@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getSessionUser, hasModuleAccess } from '@/lib/authz'
-import { getDatasetView } from '@/lib/semantic/dataset-view'
+import { getDatasetView, getUltimaAtualizacao } from '@/lib/semantic/dataset-view'
 import { resumirPorEquipamento, resumoGeral, type AbastecimentoRow } from '@/lib/abastecimento/resumo'
 
 /**
@@ -27,6 +27,8 @@ export async function GET() {
     valorUnitario: Number(r.VALOR_UNITARIO) || 0,
   }))
 
+  const ultimaAtualizacao = await getUltimaAtualizacao(['fase1_abastecimento'])
+
   return NextResponse.json({
     geral: resumoGeral(rows),
     porEquipamento: resumirPorEquipamento(rows),
@@ -35,5 +37,6 @@ export async function GET() {
     // usado em /api/fase1/data com trips/abastecimento inteiros) em vez de
     // um endpoint por equipamento — evita 739 round-trips ao expandir linhas.
     registros: rows,
+    ultimaAtualizacao,
   })
 }
