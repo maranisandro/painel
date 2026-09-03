@@ -479,19 +479,24 @@ export function agregarVendas(linhas: VendaLinha[], chaveFn: (l: VendaLinha) => 
       // Devolução casada com uma bonificação (ver `devolucoesDeBonificacao`)
       // não desconta nada de venda — a bonificação que ela reverte nunca
       // somou aqui em primeiro lugar, então subtrair "some" m³/faturamento
-      // de vendas reais do mesmo produto/dia sem motivo.
-      if (devolucoesCasadas.has(l)) continue
-      e.devolucoes += l.valorBruto
-      e.devolucoesBase += l.valorBase
-      // Corrigido 2026-08-04 (releitura da nota original): a medida real do
-      // Power BI (".Meta Destino") soma devolução com SINAL NEGATIVO em vez
-      // de excluí-la — simétrico com o m3Total, que também subtrai devolução
-      // logo abaixo. A versão anterior (excluir devolução da soma) replicava
-      // ".Preço Ponderado", que é a medida assimétrica/menos correta.
-      if (l.contaM3) {
-        e.m3Total -= l.m3Total
-        e.m3PesoMinimo -= l.m3PesoMinimo
-        e.m3TotalExpedido -= l.m3Total
+      // de vendas reais do mesmo produto/dia sem motivo. Ainda assim
+      // registra a chave (não usa `continue`) — a nota fiscal da devolução
+      // continua aparecendo em "Por nota fiscal", só que zerada em vez de
+      // some da lista (achado do usuário 2026-09-02: `continue` fazia a
+      // linha desaparecer inteira quando era a única da chave).
+      if (!devolucoesCasadas.has(l)) {
+        e.devolucoes += l.valorBruto
+        e.devolucoesBase += l.valorBase
+        // Corrigido 2026-08-04 (releitura da nota original): a medida real do
+        // Power BI (".Meta Destino") soma devolução com SINAL NEGATIVO em vez
+        // de excluí-la — simétrico com o m3Total, que também subtrai devolução
+        // logo abaixo. A versão anterior (excluir devolução da soma) replicava
+        // ".Preço Ponderado", que é a medida assimétrica/menos correta.
+        if (l.contaM3) {
+          e.m3Total -= l.m3Total
+          e.m3PesoMinimo -= l.m3PesoMinimo
+          e.m3TotalExpedido -= l.m3Total
+        }
       }
     } else if (l.tipoMovimento === 'Bonificacoes') {
       e.bonificacoes += l.valorBonificacao
