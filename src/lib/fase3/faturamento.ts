@@ -391,52 +391,11 @@ export interface VendaAgregada {
 }
 
 /**
- * Devoluções que revertem uma Bonificação (não uma Venda real) — achado do
- * usuário 2026-09-02: a Planep recebe bonificação indevida (Achado 1, ver
- * CriticaModeloTab) e, no mesmo dia/produto/quantidade/m³, o Oracle registra
- * uma devolução idêntica revertendo-a. Bonificação não soma no m³/
- * faturamento de vendas (por design — ver `agregarVendas`), mas a devolução
- * hoje SUBTRAI de lá mesmo assim, sem nada ali pra compensar — "some" m³ de
- * vendas reais do mesmo produto/dia e infla artificialmente o R$/m³ vendido
- * (caso real conferido: PLANEP/Agronegócio/ICMS 18%/2026-08-29, R$/m³
- * calculado em R$13.670,90 contra uma Meta de destino de R$1.395,83 — 44,73
- * m³ vendidos reais menos 41,50 m³ de devolução de bonificação, sobrando só
- * 3,23 m³ pra dividir um faturamento de R$55.870,98).
- *
- * Não há chave explícita ligando devolução↔bonificação no Oracle — casamento
- * 1:1 por (mesmo dia, mesmo distribuidor, mesmo produto, mesma quantidade,
- * mesmo m³ total), o mais específico que os dados permitem. A bonificação em
- * si continua contando normalmente em `bonificacoes`/`bonificacaoM3`
- * (Achado 1 não muda) — só a devolução casada deixa de subtrair de venda.
- */
-function devolucoesDeBonificacao(linhas: VendaLinha[]): Set<VendaLinha> {
-  const chave = (l: VendaLinha) => `${l.data}|${l.codDistribuidor}|${l.codigoPrd}|${l.quantidade}|${l.m3Total}`
-  const bonificacoesDisponiveis = new Map<string, VendaLinha[]>()
-  for (const l of linhas) {
-    if (l.tipoMovimento !== 'Bonificacoes') continue
-    const arr = bonificacoesDisponiveis.get(chave(l)) ?? []
-    arr.push(l)
-    bonificacoesDisponiveis.set(chave(l), arr)
-  }
-  const casadas = new Set<VendaLinha>()
-  for (const l of linhas) {
-    if (l.tipoMovimento !== 'Devolucoes') continue
-    const arr = bonificacoesDisponiveis.get(chave(l))
-    if (arr && arr.length > 0) {
-      arr.pop()
-      casadas.add(l)
-    }
-  }
-  return casadas
-}
-
-/**
  * Agrega linhas de venda por uma chave arbitrária (distribuidor, produto,
  * tabela de preço, ou combinação) — a mesma função serve tanto para a
  * tabela detalhada quanto para totais por distribuidor.
  */
 export function agregarVendas(linhas: VendaLinha[], chaveFn: (l: VendaLinha) => string): VendaAgregada[] {
-  const devolucoesCasadas = devolucoesDeBonificacao(linhas)
   const acc = new Map<
     string,
     {
@@ -476,27 +435,28 @@ export function agregarVendas(linhas: VendaLinha[], chaveFn: (l: VendaLinha) => 
         m3TotalExpedido: 0,
       }
     if (l.tipoMovimento === 'Devolucoes') {
-      // Devolução casada com uma bonificação (ver `devolucoesDeBonificacao`)
-      // não desconta nada de venda — a bonificação que ela reverte nunca
-      // somou aqui em primeiro lugar, então subtrair "some" m³/faturamento
-      // de vendas reais do mesmo produto/dia sem motivo. Ainda assim
-      // registra a chave (não usa `continue`) — a nota fiscal da devolução
-      // continua aparecendo em "Por nota fiscal", só que zerada em vez de
-      // some da lista (achado do usuário 2026-09-02: `continue` fazia a
-      // linha desaparecer inteira quando era a única da chave).
-      if (!devolucoesCasadas.has(l)) {
-        e.devolucoes += l.valorBruto
-        e.devolucoesBase += l.valorBase
-        // Corrigido 2026-08-04 (releitura da nota original): a medida real do
-        // Power BI (".Meta Destino") soma devolução com SINAL NEGATIVO em vez
-        // de excluí-la — simétrico com o m3Total, que também subtrai devolução
-        // logo abaixo. A versão anterior (excluir devolução da soma) replicava
-        // ".Preço Ponderado", que é a medida assimétrica/menos correta.
-        if (l.contaM3) {
-          e.m3Total -= l.m3Total
-          e.m3PesoMinimo -= l.m3PesoMinimo
-          e.m3TotalExpedido -= l.m3Total
-        }
+      // Correção do usuário 2026-09-03: devolução e bonificação são
+      // movimentos de natureza diferente e NÃO se relacionam — o casamento
+      // 1:1 tentado em 2026-09-02 (ver histórico do commit 76e9cd7) foi
+      // revertido a pedido do usuário ("esquece a relação entre devolução e
+      // bonificação, uma não tem relação com a outra"). Uma devolução sempre
+      // desconta 100% do que ela carrega — valor, m³ e quantidade — sem
+      // nenhuma exceção; é a bonificação (ver ramo abaixo) que já nasce sem
+      // somar em faturamento/vendasUN de venda real, então não há necessidade
+      // de tratar a devolução que a reverte de forma diferente de qualquer
+      // outra devolução.
+      e.devolucoes += l.valorBruto
+      e.devolucoesBase += l.valorBase
+      e.vendasUN -= l.quantidade
+      // Corrigido 2026-08-04 (releitura da nota original): a medida real do
+      // Power BI (".Meta Destino") soma devolução com SINAL NEGATIVO em vez
+      // de excluí-la — simétrico com o m3Total, que também subtrai devolução
+      // logo abaixo. A versão anterior (excluir devolução da soma) replicava
+      // ".Preço Ponderado", que é a medida assimétrica/menos correta.
+      if (l.contaM3) {
+        e.m3Total -= l.m3Total
+        e.m3PesoMinimo -= l.m3PesoMinimo
+        e.m3TotalExpedido -= l.m3Total
       }
     } else if (l.tipoMovimento === 'Bonificacoes') {
       e.bonificacoes += l.valorBonificacao
