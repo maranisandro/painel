@@ -126,6 +126,15 @@ export interface VendaLinha {
   placa: string
   /** TMOV.IDMOV — chave interna do movimento/NF, usada para separar as notas dentro de uma "carga" (pedido do usuário 2026-08-04: "preciso saber individual [por nota], pois não cabe na carga todos estes produtos") */
   idMov: string
+  /**
+   * TMOV.IDMOVRELAC — numa linha de Devolucoes, o IDMOV do movimento
+   * original (venda ou bonificação) que ela reverte; vazio nas demais linhas
+   * (pedido do usuário 2026-09-04). Chave real do Oracle pra ligar
+   * devolução↔origem, em vez do casamento heurístico por (dia, distribuidor,
+   * produto, quantidade, m³) tentado e revertido em 2026-09-02/03 — ver uso
+   * em `agregarVendas`.
+   */
+  idMovRelac: string
   /** TMOV.NUMEROMOV — número da NF para exibição */
   numeroMov: string
   /** true = entra no "m³ vendido" (produtos de menor valor como lenha/serragem ficam de fora) */
@@ -250,6 +259,7 @@ export function prepararVendas(rows: Row[], from: string, to: string, config: Co
       valorBase: quantidade * precoBase,
       placa: String(r.PLACA ?? '').trim(),
       idMov: String(r.IDMOV ?? ''),
+      idMovRelac: String(r.IDMOVRELAC ?? ''),
       numeroMov: String(r.NUMEROMOV ?? '').trim(),
       contaM3: !config.produtosForaDoM3.has(tipoProduto),
       m3Total,
@@ -396,6 +406,17 @@ export interface VendaAgregada {
  * tabela detalhada quanto para totais por distribuidor.
  */
 export function agregarVendas(linhas: VendaLinha[], chaveFn: (l: VendaLinha) => string): VendaAgregada[] {
+  // Pedido do usuário 2026-09-04: TMOV.IDMOVRELAC (`idMovRelac`) é a chave
+  // real do Oracle que liga uma devolução ao movimento original que ela
+  // reverte — usada abaixo pra decidir se essa devolução segue a regra de
+  // devolução de venda (desconta 100%, ver ramo abaixo) ou a regra de
+  // devolução de bonificação (mesma regra da bonificação, ver ramo
+  // `Bonificacoes`). Substitui o casamento heurístico por (dia, distribuidor,
+  // produto, quantidade, m³) tentado e revertido em 2026-09-02/03.
+  const porIdMov = new Map<string, TipoMovimento>()
+  for (const l of linhas) {
+    if (l.idMov) porIdMov.set(l.idMov, l.tipoMovimento)
+  }
   const acc = new Map<
     string,
     {
@@ -434,17 +455,24 @@ export function agregarVendas(linhas: VendaLinha[], chaveFn: (l: VendaLinha) => 
         m3PesoMinimo: 0,
         m3TotalExpedido: 0,
       }
-    if (l.tipoMovimento === 'Devolucoes') {
-      // Correção do usuário 2026-09-03: devolução e bonificação são
-      // movimentos de natureza diferente e NÃO se relacionam — o casamento
-      // 1:1 tentado em 2026-09-02 (ver histórico do commit 76e9cd7) foi
-      // revertido a pedido do usuário ("esquece a relação entre devolução e
-      // bonificação, uma não tem relação com a outra"). Uma devolução sempre
-      // desconta 100% do que ela carrega — valor, m³ e quantidade — sem
-      // nenhuma exceção; é a bonificação (ver ramo abaixo) que já nasce sem
-      // somar em faturamento/vendasUN de venda real, então não há necessidade
-      // de tratar a devolução que a reverte de forma diferente de qualquer
-      // outra devolução.
+    if (l.tipoMovimento === 'Devolucoes' && porIdMov.get(l.idMovRelac) === 'Bonificacoes') {
+      // Pedido do usuário 2026-09-04: devolução que reverte uma bonificação
+      // (ligação real via IDMOVRELAC, não mais heurística) usa A MESMA REGRA
+      // DA BONIFICAÇÃO — não desconta nada de faturamento/vendasUN/m3Total de
+      // venda real (a bonificação que ela reverte nunca somou ali em primeiro
+      // lugar), só desfaz o que a bonificação somou nos buckets dela mesma e
+      // no volume expedido.
+      e.bonificacoes -= l.valorBonificacao
+      e.bonificacaoUnidades -= l.quantidade
+      if (l.contaM3) {
+        e.bonificacaoM3 -= l.m3Total
+        e.m3TotalExpedido -= l.m3Total
+      }
+    } else if (l.tipoMovimento === 'Devolucoes') {
+      // Pedido do usuário 2026-09-04: devolução que reverte uma VENDA (ou
+      // sem IDMOVRELAC resolvível) segue exatamente a regra normal de
+      // devolução — desconta 100% do que ela carrega: valor, m³ e
+      // quantidade, sem exceção.
       e.devolucoes += l.valorBruto
       e.devolucoesBase += l.valorBase
       e.vendasUN -= l.quantidade

@@ -113,11 +113,17 @@ AND TMOV.DATASAIDA >= TO_DATE('01/01/2026', 'DD/MM/YYYY')
 // PRECOUNITARIO (bonificação sem tabela de distribuidor = sem diferença a
 // apurar). Não precisa de TPRODUTODEF/PRECO1-3 — isso só existia na query
 // antiga (2016-2020), já fora do recorte.
+// IDMOVRELAC (pedido do usuário 2026-09-04): numa devolução, é o IDMOV do
+// movimento original (venda ou bonificação) que ela reverte — chave real do
+// Oracle pra ligar devolução↔origem, em vez do casamento heurístico por
+// (dia, distribuidor, produto, quantidade, m³) tentado e revertido em
+// 2026-09-02/03. Ver uso em `agregarVendas` (faturamento.ts).
 const QUERY_FASE3_VENDAS_MADEIRA = `
 SELECT
 TMOV.CODCOLIGADA,
 TMOV.CODFILIAL,
 TMOV.IDMOV,
+TMOV.IDMOVRELAC,
 TITMMOV.NSEQITMMOV,
 TMOV.DATASAIDA,
 TMOV.NUMEROMOV,
