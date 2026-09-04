@@ -99,10 +99,16 @@ export function SortableTable<T>({
   const linhas = useMemo(() => {
     const filtradas = rows.filter((r) =>
       columns.every((c) => {
-        const f = filtros[c.key]?.trim().toLowerCase()
-        if (!f) return true
+        const bruto = filtros[c.key]?.trim().toLowerCase()
+        if (!bruto) return true
+        // Pedido do usuário 2026-09-04: selecionar mais de um valor no mesmo
+        // filtro (ex.: duas notas fiscais, ou "Venda;Devolução") — termos
+        // separados por ";", casa se QUALQUER um bater (OR), não precisa de
+        // combo por coluna.
+        const termos = bruto.split(';').map((t) => t.trim()).filter(Boolean)
+        if (termos.length === 0) return true
         const v = (c.filterValue ?? ((rr: T) => String(c.sortValue(rr)))) (r).toLowerCase()
-        return v.includes(f)
+        return termos.some((t) => v.includes(t))
       }),
     )
     const col = columns.find((c) => c.key === sortKey)
@@ -139,7 +145,7 @@ export function SortableTable<T>({
               <input
                 value={filtros[c.key] ?? ''}
                 onChange={(e) => setFiltros((f) => ({ ...f, [c.key]: e.target.value }))}
-                placeholder="filtrar…"
+                placeholder="filtrar… (a;b p/ vários)"
                 className={`w-full rounded border border-slate-200 px-1.5 py-0.5 text-xs font-normal ${c.align === 'right' ? 'text-right' : ''}`}
               />
             </th>
