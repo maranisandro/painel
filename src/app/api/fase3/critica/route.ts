@@ -3,6 +3,7 @@ import { getSessionUser, hasModuleAccess } from '@/lib/authz'
 import { getDatasetView } from '@/lib/semantic/dataset-view'
 import { prepararVendas, agregarVendas, registrosAlteradosAposFechamento } from '@/lib/fase3/faturamento'
 import { carregarMetaPeriodo, resolverConfigVendas } from '@/lib/fase3/cotas'
+import { buildCompositionResolver } from '@/lib/fase1/composition'
 
 function monthStart(): string {
   const d = new Date()
@@ -144,6 +145,32 @@ export async function GET(req: NextRequest) {
     somaIcmsPct: metaMes.mesesComCadastro > 0 ? somaIcmsPct : null,
   }
 
+  // Achado 12: nota de VENDA de madeira tratada aparecendo para uma placa
+  // que, na data da nota, já estava com composição Tritrem Florestal
+  // (transporte interno de madeira, fora do escopo comercial da Fase 3) —
+  // mesmo problema já monitorado no Fase 1 ("nota_apos_tritrem", achado do
+  // usuário 2026-08-19), agora verificado também contra a fonte de vendas
+  // desta fase. Pedido do usuário 2026-09-08: "vamos colocar isto na
+  // crítica" (não existe fonte própria de nota de transporte interno de
+  // madeira ainda — só monitora quando essa placa aparece indevidamente
+  // aqui, na venda comercial).
+  const resolveComposition = await buildCompositionResolver()
+  const linhasTritrem = linhas.filter((l) => l.placa && resolveComposition(l.placa, l.data) === 'Tritrem Florestal')
+  const porPlacaTritrem = new Map<string, { placa: string; n: number; primeira: string; ultima: string; valor: number }>()
+  for (const l of linhasTritrem) {
+    const e = porPlacaTritrem.get(l.placa) ?? { placa: l.placa, n: 0, primeira: l.data, ultima: l.data, valor: 0 }
+    e.n++
+    e.valor += l.valorBruto
+    if (l.data < e.primeira) e.primeira = l.data
+    if (l.data > e.ultima) e.ultima = l.data
+    porPlacaTritrem.set(l.placa, e)
+  }
+  const achado12 = {
+    transacoes: linhasTritrem.length,
+    valorTotal: linhasTritrem.reduce((s, l) => s + l.valorBruto, 0),
+    porPlaca: [...porPlacaTritrem.values()].sort((a, b) => b.valor - a.valor),
+  }
+
   return NextResponse.json({
     period: { from, to },
     achado1PlanepBonificacaoIndevida: achado1,
@@ -166,5 +193,6 @@ export async function GET(req: NextRequest) {
       registros: registrosAlterados.slice(0, 200),
     },
     achado11CotasVsMetaVolume: achado11,
+    achado12NotaVendaAposTritrem: achado12,
   })
 }

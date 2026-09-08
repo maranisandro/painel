@@ -64,6 +64,11 @@ interface CriticaData {
     diferencaVolumePct: number | null
     somaIcmsPct: number | null
   }
+  achado12NotaVendaAposTritrem: {
+    transacoes: number
+    valorTotal: number
+    porPlaca: { placa: string; n: number; primeira: string; ultima: string; valor: number }[]
+  }
 }
 
 function fmtMoeda(n: number | null): string {
@@ -550,6 +555,52 @@ export function CriticaModeloTab() {
                 consistentes.
               </p>
             )}
+          </>
+        )}
+      </Achado>
+
+      <Achado
+        numero={12}
+        titulo="Nota de venda de madeira tratada com placa já em Tritrem Florestal"
+        status={data && data.achado12NotaVendaAposTritrem.transacoes > 0 ? 'em-aberto' : 'nota'}
+      >
+        <p>
+          Pedido do usuário 2026-09-08: mesma verificação já feita no Fase 1 (&ldquo;nota_apos_tritrem&rdquo;), agora contra a
+          venda de madeira tratada — não existe fonte própria de nota de transporte interno de madeira ainda, então
+          isto só sinaliza quando uma placa do Tri-Trem Florestal aparece indevidamente numa nota de venda comercial.
+        </p>
+        {!data || data.achado12NotaVendaAposTritrem.transacoes === 0 ? (
+          <p className="text-slate-500">Nenhuma nota encontrada no período para placas do Tri-Trem Florestal.</p>
+        ) : (
+          <>
+            <p className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+              {data.achado12NotaVendaAposTritrem.transacoes} nota(s), {fmtMoeda(data.achado12NotaVendaAposTritrem.valorTotal)} —
+              confira se a placa realmente voltou à venda comercial, ou se é erro de nota/cadastro.
+            </p>
+            <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+              <table className="w-full text-xs">
+                <thead className="text-left text-slate-500">
+                  <tr>
+                    <th className="px-2 py-1">Placa</th>
+                    <th className="px-2 py-1 text-right">Notas</th>
+                    <th className="px-2 py-1">Primeira</th>
+                    <th className="px-2 py-1">Última</th>
+                    <th className="px-2 py-1 text-right">Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.achado12NotaVendaAposTritrem.porPlaca.map((p) => (
+                    <tr key={p.placa} className="border-t border-slate-100">
+                      <td className="px-2 py-1 font-mono font-medium">{p.placa}</td>
+                      <td className="px-2 py-1 text-right">{fmt(p.n)}</td>
+                      <td className="px-2 py-1">{fmtDateBR(p.primeira)}</td>
+                      <td className="px-2 py-1">{fmtDateBR(p.ultima)}</td>
+                      <td className="px-2 py-1 text-right">{fmtMoeda(p.valor)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </>
         )}
       </Achado>
