@@ -4,6 +4,10 @@ import { getDatasetView } from '@/lib/semantic/dataset-view'
 import { prepararVendas, agregarVendas, registrosAlteradosAposFechamento } from '@/lib/fase3/faturamento'
 import { carregarMetaPeriodo, resolverConfigVendas } from '@/lib/fase3/cotas'
 import { buildCompositionResolver } from '@/lib/fase1/composition'
+import { mesclarComStatusAchados, STATUS_ACHADO_VALIDOS, type AchadoDetectado } from '@/lib/critica-modelo'
+import { prisma } from '@/lib/prisma'
+
+const MODULO = 'fase3'
 
 function monthStart(): string {
   const d = new Date()
@@ -11,6 +15,15 @@ function monthStart(): string {
 }
 function todayStr(): string {
   return new Date().toISOString().slice(0, 10)
+}
+function fmtDateBR(iso: string): string {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!m) return iso
+  const [, y, mo, d] = m
+  return `${d}/${mo}/${y}`
+}
+function fmtMoeda(n: number): string {
+  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 2 })
 }
 
 /**
@@ -54,6 +67,14 @@ export async function GET(req: NextRequest) {
     valorNominal: bonifPlanep.reduce((s, l) => s + l.valorBruto, 0),
     top3Clientes: [...bonifPlanepPorCliente.values()].sort((a, b) => b.valor - a.valor).slice(0, 3),
   }
+  // Pedido do usuário 2026-09-10: cada transação vira 1 achado reconhecível
+  // individualmente (não só o card agregado acima) — ver `achadosOperacionais`.
+  const achado1Instancias: AchadoDetectado[] = bonifPlanep.map((l) => ({
+    categoria: 'planep_bonificacao_indevida',
+    chave: `planep-bonif|${l.numeroMov}|${l.idMov}|${l.codigoPrd}|${l.data}`,
+    titulo: `Bonificação da Planep — NF ${l.numeroMov || '—'} (${fmtDateBR(l.data)})`,
+    descricao: `Cliente ${l.cliente || '—'}, produto ${l.produto}, ${l.quantidade} un., valor nominal ${fmtMoeda(l.valorBruto)} — regra de negócio diz que a Planep não deveria ter bonificação (CODTMV=2.2.48). Confira se é erro de lançamento no TOTVS ou se a regra mudou.`,
+  }))
 
   // Achado 2: assimetria Meta Destino (soma preco_ponderado excluindo só
   // Bonificações, mas Total m3 vendido já desconta Devolução) x Preço
@@ -93,6 +114,13 @@ export async function GET(req: NextRequest) {
   // do período — candidatos a explicar divergência com um relatório externo
   // (BI) que tenha sido gerado antes dessas correções tardias.
   const registrosAlterados = registrosAlteradosAposFechamento(linhas, to)
+  // Pedido do usuário 2026-09-10: cada registro alterado vira 1 achado reconhecível.
+  const achado5Instancias: AchadoDetectado[] = registrosAlterados.map((r) => ({
+    categoria: 'registro_alterado_apos_fechamento',
+    chave: `registro-alterado|${r.numeroMov}|${r.idMov}|${r.codigoPrd}`,
+    titulo: `Registro alterado após o fechamento — NF ${r.numeroMov || '—'} (${fmtDateBR(r.data)})`,
+    descricao: `${r.distribuidor}, cliente ${r.cliente || '—'}, produto ${r.produto}, ${r.tipoMovimento}, ${r.quantidade} un., ${fmtMoeda(r.valorBruto)} — alterado no Oracle em ${fmtDateBR(r.recModificadoEm.slice(0, 10))} (depois do fim do período selecionado, ${fmtDateBR(to)}). Confira se essa correção tardia explica alguma divergência com relatório externo.`,
+  }))
 
   // Achado 7: distribuidor por período (ao vivo) — prova de que TOP TOP
   // aparece corretamente agora (antes do fix, tudo isto caía em "SEM
@@ -121,6 +149,13 @@ export async function GET(req: NextRequest) {
       precoMedioTabela4: l.precoMedioTabela4,
     })),
   }
+  // Pedido do usuário 2026-09-10: cada transação vira 1 achado reconhecível.
+  const achado10Instancias: AchadoDetectado[] = flagSemCodtmvBonif.map((l) => ({
+    categoria: 'flag_bonificacao_sem_codtmv',
+    chave: `flag-sem-codtmv|${l.numeroMov}|${l.idMov}|${l.codigoPrd}|${l.data}`,
+    titulo: `Desconto embutido sem bonificação formal — NF ${l.numeroMov || '—'} (${fmtDateBR(l.data)})`,
+    descricao: `${l.distribuidor}, cliente ${l.cliente || '—'}, produto ${l.produto}, ${l.quantidade} un. — flag bruto BONIFICACAO='SIM' na origem, mas classificado como Venda pelo CODTMV (preço vendido ${fmtMoeda(l.quantidade > 0 ? l.valorBruto / l.quantidade : 0)}, tabela preço base ${fmtMoeda(l.precoMedioTabela4)}). Confira se deveria ter passado pelo movimento formal de bonificação.`,
+  }))
 
   // Achado 11: cotas cadastradas (Cadastros → Cotas de venda) não batem com
   // a meta de volume do mês — pedido do usuário 2026-08-13: "critica nos
@@ -170,6 +205,27 @@ export async function GET(req: NextRequest) {
     valorTotal: linhasTritrem.reduce((s, l) => s + l.valorBruto, 0),
     porPlaca: [...porPlacaTritrem.values()].sort((a, b) => b.valor - a.valor),
   }
+  // Pedido do usuário 2026-09-10: 1 achado reconhecível por PLACA (não por
+  // transação — mesmo critério já usado no achado equivalente do Fase 1,
+  // "nota_apos_tritrem").
+  const achado12Instancias: AchadoDetectado[] = [...porPlacaTritrem.values()].map((p) => ({
+    categoria: 'nota_venda_apos_tritrem',
+    chave: `nota-venda-apos-tritrem|${p.placa}`,
+    titulo: `Placa ${p.placa} — nota de venda de madeira tratada com a placa já em Tritrem Florestal`,
+    descricao: `${p.n} nota(s) de ${fmtDateBR(p.primeira)} a ${fmtDateBR(p.ultima)}, ${fmtMoeda(p.valor)} — placa já cadastrada como Tritrem Florestal (transporte interno de madeira) na data da venda. Confira se a placa realmente voltou à venda comercial, ou se é erro de nota/cadastro.`,
+  }))
+
+  // Pedido do usuário 2026-09-10: "as críticas precisam ser rodadas
+  // diariamente e precisam ser reconhecidas, quando reconhecidas filtrar por
+  // status, o que se resolver some da crítica" — mesmo mecanismo já usado na
+  // Fase 1 (recalculado ao vivo a cada carregamento, só o status é
+  // persistido por chave estável em CriticaModeloAchado).
+  const achadosOperacionais = await mesclarComStatusAchados(MODULO, [
+    ...achado1Instancias,
+    ...achado5Instancias,
+    ...achado10Instancias,
+    ...achado12Instancias,
+  ])
 
   return NextResponse.json({
     period: { from, to },
@@ -194,5 +250,43 @@ export async function GET(req: NextRequest) {
     },
     achado11CotasVsMetaVolume: achado11,
     achado12NotaVendaAposTritrem: achado12,
+    achadosOperacionais,
+    totalAberto: achadosOperacionais.filter((a) => a.status === 'aberto').length,
   })
+}
+
+/**
+ * Reconhece/encaminha/resolve um achado operacional (Achados 1, 5, 10 e 12)
+ * — pedido do usuário 2026-09-10. Mesmo contrato do POST de
+ * `/api/fase1/critica`: grava por `modulo`+`chave`, exige motivo.
+ */
+export async function POST(req: NextRequest) {
+  const user = await getSessionUser()
+  if (!hasModuleAccess(user, 'fase3')) return NextResponse.json({ error: 'acesso negado' }, { status: 403 })
+
+  const body = await req.json()
+  const chave = String(body.chave ?? '').trim()
+  const categoria = String(body.categoria ?? '').trim()
+  const descricao = String(body.descricao ?? '').trim()
+  const status = String(body.status ?? '').trim()
+  const motivo = String(body.motivo ?? '').trim()
+  if (!chave || !categoria) return NextResponse.json({ error: 'chave/categoria obrigatórios' }, { status: 400 })
+  if (!STATUS_ACHADO_VALIDOS.includes(status)) return NextResponse.json({ error: 'status inválido' }, { status: 400 })
+  if (!motivo) return NextResponse.json({ error: 'motivo obrigatório para reconhecer, encaminhar ou resolver um achado' }, { status: 400 })
+
+  const registro = await prisma.criticaModeloAchado.upsert({
+    where: { modulo_chave: { modulo: MODULO, chave } },
+    update: { status, motivo, descricao, reconhecidoPor: user?.email ?? null, reconhecidoEm: new Date() },
+    create: {
+      modulo: MODULO,
+      chave,
+      categoria,
+      descricao,
+      status,
+      motivo,
+      reconhecidoPor: user?.email ?? null,
+      reconhecidoEm: new Date(),
+    },
+  })
+  return NextResponse.json({ registro })
 }

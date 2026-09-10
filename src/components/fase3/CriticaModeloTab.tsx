@@ -69,6 +69,34 @@ interface CriticaData {
     valorTotal: number
     porPlaca: { placa: string; n: number; primeira: string; ultima: string; valor: number }[]
   }
+  achadosOperacionais: AchadoOperacional[]
+  totalAberto: number
+}
+
+type StatusAchado = 'aberto' | 'reconhecido' | 'encaminhado_origem' | 'resolvido'
+
+interface AchadoOperacional {
+  categoria: string
+  chave: string
+  titulo: string
+  descricao: string
+  status: StatusAchado
+  reconhecidoPor: string | null
+  reconhecidoEm: string | null
+  motivo: string | null
+}
+
+const STATUS_LABEL: Record<StatusAchado, string> = {
+  aberto: 'Em aberto',
+  reconhecido: 'Reconhecido',
+  encaminhado_origem: 'Encaminhado para ajuste na origem',
+  resolvido: 'Resolvido',
+}
+const STATUS_COR: Record<StatusAchado, string> = {
+  aberto: 'bg-red-100 text-red-800',
+  reconhecido: 'bg-amber-100 text-amber-800',
+  encaminhado_origem: 'bg-sky-100 text-sky-800',
+  resolvido: 'bg-emerald-100 text-emerald-800',
 }
 
 function fmtMoeda(n: number | null): string {
@@ -128,6 +156,176 @@ function Achado({
   )
 }
 
+type FiltroStatus = StatusAchado | 'todos'
+const FILTROS: FiltroStatus[] = ['aberto', 'reconhecido', 'encaminhado_origem', 'resolvido', 'todos']
+
+/**
+ * Pendências operacionais (Achados 1, 5, 10 e 12) — pedido do usuário
+ * 2026-09-10: "as críticas precisam ser rodadas diariamente e precisam ser
+ * reconhecidas, quando reconhecidas filtrar por status, o que se resolver
+ * some da crítica". Cada transação/registro/placa vira 1 pendência
+ * reconhecível individualmente (mesmo mecanismo já usado no Fase 1) — o
+ * filtro padrão ("Em aberto") já não mostra o que foi resolvido; dá pra ver
+ * qualquer status (inclusive Resolvido) escolhendo o filtro.
+ */
+function PendenciasOperacionais({ achados, totalAberto, onRecarregar }: { achados: AchadoOperacional[]; totalAberto: number; onRecarregar: () => void }) {
+  const [filtro, setFiltro] = useState<FiltroStatus>('aberto')
+  const [abrindoAcao, setAbrindoAcao] = useState<{ chave: string; status: 'reconhecido' | 'encaminhado_origem' | 'resolvido' } | null>(null)
+  const [motivo, setMotivo] = useState('')
+  const [enviando, setEnviando] = useState(false)
+
+  const contagem = (s: FiltroStatus) => (s === 'todos' ? achados.length : achados.filter((a) => a.status === s).length)
+  const visiveis = filtro === 'todos' ? achados : achados.filter((a) => a.status === filtro)
+
+  async function confirmarAcao(achado: AchadoOperacional) {
+    if (!abrindoAcao || !motivo.trim()) return
+    setEnviando(true)
+    try {
+      await fetch('/api/fase3/critica', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chave: achado.chave,
+          categoria: achado.categoria,
+          descricao: achado.descricao,
+          status: abrindoAcao.status,
+          motivo: motivo.trim(),
+        }),
+      })
+      setAbrindoAcao(null)
+      setMotivo('')
+      onRecarregar()
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="font-medium">Pendências operacionais para reconhecer</h3>
+        <span className={`rounded px-2 py-0.5 text-xs font-medium ${totalAberto > 0 ? 'bg-red-100 text-red-800' : 'bg-emerald-100 text-emerald-800'}`}>
+          {totalAberto} em aberto
+        </span>
+      </div>
+      <p className="text-xs text-slate-500">
+        Achados dos Achados 1 (bonificação da Planep), 5 (registros alterados após o fechamento), 10 (flag de
+        bonificação sem CODTMV) e 12 (nota após Tritrem Florestal), um por transação/registro/placa — recalculados ao
+        vivo para o período selecionado acima. Reconheça, encaminhe para ajuste na origem, ou resolva (some da lista
+        por padrão) — tudo fica registrado com quem e por quê.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {FILTROS.map((f) => (
+          <button
+            key={f}
+            type="button"
+            onClick={() => setFiltro(f)}
+            className={`rounded-md border px-2.5 py-1 text-xs font-medium ${
+              filtro === f ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            {f === 'todos' ? 'Todos' : STATUS_LABEL[f]} ({contagem(f)})
+          </button>
+        ))}
+      </div>
+
+      <div className="space-y-2">
+        {visiveis.map((a) => (
+          <div key={`${a.categoria}|${a.chave}`} className={`rounded-lg border p-3 ${a.status === 'aberto' ? 'border-red-200 bg-red-50' : 'border-slate-200 bg-slate-50'}`}>
+            <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+              <h4 className="text-sm font-medium">{a.titulo}</h4>
+              <span className={`rounded px-2 py-0.5 text-xs font-medium ${STATUS_COR[a.status]}`}>{STATUS_LABEL[a.status]}</span>
+            </div>
+            <p className="text-xs text-slate-700">{a.descricao}</p>
+
+            {a.status !== 'aberto' && (
+              <p className="mt-1.5 text-xs text-slate-500">
+                {a.reconhecidoPor} em {fmtDataHoraBR(a.reconhecidoEm ?? '')} — &ldquo;{a.motivo}&rdquo;
+              </p>
+            )}
+
+            {a.status === 'aberto' && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAbrindoAcao({ chave: a.chave, status: 'reconhecido' })
+                    setMotivo('')
+                  }}
+                  className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100"
+                >
+                  Reconhecer
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAbrindoAcao({ chave: a.chave, status: 'encaminhado_origem' })
+                    setMotivo('')
+                  }}
+                  className="rounded-md border border-sky-300 bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-800 hover:bg-sky-100"
+                >
+                  Encaminhar para origem
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAbrindoAcao({ chave: a.chave, status: 'resolvido' })
+                    setMotivo('')
+                  }}
+                  className="rounded-md border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100"
+                >
+                  Resolver
+                </button>
+              </div>
+            )}
+
+            {abrindoAcao?.chave === a.chave && (
+              <div className="mt-2 space-y-2 rounded-lg border border-slate-200 bg-white p-2.5">
+                <label className="text-xs font-medium text-slate-600">
+                  {abrindoAcao.status === 'reconhecido'
+                    ? 'Motivo do reconhecimento'
+                    : abrindoAcao.status === 'encaminhado_origem'
+                      ? 'O que precisa ser ajustado na origem'
+                      : 'O que foi feito para resolver'}
+                </label>
+                <textarea
+                  value={motivo}
+                  onChange={(e) => setMotivo(e.target.value)}
+                  rows={2}
+                  className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                  placeholder="ex.: confirmado com o comercial, correção já lançada no TOTVS"
+                />
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={!motivo.trim() || enviando}
+                    onClick={() => confirmarAcao(a)}
+                    className="rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                  >
+                    Confirmar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAbrindoAcao(null)}
+                    className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+        {visiveis.length === 0 && (
+          <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+            Nenhuma pendência com o status &ldquo;{filtro === 'todos' ? 'todos' : STATUS_LABEL[filtro as StatusAchado]}&rdquo; no período selecionado.
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 /**
  * Crítica ao modelo — pedido do usuário 2026-08-04: "critique o modelo
  * sobre os cálculos em uma aba específica trazendo exemplos para análises
@@ -141,13 +339,15 @@ export function CriticaModeloTab() {
   const [data, setData] = useState<CriticaData | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
+  function carregar() {
     setLoading(true)
     fetch(`/api/fase3/critica?from=${from}&to=${to}`)
       .then((r) => r.json())
       .then(setData)
       .finally(() => setLoading(false))
-  }, [from, to])
+  }
+
+  useEffect(carregar, [from, to])
 
   return (
     <div className="space-y-6">
@@ -165,6 +365,8 @@ export function CriticaModeloTab() {
         Cada achado abaixo é recalculado ao vivo com dados reais do período selecionado acima — não é
         um relatório estático, é um jeito de auditar o modelo a qualquer momento.
       </p>
+
+      {data && <PendenciasOperacionais achados={data.achadosOperacionais} totalAberto={data.totalAberto} onRecarregar={carregar} />}
 
       <Achado numero={1} titulo="Bonificação da Planep contraria a regra de negócio — monitorado, não escondido" status="em-aberto">
         <p>

@@ -292,6 +292,10 @@ export interface RegistroAlterado {
   quantidade: number
   valorBruto: number
   recModificadoEm: string
+  /** TMOV.NUMEROMOV/IDMOV/CODIGOPRD — pedido do usuário 2026-09-10: chave estável para reconhecimento individual (ver `achadosRegistroAlteradoAposFechamento` em src/lib/fase3/critica.ts) */
+  numeroMov: string
+  idMov: string
+  codigoPrd: string
 }
 
 /**
@@ -317,6 +321,9 @@ export function registrosAlteradosAposFechamento(linhas: VendaLinha[], to: strin
       quantidade: l.quantidade,
       valorBruto: l.valorBruto,
       recModificadoEm: l.recModificadoEm,
+      numeroMov: l.numeroMov,
+      idMov: l.idMov,
+      codigoPrd: l.codigoPrd,
     })
   }
   return out.sort((a, b) => b.recModificadoEm.localeCompare(a.recModificadoEm))
