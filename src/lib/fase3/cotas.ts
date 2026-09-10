@@ -247,6 +247,8 @@ export interface MetaPeriodo {
   metaVolumePorMes: { mes: string; metaVolumeM3: number }[]
   /** meta de cada distribuidor em CADA mês individualmente (não somada) — mesma finalidade, para o ritmo por distribuidor */
   distribuidoresPorMes: { mes: string; codDistribuidor: string; metaValor: number }[]
+  /** cota de cada produto em CADA mês individualmente (não somada) — pedido do usuário 2026-09-10: ritmo por produto (mesma finalidade de distribuidoresPorMes) */
+  produtosPorMes: { mes: string; codigoPrd: string; cotaUnidades: number }[]
 }
 
 /**
@@ -355,6 +357,11 @@ export async function carregarMetaPeriodo(from: string, to: string): Promise<Met
       codDistribuidor: r.codDistribuidor,
       metaValor: Number(r.metaValor),
     })),
+    produtosPorMes: prodQuotas.map((r) => ({
+      mes: r.month.toISOString().slice(0, 7),
+      codigoPrd: r.codigoPrd,
+      cotaUnidades: Number(r.cotaUnidades),
+    })),
   }
 }
 
@@ -449,7 +456,36 @@ export interface ComparativoProdutoCota {
    * sem saldo conhecido (produto sem venda no período filtrado).
    */
   saldoSuficiente: boolean | null
+  /**
+   * Ritmo do produto no MÊS de referência (mesma conta de `ComparativoVolume`/
+   * `ComparativoDistribuidorCota`, restrita à cota do próprio produto) —
+   * pedido do usuário 2026-09-10: "a cota por produto controlar somente por
+   * unidade... o atingimento deve seguir o ritmo do mês, o volume deve ser
+   * medido no decorrer do mês".
+   */
+  ritmo: RitmoInfo
+  /**
+   * `ritmo.dentroDoRitmo`, EXCETO quando o estoque já é suficiente para
+   * cobrir o restante da cota (`saldoSuficiente === true`) — nesse caso
+   * sempre `true`, mesmo com venda concentrada no fim do mês: "quando temos
+   * o produto em estoque pode consumir em qualquer momento" (pedido do
+   * usuário 2026-09-10). É este campo (não `ritmo.dentroDoRitmo` puro) que a
+   * UI usa para decidir vermelho/verde.
+   */
+  dentroDoRitmoEfetivo: boolean | null
 }
+
+export interface ProdutoAcimaMeta {
+  mes: string
+  codigoPrd: string
+  nomeProduto: string | null
+  cotaUnidades: number
+  vendidoUnidades: number
+  excedenteUnidades: number
+  /** vendidoUnidades ÷ cotaUnidades − 1 (ex.: 0.2 = 20% acima da cota do mês) */
+  excedentePct: number
+}
+
 export interface ComparativoCotas {
   temCadastro: boolean
   volume: ComparativoVolume
@@ -457,6 +493,8 @@ export interface ComparativoCotas {
   impactoMixIcms: ImpactoMixIcms
   distribuidores: ComparativoDistribuidorCota[]
   produtos: ComparativoProdutoCota[]
+  /** Pedido do usuário 2026-09-10: "na analise estrategica preciso entender os produtos que estão consumindo acima da meta X mês" — 1 linha por produto×mês onde vendido > cota, ordenado pelo maior excedente. */
+  produtosAcimaMeta: ProdutoAcimaMeta[]
 }
 
 /**
@@ -575,6 +613,23 @@ export function compararComCotas(
   for (const l of linhas) {
     if (l.codigoPrd) saldoPorProduto.set(l.codigoPrd, l.saldoFisico)
   }
+  // Ritmo por produto (pedido do usuário 2026-09-10) — mesma conta do ritmo
+  // de distribuidor/volume acima, restrita à cota do MÊS de referência e às
+  // vendas DESSE produto: meta e realizado do mês, dias com faturamento
+  // contam só os dias em que ESSE produto vendeu.
+  const metaProdutoMes = new Map<string, number>()
+  for (const r of meta.produtosPorMes) {
+    if (r.mes !== mesReferencia) continue
+    metaProdutoMes.set(r.codigoPrd, (metaProdutoMes.get(r.codigoPrd) ?? 0) + r.cotaUnidades)
+  }
+  const vendaProdutoMes = new Map<string, { unidades: number; dias: Set<string> }>()
+  for (const l of linhasDoMes) {
+    if (l.tipoMovimento !== 'Vendas' || !l.codigoPrd) continue
+    const e = vendaProdutoMes.get(l.codigoPrd) ?? { unidades: 0, dias: new Set<string>() }
+    e.unidades += l.quantidade
+    e.dias.add(l.data)
+    vendaProdutoMes.set(l.codigoPrd, e)
+  }
   const produtos: ComparativoProdutoCota[] = meta.produtos
     .map((q) => {
       const a = agregadoPorProduto.get(q.codigoPrd)
@@ -583,6 +638,13 @@ export function compararComCotas(
       const metaM3 = q.m3PorUnidade != null ? q.cotaUnidades * q.m3PorUnidade : null
       const saldoFisico = saldoPorProduto.get(q.codigoPrd) ?? null
       const necessarioRestanteUnidades = Math.max(0, q.cotaUnidades - vendidoUnidades)
+      const saldoSuficiente = saldoFisico != null ? saldoFisico >= necessarioRestanteUnidades : null
+      const vendaMes = vendaProdutoMes.get(q.codigoPrd)
+      const ritmo = calcularRitmo(metaProdutoMes.get(q.codigoPrd) ?? null, vendaMes?.unidades ?? 0, diasDoMes, vendaMes?.dias.size ?? 0, mesReferencia)
+      // "quando temos o produto em estoque pode consumir em qualquer
+      // momento" — estoque já suficiente pra cobrir o restante da cota
+      // anula o atraso de ritmo (só falta vender, não importa quando).
+      const dentroDoRitmoEfetivo = saldoSuficiente === true ? true : ritmo.dentroDoRitmo
       return {
         ...q,
         vendidoUnidades,
@@ -591,12 +653,43 @@ export function compararComCotas(
         pctAtingido: q.cotaUnidades > 0 ? vendidoUnidades / q.cotaUnidades : null,
         saldoFisico,
         necessarioRestanteUnidades,
-        saldoSuficiente: saldoFisico != null ? saldoFisico >= necessarioRestanteUnidades : null,
+        saldoSuficiente,
+        ritmo,
+        dentroDoRitmoEfetivo,
       }
     })
     .sort((a, b) => (a.pctAtingido ?? 0) - (b.pctAtingido ?? 0))
 
-  return { temCadastro: meta.mesesComCadastro > 0, volume, icms, impactoMixIcms, distribuidores, produtos }
+  // Produtos consumindo acima da meta do mês (pedido do usuário 2026-09-10:
+  // "na analise estrategica preciso entender os produtos que estão
+  // consumindo acima da meta X mês") — 1 linha por produto×mês cadastrado no
+  // recorte `meta` onde o vendido passou a cota daquele mês especificamente
+  // (não a soma do período/ano), já que um produto pode estourar num mês e
+  // ficar tranquilo no resto.
+  const nomePorCodigoProduto = new Map(meta.produtos.map((p) => [p.codigoPrd, p.nomeProduto]))
+  const vendidoPorProdutoMesTodos = new Map<string, number>()
+  for (const l of linhas) {
+    if (l.tipoMovimento !== 'Vendas' || !l.codigoPrd) continue
+    const chave = `${l.mes}|${l.codigoPrd}`
+    vendidoPorProdutoMesTodos.set(chave, (vendidoPorProdutoMesTodos.get(chave) ?? 0) + l.quantidade)
+  }
+  const produtosAcimaMeta: ProdutoAcimaMeta[] = meta.produtosPorMes
+    .map((r) => {
+      const vendidoUnidades = vendidoPorProdutoMesTodos.get(`${r.mes}|${r.codigoPrd}`) ?? 0
+      return {
+        mes: r.mes,
+        codigoPrd: r.codigoPrd,
+        nomeProduto: nomePorCodigoProduto.get(r.codigoPrd) ?? null,
+        cotaUnidades: r.cotaUnidades,
+        vendidoUnidades,
+        excedenteUnidades: vendidoUnidades - r.cotaUnidades,
+        excedentePct: r.cotaUnidades > 0 ? vendidoUnidades / r.cotaUnidades - 1 : 0,
+      }
+    })
+    .filter((p) => p.cotaUnidades > 0 && p.vendidoUnidades > p.cotaUnidades)
+    .sort((a, b) => b.excedentePct - a.excedentePct)
+
+  return { temCadastro: meta.mesesComCadastro > 0, volume, icms, impactoMixIcms, distribuidores, produtos, produtosAcimaMeta }
 }
 
 export interface InsightDiametroMourao {

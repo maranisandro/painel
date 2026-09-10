@@ -60,6 +60,17 @@ interface ComparativoProdutoCota {
   saldoFisico: number | null
   necessarioRestanteUnidades: number
   saldoSuficiente: boolean | null
+  ritmo: RitmoInfo
+  dentroDoRitmoEfetivo: boolean | null
+}
+interface ProdutoAcimaMeta {
+  mes: string
+  codigoPrd: string
+  nomeProduto: string | null
+  cotaUnidades: number
+  vendidoUnidades: number
+  excedenteUnidades: number
+  excedentePct: number
 }
 export interface ComparativoCotasData {
   temCadastro: boolean
@@ -68,6 +79,7 @@ export interface ComparativoCotasData {
   impactoMixIcms: ImpactoMixIcms
   distribuidores: ComparativoDistribuidorCota[]
   produtos: ComparativoProdutoCota[]
+  produtosAcimaMeta: ProdutoAcimaMeta[]
 }
 
 function fmtMoeda(n: number): string {
@@ -78,6 +90,11 @@ function fmt(n: number, digits = 0): string {
 }
 function fmtPct(n: number | null, digits = 0): string {
   return n == null ? '—' : `${fmt(n * 100, digits)}%`
+}
+function fmtMes(iso: string): string {
+  const [ano, mes] = iso.split('-')
+  if (!ano || !mes) return iso
+  return `${mes}/${ano}`
 }
 function corAtingido(pct: number | null): string {
   if (pct == null) return 'text-slate-700'
@@ -136,7 +153,7 @@ export function ComparativoCotas({ data, periodoLabel }: { data: ComparativoCota
     )
   }
 
-  const { volume, icms, impactoMixIcms, distribuidores, produtos } = data
+  const { volume, icms, impactoMixIcms, distribuidores, produtos, produtosAcimaMeta } = data
 
   const colunasDistribuidor: SortableColumn<ComparativoDistribuidorCota>[] = [
     {
@@ -220,7 +237,27 @@ export function ComparativoCotas({ data, periodoLabel }: { data: ComparativoCota
       label: '% atingido',
       align: 'right',
       sortValue: (p) => p.pctAtingido ?? 0,
-      render: (p) => <span className={`font-medium ${corAtingido(p.pctAtingido)}`}>{fmtPct(p.pctAtingido, 1)}</span>,
+      render: (p) => <span className={`font-medium ${corPorRitmo(p.dentroDoRitmoEfetivo, p.pctAtingido)}`}>{fmtPct(p.pctAtingido, 1)}</span>,
+    },
+    {
+      key: 'ritmo',
+      label: 'Ritmo do mês',
+      align: 'center',
+      sortValue: (p) => (p.dentroDoRitmoEfetivo == null ? 1 : p.dentroDoRitmoEfetivo ? 2 : 0),
+      render: (p) => {
+        if (p.ritmo.ritmoEsperado == null) return <span className="text-slate-400">sem cota do mês</span>
+        if (p.dentroDoRitmoEfetivo === false) {
+          return (
+            <span className="rounded bg-red-100 px-1.5 py-0.5 font-medium text-red-700">
+              Atrasado (esperado {fmt(p.ritmo.ritmoEsperado)} un.)
+            </span>
+          )
+        }
+        if (p.saldoSuficiente === true && p.ritmo.dentroDoRitmo === false) {
+          return <span className="rounded bg-emerald-100 px-1.5 py-0.5 font-medium text-emerald-800">Coberto por estoque</span>
+        }
+        return <span className="rounded bg-emerald-100 px-1.5 py-0.5 font-medium text-emerald-800">No ritmo</span>
+      },
     },
     {
       key: 'necessarioRestanteUnidades',
@@ -382,6 +419,44 @@ export function ComparativoCotas({ data, periodoLabel }: { data: ComparativoCota
               defaultSortDir="asc"
               emptyMessage="Nenhuma cota cadastrada."
             />
+          </div>
+        </div>
+      )}
+
+      {produtosAcimaMeta.length > 0 && (
+        <div>
+          <p className="mb-2 text-xs font-medium text-slate-600">Produtos consumindo acima da meta do mês</p>
+          <p className="mb-2 text-xs text-slate-500">
+            Um produto pode estourar a cota num mês específico mesmo sem estourar a cota do período/ano somado —
+            útil pra saber se o estoque planejado pra meses seguintes está sendo consumido adiantado.
+          </p>
+          <div className="max-h-72 overflow-y-auto overflow-x-auto rounded-lg border border-slate-200 text-xs">
+            <table className="w-full">
+              <thead className="bg-slate-50 text-left text-slate-500">
+                <tr>
+                  <th className="px-3 py-2">Mês</th>
+                  <th className="px-3 py-2">Produto</th>
+                  <th className="px-3 py-2 text-right">Cota do mês (un.)</th>
+                  <th className="px-3 py-2 text-right">Vendido (un.)</th>
+                  <th className="px-3 py-2 text-right">Excedente</th>
+                </tr>
+              </thead>
+              <tbody>
+                {produtosAcimaMeta.map((p) => (
+                  <tr key={`${p.mes}|${p.codigoPrd}`} className="border-t border-slate-100">
+                    <td className="px-3 py-2">{fmtMes(p.mes)}</td>
+                    <td className="px-3 py-2">
+                      {p.nomeProduto ?? p.codigoPrd} <span className="text-slate-400">({p.codigoPrd})</span>
+                    </td>
+                    <td className="px-3 py-2 text-right">{fmt(p.cotaUnidades)}</td>
+                    <td className="px-3 py-2 text-right">{fmt(p.vendidoUnidades)}</td>
+                    <td className="px-3 py-2 text-right font-medium text-amber-800">
+                      +{fmt(p.excedenteUnidades)} ({fmtPct(p.excedentePct, 1)})
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
