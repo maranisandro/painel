@@ -91,7 +91,11 @@ export function ConferenciaDevolucoesTab() {
   const [to, setTo] = useState(todayStr())
   const [data, setData] = useState<ApiData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [somenteDivergentes, setSomenteDivergentes] = useState(true)
+  // Pedido do usuário 2026-09-10: "preciso ver as que estão OK como eles
+  // aconteceram" — a tela nascia só com divergentes; agora mostra tudo
+  // (OK + divergentes) por padrão, com o filtro disponível pra quem quiser
+  // ver só as pendências.
+  const [somenteDivergentes, setSomenteDivergentes] = useState(false)
 
   useEffect(() => {
     setLoading(true)
