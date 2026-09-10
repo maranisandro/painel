@@ -236,14 +236,6 @@ export function ComparativoCotas({ data, periodoLabel }: { data: ComparativoCota
       render: (p) => fmt(p.vendidoUnidades),
     },
     {
-      key: 'metaM3',
-      label: 'Cota (m³)',
-      align: 'right',
-      sortValue: (p) => p.metaM3 ?? -1,
-      render: (p) => (p.metaM3 != null ? fmt(p.metaM3, 1) : <span className="text-amber-600">—</span>),
-    },
-    { key: 'vendidoM3', label: 'Vendido (m³)', align: 'right', sortValue: (p) => p.vendidoM3, render: (p) => fmt(p.vendidoM3, 1) },
-    {
       key: 'pctAtingido',
       label: '% atingido',
       align: 'right',
@@ -443,7 +435,7 @@ export function ComparativoCotas({ data, periodoLabel }: { data: ComparativoCota
           </p>
           <div className="max-h-72 overflow-y-auto overflow-x-auto rounded-lg border border-slate-200 text-xs">
             <table className="w-full">
-              <thead className="bg-slate-50 text-left text-slate-500">
+              <thead className="sticky top-0 z-10 bg-slate-50 text-left text-slate-500">
                 <tr>
                   <th className="px-3 py-2">Mês</th>
                   <th className="px-3 py-2">Produto</th>

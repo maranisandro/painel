@@ -8,6 +8,7 @@ import {
   carregarNomesClientes,
   calcularInsightDiametroMourao,
   resolverConfigVendas,
+  carregarSaldoFisicoProdutos,
 } from '@/lib/fase3/cotas'
 import { hojeBrasil } from '@/lib/horario-brasil'
 
@@ -189,11 +190,12 @@ export async function GET(req: NextRequest) {
   // fechado, ritmo vira só um retrato histórico do último mês do ano).
   const hojeStr = hojeBrasil()
   const toRitmo = ano === hojeStr.slice(0, 4) ? hojeStr : `${ano}-12-31`
-  const [metaAno, nomesClientes] = await Promise.all([
+  const [metaAno, nomesClientes, saldoFisicoPorProduto] = await Promise.all([
     carregarMetaPeriodo(`${ano}-01-01`, `${ano}-12-31`),
     carregarNomesClientes(),
+    carregarSaldoFisicoProdutos(),
   ])
-  const comparativoCotas = compararComCotas(linhas, metaAno, toRitmo, nomesClientes)
+  const comparativoCotas = compararComCotas(linhas, metaAno, toRitmo, nomesClientes, undefined, undefined, saldoFisicoPorProduto)
   // Proporção 8-10/10-12 (pedido do usuário 2026-08-13) — mesmo cálculo do tático.
   const insightDiametroMourao = calcularInsightDiametroMourao(linhas, metaAno.produtos)
 

@@ -909,7 +909,15 @@ export function Fase3Dashboard() {
           />
           <CardFinanceiro
             label={`Resultado do mês (R$/m³)${data?.comparativoCotas?.margemMes.mesReferencia ? ' — ' + fmtMes(data.comparativoCotas.margemMes.mesReferencia) : ''}`}
-            formula="R$/m³ vendido no mês − % despesas/impostos − custo de produção (Cadastros → Parâmetros)"
+            formula={
+              data?.comparativoCotas?.margemMes.resultadoM3 != null
+                ? // Pedido do usuário 2026-09-10: "mostrar os numeros que fazem parte
+                  // do calculo, não consegui chegar no numero demostrado nos cards" —
+                  // a fórmula agora interpola os valores reais usados (não só o texto
+                  // genérico), pra dar pra reproduzir a conta na mão.
+                  `${fmtMoeda(data!.comparativoCotas!.margemMes.precoM3Vendido)} − ${fmtPct((data!.comparativoCotas!.margemMes.despesasImpostosPct ?? 0) / 100)} − ${fmtMoeda(data!.comparativoCotas!.margemMes.custoProducaoM3)} (preço − despesas/impostos − custo)`
+                : 'R$/m³ vendido no mês − % despesas/impostos − custo de produção (Cadastros → Parâmetros)'
+            }
             valor={
               data?.comparativoCotas?.margemMes.resultadoM3 != null
                 ? fmtMoeda(data.comparativoCotas.margemMes.resultadoM3)
@@ -924,7 +932,7 @@ export function Fase3Dashboard() {
             }
             sub={
               data?.comparativoCotas?.margemMes.resultadoTotalMes != null
-                ? `${fmtMoeda(data.comparativoCotas.margemMes.resultadoTotalMes)} no mês`
+                ? `${fmtMoeda(data.comparativoCotas.margemMes.resultadoTotalMes)} no mês (× ${fmt(data.comparativoCotas.margemMes.m3TotalMes, 1)} m³)`
                 : 'cadastre custo de produção e % de despesas/impostos do mês'
             }
             ativo={tipoMovimentoFiltro.size === 0}
@@ -932,7 +940,11 @@ export function Fase3Dashboard() {
           />
           <CardFinanceiro
             label="% de resultado do mês"
-            formula="Resultado (R$/m³) ÷ R$/m³ vendido"
+            formula={
+              data?.comparativoCotas?.margemMes.pctResultado != null
+                ? `${fmtMoeda(data!.comparativoCotas!.margemMes.resultadoM3)} ÷ ${fmtMoeda(data!.comparativoCotas!.margemMes.precoM3Vendido)}`
+                : 'Resultado (R$/m³) ÷ R$/m³ vendido'
+            }
             valor={data?.comparativoCotas?.margemMes.pctResultado != null ? fmtPct(data.comparativoCotas.margemMes.pctResultado) : '—'}
             valorClassName={
               data?.comparativoCotas?.margemMes.pctResultado == null

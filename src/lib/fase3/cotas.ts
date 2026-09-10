@@ -294,6 +294,35 @@ export async function carregarNomesProdutosVendas(): Promise<Map<string, string>
 }
 
 /**
+ * CODIGOPRD → SALDOGERALFISICO atual, direto do dataset `fase3_saldo_produtos`
+ * — pedido do usuário 2026-09-10 (achado real: produto 95.02.070052 com 251
+ * un. em estoque aparecia zerado/sem dado no comparativo de cotas). Corrige o
+ * bug de `compararComCotas` antes derivar o saldo de `linhas` (VendaLinha do
+ * PERÍODO filtrado): saldo físico é dado de CADASTRO, independente de o
+ * produto ter vendido ou não no período — um produto parado há meses (caso
+ * real: última venda em 2025-03-04) simplesmente nunca aparecia em `linhas`,
+ * então o saldo "sumia" mesmo tendo estoque de verdade. Buscando direto no
+ * dataset de saldo (não filtrado por período/venda), todo produto cadastrado
+ * aparece, tenha vendido ou não.
+ */
+export async function carregarSaldoFisicoProdutos(): Promise<Map<string, number>> {
+  let view: Awaited<ReturnType<typeof getDatasetView>> = []
+  try {
+    view = await getDatasetView('fase3_saldo_produtos')
+  } catch {
+    return new Map()
+  }
+  const map = new Map<string, number>()
+  for (const r of view as Record<string, unknown>[]) {
+    const codigo = String(r.CODIGOPRD ?? '').trim()
+    if (!codigo) continue
+    const saldo = Number(r.SALDOGERALFISICO)
+    if (Number.isFinite(saldo)) map.set(codigo, saldo)
+  }
+  return map
+}
+
+/**
  * Uma data por mês tocado por `from`..`to`, construída do MESMO jeito que
  * `firstDay()` nas rotas admin de cotas (`new Date(\`\${month}-01T00:00:00\`)`,
  * sem sufixo `Z`) — sem isso, a comparação `month: { in: meses } }` no Prisma
@@ -593,6 +622,11 @@ export interface ComparativoCotas {
  * `resolverValorMensal` com `carregarValoresMensais` de cada prefixo) —
  * pedido do usuário 2026-09-10: projeção de resultado do mês (preço − %
  * despesas/impostos − custo de produção).
+ * `saldoFisicoPorProduto` (opcional, `carregarSaldoFisicoProdutos()`) — saldo
+ * atual por CODIGOPRD, independente de o produto ter vendido no período
+ * (achado 2026-09-10: sem isso, um produto sem venda recente "perdia" o
+ * saldo mesmo tendo estoque real). Sem esse parâmetro, cai no comportamento
+ * antigo (saldo só dos produtos presentes em `linhas`).
  */
 export function compararComCotas(
   linhas: VendaLinha[],
@@ -601,6 +635,7 @@ export function compararComCotas(
   nomesClientes?: Map<string, string>,
   resolverCustoProducaoM3?: (mes: string) => number | null,
   resolverDespesasImpostosPct?: (mes: string) => number | null,
+  saldoFisicoPorProduto?: Map<string, number>,
 ): ComparativoCotas {
   const total = agregarVendas(linhas, () => 'total')[0] ?? null
   const realizadoM3 = total?.m3Total ?? 0
@@ -695,20 +730,21 @@ export function compararComCotas(
     .sort((a, b) => (a.pctAtingido ?? 0) - (b.pctAtingido ?? 0))
 
   const agregadoPorProduto = new Map(agregarVendas(linhas, (l) => l.codigoPrd || '—').map((a) => [a.chave, a]))
-  // Saldo físico atual por produto (pedido do usuário 2026-09-10) — mesmo
-  // valor em toda linha do produto (dado de cadastro, não de movimento),
-  // então basta pegar de qualquer linha; `linhas` já é a MESMA janela usada
-  // para vendidoUnidades/vendidoM3 acima, então um produto sem nenhuma linha
-  // no período fica sem saldo conhecido aqui (`null`), não por falta de
-  // estoque de fato.
-  const saldoPorProduto = new Map<string, number>()
-  for (const l of linhas) {
-    if (l.codigoPrd) saldoPorProduto.set(l.codigoPrd, l.saldoFisico)
+  // Saldo físico atual por produto (pedido do usuário 2026-09-10) — usa
+  // `saldoFisicoPorProduto` (vem de `carregarSaldoFisicoProdutos`, direto do
+  // dataset de saldo, independente de venda) quando informado; senão cai no
+  // comportamento antigo (derivado de `linhas`, só cobre produtos que
+  // venderam no período — achado real: produto sem venda desde 2025-03
+  // "perdia" o saldo mesmo tendo 251 un. em estoque de verdade).
+  const saldoPorProduto = new Map<string, number>(saldoFisicoPorProduto ?? [])
+  if (!saldoFisicoPorProduto) {
+    for (const l of linhas) {
+      if (l.codigoPrd) saldoPorProduto.set(l.codigoPrd, l.saldoFisico)
+    }
   }
   // Ritmo por produto (pedido do usuário 2026-09-10) — mesma conta do ritmo
   // de distribuidor/volume acima, restrita à cota do MÊS de referência e às
-  // vendas DESSE produto: meta e realizado do mês, dias com faturamento
-  // contam só os dias em que ESSE produto vendeu.
+  // vendas DESSE produto.
   const metaProdutoMes = new Map<string, number>()
   for (const r of meta.produtosPorMes) {
     if (r.mes !== mesReferencia) continue
@@ -722,6 +758,15 @@ export function compararComCotas(
     e.dias.add(l.data)
     vendaProdutoMes.set(l.codigoPrd, e)
   }
+  // Dias DECORRIDOS no mês de referência (não "dias com faturamento" — ao
+  // contrário do ritmo de volume/distribuidor acima, que é assim de
+  // propósito desde 2026-08-13) — achado real 2026-09-10: produto com cota
+  // de 500 un. e ZERO vendas no mês aparecia "no ritmo" porque
+  // diasComFaturamento=0 zerava o esperado (0 realizado ≥ 0 esperado). Por
+  // produto, "não vendeu nada" precisa comparar contra os dias do mês que já
+  // passaram, não contra os dias em que ele mesmo vendeu (isso é
+  // literalmente o que se quer detectar).
+  const diasDecorridosMes = mesReferencia === hojeBrasil().slice(0, 7) ? Number(hojeBrasil().slice(8, 10)) : diasDoMes
   const produtos: ComparativoProdutoCota[] = meta.produtos
     .map((q) => {
       const a = agregadoPorProduto.get(q.codigoPrd)
@@ -732,7 +777,7 @@ export function compararComCotas(
       const necessarioRestanteUnidades = Math.max(0, q.cotaUnidades - vendidoUnidades)
       const saldoSuficiente = saldoFisico != null ? saldoFisico >= necessarioRestanteUnidades : null
       const vendaMes = vendaProdutoMes.get(q.codigoPrd)
-      const ritmo = calcularRitmo(metaProdutoMes.get(q.codigoPrd) ?? null, vendaMes?.unidades ?? 0, diasDoMes, vendaMes?.dias.size ?? 0, mesReferencia)
+      const ritmo = calcularRitmo(metaProdutoMes.get(q.codigoPrd) ?? null, vendaMes?.unidades ?? 0, diasDoMes, diasDecorridosMes ?? 0, mesReferencia)
       // "quando temos o produto em estoque pode consumir em qualquer
       // momento" — estoque já suficiente pra cobrir o restante da cota
       // anula o atraso de ritmo (só falta vender, não importa quando).
