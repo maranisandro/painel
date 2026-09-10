@@ -95,6 +95,20 @@ function corPorRitmo(dentroDoRitmo: boolean | null, pctAtingidoFallback: number 
   if (dentroDoRitmo != null) return dentroDoRitmo ? 'text-emerald-700' : 'text-red-700'
   return corAtingido(pctAtingidoFallback)
 }
+/**
+ * Mesmo critério de `corPorRitmo`, mas em classe de FUNDO (bg-*) — pedido do
+ * usuário 2026-09-10: a barra de progresso e o "% vs. meta do mês" ainda
+ * usavam a % crua do mês inteiro (`corAtingido`) mesmo com o texto do valor
+ * já corrigido pelo ritmo em 2026-08-13, então a barra ficava vermelha/âmbar
+ * cedo no mês mesmo estando ACIMA do ritmo esperado. "Só fica vermelho
+ * abaixo da meta [do ritmo]" — binário (verde/vermelho), sem faixa
+ * intermediária, ao contrário de `corAtingido` (que tem âmbar por não ter
+ * ritmo pra comparar).
+ */
+function corFundoPorRitmo(dentroDoRitmo: boolean | null, pctAtingidoFallback: number | null): string {
+  if (dentroDoRitmo != null) return dentroDoRitmo ? 'bg-emerald-600' : 'bg-red-500'
+  return pctAtingidoFallback != null && pctAtingidoFallback >= 1 ? 'bg-emerald-600' : 'bg-red-500'
+}
 
 /**
  * Meta x realizado das cotas de venda cadastradas em Cadastros → Cotas de
@@ -261,11 +275,11 @@ export function ComparativoCotas({ data, periodoLabel }: { data: ComparativoCota
             <div className="mt-1.5">
               <div className="h-2 overflow-hidden rounded-full bg-slate-200">
                 <div
-                  className={`h-full ${volume.pctAtingido >= 1 ? 'bg-emerald-600' : volume.pctAtingido >= 0.9 ? 'bg-amber-500' : 'bg-red-500'}`}
+                  className={`h-full ${corFundoPorRitmo(volume.dentroDoRitmo, volume.pctAtingido)}`}
                   style={{ width: `${Math.min(100, volume.pctAtingido * 100)}%` }}
                 />
               </div>
-              <p className={`mt-0.5 text-xs font-medium ${corAtingido(volume.pctAtingido)}`}>
+              <p className={`mt-0.5 text-xs font-medium ${corPorRitmo(volume.dentroDoRitmo, volume.pctAtingido)}`}>
                 {volume.pctAtingido >= 1 ? '+' : ''}
                 {fmt((volume.pctAtingido - 1) * 100, 1)}% vs. meta do mês
               </p>
