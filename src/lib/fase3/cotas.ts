@@ -123,6 +123,89 @@ export function resolverFatorBonificacao(mes: string, cadastrados: FatorBonifica
   return anteriores.reduce((mais, c) => (c.inicioOrdinal > mais.inicioOrdinal ? c : mais)).valor
 }
 
+// ============================================================
+// Custo de produção e % de despesas/impostos por m³ — versionados por
+// ano/mês (mesmo padrão do fator de bonificação acima) — pedido do usuário
+// 2026-09-10: "criar parametros para que eu possa entrar mensalmente com o
+// custo de producao por m3... um parametro para colocar os % de impostos e
+// demais itens para o calculo da margem... preco - % despesas impostos -
+// custo = resultado, e % de resultado". Cadastrados em Cadastros →
+// Parâmetros (mesmo cadastro genérico, sem tela nova) com os códigos
+// `CUSTO_PRODUCAO_MES_2026`/`_202609` e `DESPESAS_IMPOSTOS_PCT_MES_2026`/
+// `_202609`. Diferente do fator de bonificação, NÃO há fallback numérico
+// (não existe um "custo padrão" razoável pra chutar) — sem cadastro, a
+// margem simplesmente não é calculada (fica `null`, ver `MargemMes`).
+// ============================================================
+
+export const PREFIXO_CUSTO_PRODUCAO_MES = 'CUSTO_PRODUCAO_MES_'
+export const PREFIXO_DESPESAS_IMPOSTOS_PCT_MES = 'DESPESAS_IMPOSTOS_PCT_MES_'
+
+export interface ValorMensalCadastrado {
+  inicioOrdinal: number
+  ano: number
+  mes: number | null
+  valor: number
+}
+
+function parseChaveValorMensal(code: string, prefixo: string): { ano: number; mes: number | null } | null {
+  if (!code.startsWith(prefixo)) return null
+  const sufixo = code.slice(prefixo.length)
+  if (/^\d{4}$/.test(sufixo)) return { ano: Number(sufixo), mes: null }
+  if (/^\d{6}$/.test(sufixo)) {
+    const ano = Number(sufixo.slice(0, 4))
+    const mes = Number(sufixo.slice(4, 6))
+    if (mes < 1 || mes > 12) return null
+    return { ano, mes }
+  }
+  return null
+}
+
+/** Busca todos os parâmetros `${prefixo}YYYY`/`${prefixo}YYYYMM` cadastrados em Cadastros → Parâmetros. */
+export async function carregarValoresMensais(prefixo: string): Promise<ValorMensalCadastrado[]> {
+  const rows = await prisma.parameter.findMany({ where: { code: { startsWith: prefixo } }, select: { code: true, valueNumber: true } })
+  const out: ValorMensalCadastrado[] = []
+  for (const r of rows) {
+    if (r.valueNumber === null) continue
+    const chave = parseChaveValorMensal(r.code, prefixo)
+    if (!chave) continue
+    out.push({ ...chave, inicioOrdinal: chave.ano * 12 + (chave.mes ?? 1), valor: Number(r.valueNumber) })
+  }
+  return out
+}
+
+/** Mesma resolução do fator de bonificação (mês exato > ano exato > cadastro mais recente anterior) — `null` sem nenhum cadastro aplicável (sem fallback numérico). */
+export function resolverValorMensal(mes: string, cadastrados: ValorMensalCadastrado[]): number | null {
+  const [anoStr, mesStr] = mes.split('-')
+  const ano = Number(anoStr)
+  const mesNum = Number(mesStr)
+
+  const exatoMes = cadastrados.find((c) => c.ano === ano && c.mes === mesNum)
+  if (exatoMes) return exatoMes.valor
+
+  const exatoAno = cadastrados.find((c) => c.ano === ano && c.mes === null)
+  if (exatoAno) return exatoAno.valor
+
+  const alvoOrdinal = ano * 12 + mesNum
+  const anteriores = cadastrados.filter((c) => c.inicioOrdinal <= alvoOrdinal)
+  if (anteriores.length === 0) return null
+  return anteriores.reduce((mais, c) => (c.inicioOrdinal > mais.inicioOrdinal ? c : mais)).valor
+}
+
+export interface MargemMes {
+  mesReferencia: string
+  /** R$/m³ realmente vendido no mês de referência (mesma base de `ComparativoVolume`/`valorM3Vendido`) */
+  precoM3Vendido: number | null
+  custoProducaoM3: number | null
+  despesasImpostosPct: number | null
+  /** precoM3Vendido − (despesasImpostosPct% × precoM3Vendido) − custoProducaoM3 — `null` sem preço, custo OU % cadastrados */
+  resultadoM3: number | null
+  /** resultadoM3 ÷ precoM3Vendido */
+  pctResultado: number | null
+  m3TotalMes: number
+  /** resultadoM3 × m3TotalMes — resultado total do mês, não só por m³ */
+  resultadoTotalMes: number | null
+}
+
 /**
  * CODCFO (cadastro de clientes, dataset `fase3_clientes`) → nome do cliente.
  * Pedido do usuário 2026-08-13: "para informações de cota foi utilizado o
@@ -495,6 +578,8 @@ export interface ComparativoCotas {
   produtos: ComparativoProdutoCota[]
   /** Pedido do usuário 2026-09-10: "na analise estrategica preciso entender os produtos que estão consumindo acima da meta X mês" — 1 linha por produto×mês onde vendido > cota, ordenado pelo maior excedente. */
   produtosAcimaMeta: ProdutoAcimaMeta[]
+  /** Projeção de resultado do mês de referência (pedido do usuário 2026-09-10) — `null` nos campos que dependem de parâmetro quando `resolverCustoProducaoM3`/`resolverDespesasImpostosPct` não são passados ou nada está cadastrado pro mês. */
+  margemMes: MargemMes
 }
 
 /**
@@ -504,12 +589,18 @@ export interface ComparativoCotas {
  * do recorte (ex. `toOficial`) — usado só para achar o mês de referência do
  * ritmo de volume. `nomesClientes` (opcional, `carregarNomesClientes()`)
  * resolve o nome de exibição do distribuidor pelo cadastro de clientes.
+ * `resolverCustoProducaoM3`/`resolverDespesasImpostosPct` (opcionais,
+ * `resolverValorMensal` com `carregarValoresMensais` de cada prefixo) —
+ * pedido do usuário 2026-09-10: projeção de resultado do mês (preço − %
+ * despesas/impostos − custo de produção).
  */
 export function compararComCotas(
   linhas: VendaLinha[],
   meta: MetaPeriodo,
   to: string,
   nomesClientes?: Map<string, string>,
+  resolverCustoProducaoM3?: (mes: string) => number | null,
+  resolverDespesasImpostosPct?: (mes: string) => number | null,
 ): ComparativoCotas {
   const total = agregarVendas(linhas, () => 'total')[0] ?? null
   const realizadoM3 = total?.m3Total ?? 0
@@ -519,7 +610,8 @@ export function compararComCotas(
   const [anoRef, mesRefNum] = mesReferencia.split('-').map(Number)
   const diasDoMes = anoRef && mesRefNum ? new Date(anoRef, mesRefNum, 0).getDate() : null
   const linhasDoMes = linhas.filter((l) => l.mes === mesReferencia)
-  const realizadoM3Mes = agregarVendas(linhasDoMes, () => 'total')[0]?.m3Total ?? 0
+  const agregadoMes = agregarVendas(linhasDoMes, () => 'total')[0] ?? null
+  const realizadoM3Mes = agregadoMes?.m3Total ?? 0
   const diasComFaturamentoVolume = new Set(
     linhasDoMes.filter((l) => l.tipoMovimento === 'Vendas' && l.contaM3 && l.m3Total > 0).map((l) => l.data),
   ).size
@@ -689,7 +781,30 @@ export function compararComCotas(
     .filter((p) => p.cotaUnidades > 0 && p.vendidoUnidades > p.cotaUnidades)
     .sort((a, b) => b.excedentePct - a.excedentePct)
 
-  return { temCadastro: meta.mesesComCadastro > 0, volume, icms, impactoMixIcms, distribuidores, produtos, produtosAcimaMeta }
+  // Projeção de resultado do mês (pedido do usuário 2026-09-10): preço R$/m³
+  // realmente vendido no mês de referência, menos % de despesas/impostos
+  // (aplicado sobre o preço) e menos o custo de produção por m³ — os dois
+  // últimos cadastrados em Cadastros → Parâmetros, resolvidos por quem chama
+  // esta função (mesmo padrão de `resolverFatorBonificacao`).
+  const precoM3VendidoMes = agregadoMes?.valorM3Vendido ?? null
+  const custoProducaoM3 = resolverCustoProducaoM3 ? resolverCustoProducaoM3(mesReferencia) : null
+  const despesasImpostosPct = resolverDespesasImpostosPct ? resolverDespesasImpostosPct(mesReferencia) : null
+  const resultadoM3 =
+    precoM3VendidoMes != null && custoProducaoM3 != null && despesasImpostosPct != null
+      ? precoM3VendidoMes - (despesasImpostosPct / 100) * precoM3VendidoMes - custoProducaoM3
+      : null
+  const margemMes: MargemMes = {
+    mesReferencia,
+    precoM3Vendido: precoM3VendidoMes,
+    custoProducaoM3,
+    despesasImpostosPct,
+    resultadoM3,
+    pctResultado: resultadoM3 != null && precoM3VendidoMes ? resultadoM3 / precoM3VendidoMes : null,
+    m3TotalMes: realizadoM3Mes,
+    resultadoTotalMes: resultadoM3 != null ? resultadoM3 * realizadoM3Mes : null,
+  }
+
+  return { temCadastro: meta.mesesComCadastro > 0, volume, icms, impactoMixIcms, distribuidores, produtos, produtosAcimaMeta, margemMes }
 }
 
 export interface InsightDiametroMourao {

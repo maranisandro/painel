@@ -907,6 +907,43 @@ export function Fase3Dashboard() {
             ativo={tipoMovimentoFiltro.size === 0}
             onClick={() => setTipoMovimentoFiltro(new Set())}
           />
+          <CardFinanceiro
+            label={`Resultado do mês (R$/m³)${data?.comparativoCotas?.margemMes.mesReferencia ? ' — ' + fmtMes(data.comparativoCotas.margemMes.mesReferencia) : ''}`}
+            formula="R$/m³ vendido no mês − % despesas/impostos − custo de produção (Cadastros → Parâmetros)"
+            valor={
+              data?.comparativoCotas?.margemMes.resultadoM3 != null
+                ? fmtMoeda(data.comparativoCotas.margemMes.resultadoM3)
+                : 'sem cadastro'
+            }
+            valorClassName={
+              data?.comparativoCotas?.margemMes.resultadoM3 == null
+                ? 'text-slate-400'
+                : data.comparativoCotas.margemMes.resultadoM3 < 0
+                  ? 'text-red-700'
+                  : 'text-emerald-700'
+            }
+            sub={
+              data?.comparativoCotas?.margemMes.resultadoTotalMes != null
+                ? `${fmtMoeda(data.comparativoCotas.margemMes.resultadoTotalMes)} no mês`
+                : 'cadastre custo de produção e % de despesas/impostos do mês'
+            }
+            ativo={tipoMovimentoFiltro.size === 0}
+            onClick={() => setTipoMovimentoFiltro(new Set())}
+          />
+          <CardFinanceiro
+            label="% de resultado do mês"
+            formula="Resultado (R$/m³) ÷ R$/m³ vendido"
+            valor={data?.comparativoCotas?.margemMes.pctResultado != null ? fmtPct(data.comparativoCotas.margemMes.pctResultado) : '—'}
+            valorClassName={
+              data?.comparativoCotas?.margemMes.pctResultado == null
+                ? ''
+                : data.comparativoCotas.margemMes.pctResultado < 0
+                  ? 'text-red-700'
+                  : 'text-emerald-700'
+            }
+            ativo={tipoMovimentoFiltro.size === 0}
+            onClick={() => setTipoMovimentoFiltro(new Set())}
+          />
         </div>
       </div>
 

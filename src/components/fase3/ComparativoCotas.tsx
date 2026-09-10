@@ -72,6 +72,16 @@ interface ProdutoAcimaMeta {
   excedenteUnidades: number
   excedentePct: number
 }
+interface MargemMes {
+  mesReferencia: string
+  precoM3Vendido: number | null
+  custoProducaoM3: number | null
+  despesasImpostosPct: number | null
+  resultadoM3: number | null
+  pctResultado: number | null
+  m3TotalMes: number
+  resultadoTotalMes: number | null
+}
 export interface ComparativoCotasData {
   temCadastro: boolean
   volume: ComparativoVolume
@@ -80,6 +90,7 @@ export interface ComparativoCotasData {
   distribuidores: ComparativoDistribuidorCota[]
   produtos: ComparativoProdutoCota[]
   produtosAcimaMeta: ProdutoAcimaMeta[]
+  margemMes: MargemMes
 }
 
 function fmtMoeda(n: number): string {

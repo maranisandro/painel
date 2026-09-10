@@ -19,6 +19,10 @@ import {
   resolverConfigVendas,
   carregarFatoresBonificacao,
   resolverFatorBonificacao,
+  carregarValoresMensais,
+  resolverValorMensal,
+  PREFIXO_CUSTO_PRODUCAO_MES,
+  PREFIXO_DESPESAS_IMPOSTOS_PCT_MES,
 } from '@/lib/fase3/cotas'
 import { hojeBrasil, corteOficial } from '@/lib/horario-brasil'
 
@@ -286,8 +290,20 @@ export async function GET(req: NextRequest) {
   // Comparativo com as cotas de venda cadastradas (pedido do usuário
   // 2026-08-13) — meta soma todo mês cadastrado dentro do período `from`..`to`,
   // realizado vem das MESMAS `linhas` já filtradas (categoria/tabela/subtipo/cliente).
-  const [metaPeriodo, nomesClientes] = await Promise.all([carregarMetaPeriodo(from, toOficial), carregarNomesClientes()])
-  const comparativoCotas = compararComCotas(linhas, metaPeriodo, toOficial, nomesClientes)
+  const [metaPeriodo, nomesClientes, custosProducaoCadastrados, despesasImpostosCadastrados] = await Promise.all([
+    carregarMetaPeriodo(from, toOficial),
+    carregarNomesClientes(),
+    carregarValoresMensais(PREFIXO_CUSTO_PRODUCAO_MES),
+    carregarValoresMensais(PREFIXO_DESPESAS_IMPOSTOS_PCT_MES),
+  ])
+  const comparativoCotas = compararComCotas(
+    linhas,
+    metaPeriodo,
+    toOficial,
+    nomesClientes,
+    (mes) => resolverValorMensal(mes, custosProducaoCadastrados),
+    (mes) => resolverValorMensal(mes, despesasImpostosCadastrados),
+  )
   // Proporção 8-10/10-12 (pedido do usuário 2026-08-13, gauge do Power BI de
   // referência) — comparada com a meta cadastrada em ProductQuota para os
   // mesmos dois produtos, quando existir.
