@@ -108,6 +108,18 @@ interface ProdutoAoLongoDoTempo {
   mesesOk: number
 }
 
+interface OfensorPerda {
+  chave: string
+  perdaTotal: number
+  faturamentoLiquido: number
+  m3Total: number
+  mesesComVenda: number
+  mesesComPerda: number
+  perdaUltimos3Meses: number
+  perdaAnteriores3Meses: number
+  tendencia: 'piorando' | 'melhorando' | 'estavel' | null
+}
+
 interface ClienteProduto extends VendaAgregada {
   cliente: string
   produto: string
@@ -187,6 +199,9 @@ interface ApiData {
   porNota: NotaFiscal[]
   porProdutoEspecifico: VendaPorProdutoEspecifico[]
   produtosPorMes: ProdutoAoLongoDoTempo[]
+  ofensoresProduto: OfensorPerda[]
+  ofensoresDistribuidor: OfensorPerda[]
+  ofensoresCliente: OfensorPerda[]
   dispersaoPreco: DispersaoPreco[]
   abaixoTabela4: VendaAbaixoTabela4[]
   abaixoTabela4Total: { transacoes: number; valorPerdido: number }
@@ -408,14 +423,32 @@ const ABA_LABEL: Record<Aba, string> = {
   critica: 'Crítica ao modelo',
 }
 
-type SubAba = 'cliente' | 'produto' | 'tempo' | 'dispersao' | 'abaixoTabela'
+type SubAba = 'cliente' | 'produto' | 'tempo' | 'ofensores' | 'dispersao' | 'abaixoTabela'
 
 const SUB_ABA_LABEL: Record<SubAba, string> = {
   cliente: 'Por cliente',
   produto: 'Por produto específico',
   tempo: 'Produto ao longo do tempo',
+  ofensores: 'Principais ofensores de perda',
   dispersao: 'Dispersão de preço',
   abaixoTabela: 'Abaixo da tabela preço base',
+}
+
+type DimensaoOfensor = 'produto' | 'distribuidor' | 'cliente'
+const DIMENSAO_OFENSOR_LABEL: Record<DimensaoOfensor, string> = {
+  produto: 'Produto',
+  distribuidor: 'Distribuidor',
+  cliente: 'Cliente',
+}
+const TENDENCIA_LABEL: Record<NonNullable<OfensorPerda['tendencia']>, string> = {
+  piorando: 'Piorando',
+  melhorando: 'Melhorando',
+  estavel: 'Estável',
+}
+const TENDENCIA_COR: Record<NonNullable<OfensorPerda['tendencia']>, string> = {
+  piorando: 'bg-red-100 text-red-700',
+  melhorando: 'bg-emerald-100 text-emerald-800',
+  estavel: 'bg-slate-100 text-slate-600',
 }
 
 export function Fase3Dashboard() {
@@ -446,6 +479,9 @@ export function Fase3Dashboard() {
   // muita rolagem; agora só uma é renderizada por vez, escolhida por este
   // sub-menu (independente das abas principais de cima).
   const [subAba, setSubAba] = useState<SubAba>('cliente')
+  // Dimensão do ranking de "Principais ofensores de perda" (pedido do
+  // usuário 2026-09-10: produto, distribuidor OU cliente).
+  const [dimensaoOfensor, setDimensaoOfensor] = useState<DimensaoOfensor>('produto')
   // Pedido do usuário 2026-08-21: na Dispersão de preço, clicar na nota do
   // maior/menor preço já abre ela na aba "Por Nota Fiscal" — estreita o
   // período pro dia da nota (senão ela pode ficar fora do recorte atual) e
@@ -1457,6 +1493,78 @@ export function Fase3Dashboard() {
         </table>
       </div>
       )}
+
+      {subAba === 'ofensores' && (() => {
+        const linhasOfensor =
+          dimensaoOfensor === 'produto' ? data?.ofensoresProduto : dimensaoOfensor === 'distribuidor' ? data?.ofensoresDistribuidor : data?.ofensoresCliente
+        return (
+        <div className="space-y-3">
+          <p className="text-xs text-slate-500">
+            Quem mais acumula perda de receita (venda abaixo do preço mínimo ponderado) no período — ordenado do maior
+            para o menor, com a tendência dos últimos 3 meses vs. os 3 anteriores, pra priorizar quem trabalhar primeiro.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {(Object.keys(DIMENSAO_OFENSOR_LABEL) as DimensaoOfensor[]).map((d) => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => setDimensaoOfensor(d)}
+                className={`rounded-md border px-3 py-1.5 text-xs font-medium ${
+                  dimensaoOfensor === d ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {DIMENSAO_OFENSOR_LABEL[d]}
+              </button>
+            ))}
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+            <div className="border-b border-slate-100 px-4 py-3 font-medium">
+              Principais ofensores por {DIMENSAO_OFENSOR_LABEL[dimensaoOfensor].toLowerCase()} ({linhasOfensor?.length ?? 0})
+              {dimensaoOfensor === 'cliente' && <span className="ml-2 text-xs font-normal text-slate-400">top 50</span>}
+            </div>
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-left text-slate-600">
+                <tr>
+                  <th className="px-3 py-2">{DIMENSAO_OFENSOR_LABEL[dimensaoOfensor]}</th>
+                  <th className="px-3 py-2 text-right">Perda estimada</th>
+                  <th className="px-3 py-2 text-right">Faturamento líquido</th>
+                  <th className="px-3 py-2 text-right">m³</th>
+                  <th className="px-3 py-2 text-right">Últimos 3 meses</th>
+                  <th className="px-3 py-2 text-right">3 meses anteriores</th>
+                  <th className="px-3 py-2 text-center">Tendência</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(linhasOfensor ?? []).map((o) => (
+                  <tr key={o.chave} className="border-t border-slate-100">
+                    <td className="px-3 py-2 font-medium">{o.chave}</td>
+                    <td className="px-3 py-2 text-right text-red-700">{fmtMoeda(o.perdaTotal)}</td>
+                    <td className="px-3 py-2 text-right">{fmtMoeda(o.faturamentoLiquido)}</td>
+                    <td className="px-3 py-2 text-right">{fmt(o.m3Total, 1)}</td>
+                    <td className="px-3 py-2 text-right">{fmtMoeda(o.perdaUltimos3Meses)}</td>
+                    <td className="px-3 py-2 text-right">{fmtMoeda(o.perdaAnteriores3Meses)}</td>
+                    <td className="px-3 py-2 text-center">
+                      {o.tendencia ? (
+                        <span className={`rounded px-2 py-0.5 text-xs font-medium ${TENDENCIA_COR[o.tendencia]}`}>{TENDENCIA_LABEL[o.tendencia]}</span>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {(linhasOfensor?.length ?? 0) === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                      Nenhuma perda estimada no período para esta dimensão.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        )
+      })()}
 
       {subAba === 'dispersao' && (
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">

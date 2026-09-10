@@ -8,6 +8,7 @@ import {
   dispersaoPrecoPorProdutoTabela,
   vendasAbaixoTabela4,
   calcularBonificacaoDoMes,
+  ofensoresDePerda,
   DISTRIBUIDORES_CONHECIDOS,
 } from '@/lib/fase3/faturamento'
 import {
@@ -249,6 +250,16 @@ export async function GET(req: NextRequest) {
     })
     .sort((a, b) => b.data.localeCompare(a.data) || a.numeroMov.localeCompare(b.numeroMov))
   const produtosPorMes = produtosAoLongoDoTempo(linhas)
+  // Principais ofensores de perda de receita (pedido do usuário 2026-09-10:
+  // "mostrar os principais opressores de perda de receita... o que ao longo
+  // do tempo gera resultado para ir trabalhando") — mesmo ranking nas 3
+  // dimensões pedidas; mês de referência é o mês de `toOficial` (mesmo usado
+  // no ritmo do comparativo de cotas). Cliente tem universo grande (milhares)
+  // — só os 50 que mais perdem entram na resposta.
+  const mesReferenciaOfensores = toOficial.slice(0, 7)
+  const ofensoresProduto = ofensoresDePerda(linhas, (l) => l.produto, mesReferenciaOfensores)
+  const ofensoresDistribuidor = ofensoresDePerda(linhas, (l) => l.distribuidor, mesReferenciaOfensores)
+  const ofensoresCliente = ofensoresDePerda(linhas, (l) => l.cliente || '—', mesReferenciaOfensores).slice(0, 50)
   // Dispersão de preço por produto × ICMS (pedido do usuário 2026-08-04:
   // "mostrar produtos que têm um valor considerável de preço entre as
   // vendas de acordo com cada alíquota de ICMS") — top 30 maiores variações.
@@ -435,6 +446,9 @@ export async function GET(req: NextRequest) {
     porProdutoEspecifico,
     porNota,
     produtosPorMes,
+    ofensoresProduto,
+    ofensoresDistribuidor,
+    ofensoresCliente,
     dispersaoPreco,
     abaixoTabela4,
     abaixoTabela4Total: {

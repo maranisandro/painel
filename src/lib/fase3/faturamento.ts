@@ -676,6 +676,78 @@ export function produtosAoLongoDoTempo(linhas: VendaLinha[]): ProdutoAoLongoDoTe
     .sort((a, b) => b.mesesComPerda - a.mesesComPerda || b.faturamentoLiquido - a.faturamentoLiquido)
 }
 
+export interface OfensorPerda {
+  chave: string
+  perdaTotal: number
+  faturamentoLiquido: number
+  m3Total: number
+  mesesComVenda: number
+  mesesComPerda: number
+  /** perdaEstimada somada dos últimos 3 meses (antes de `mesReferencia`, inclusive) */
+  perdaUltimos3Meses: number
+  /** perdaEstimada somada dos 3 meses anteriores a esses */
+  perdaAnteriores3Meses: number
+  /** 'piorando' = últimos 3 meses 10%+ acima dos 3 anteriores; 'melhorando' = 10%+ abaixo; `null` sem base dos dois lados pra comparar */
+  tendencia: 'piorando' | 'melhorando' | 'estavel' | null
+}
+
+/**
+ * Ranking dos principais "ofensores" de perda de receita (pedido do usuário
+ * 2026-09-10: "mostrar os principais opressores de perda de receita, mostrar
+ * o que ao longo do tempo gera resultado para ir trabalhando") — quem
+ * (produto, distribuidor ou cliente, conforme `chaveFn`) mais acumula
+ * `perdaEstimada` (venda abaixo do preço mínimo ponderado) no período, com a
+ * tendência dos últimos 3 meses vs os 3 anteriores, pra priorizar quem
+ * trabalhar primeiro. Genérico o bastante pra servir as 3 dimensões pedidas
+ * sem repetir a lógica (mesmo princípio de `agregarVendas`, que já aceita
+ * qualquer `chaveFn`).
+ */
+export function ofensoresDePerda(linhas: VendaLinha[], chaveFn: (l: VendaLinha) => string, mesReferencia: string): OfensorPerda[] {
+  const refIdx = mesIndice(mesReferencia)
+  const porMesChave = agregarVendas(linhas, (l) => `${l.mes}|${chaveFn(l)}`)
+
+  const porChave = new Map<
+    string,
+    { faturamentoLiquido: number; m3Total: number; perdaTotal: number; mesesComVenda: number; mesesComPerda: number; perdaUltimos3: number; perdaAnteriores3: number }
+  >()
+  for (const a of porMesChave) {
+    const sep = a.chave.indexOf('|')
+    const mes = a.chave.slice(0, sep)
+    const chave = a.chave.slice(sep + 1)
+    const e = porChave.get(chave) ?? { faturamentoLiquido: 0, m3Total: 0, perdaTotal: 0, mesesComVenda: 0, mesesComPerda: 0, perdaUltimos3: 0, perdaAnteriores3: 0 }
+    e.faturamentoLiquido += a.faturamentoLiquido
+    e.m3Total += a.m3Total
+    e.perdaTotal += a.perdaEstimada
+    if (a.valorM3Vendido != null) e.mesesComVenda++
+    if (a.abaixoDoMinimo) e.mesesComPerda++
+    const delta = refIdx - mesIndice(mes)
+    if (delta >= 0 && delta < 3) e.perdaUltimos3 += a.perdaEstimada
+    else if (delta >= 3 && delta < 6) e.perdaAnteriores3 += a.perdaEstimada
+    porChave.set(chave, e)
+  }
+
+  return [...porChave.entries()]
+    .map(([chave, e]) => {
+      let tendencia: OfensorPerda['tendencia'] = null
+      if (e.perdaUltimos3 > 0 || e.perdaAnteriores3 > 0) {
+        tendencia = e.perdaUltimos3 > e.perdaAnteriores3 * 1.1 ? 'piorando' : e.perdaUltimos3 < e.perdaAnteriores3 * 0.9 ? 'melhorando' : 'estavel'
+      }
+      return {
+        chave,
+        perdaTotal: e.perdaTotal,
+        faturamentoLiquido: e.faturamentoLiquido,
+        m3Total: e.m3Total,
+        mesesComVenda: e.mesesComVenda,
+        mesesComPerda: e.mesesComPerda,
+        perdaUltimos3Meses: e.perdaUltimos3,
+        perdaAnteriores3Meses: e.perdaAnteriores3,
+        tendencia,
+      }
+    })
+    .filter((o) => o.perdaTotal > 0)
+    .sort((a, b) => b.perdaTotal - a.perdaTotal)
+}
+
 export interface CargaProduto {
   produto: string
   quantidade: number
