@@ -154,6 +154,15 @@ export interface VendaLinha {
    * quando o nome não segue esse padrão.
    */
   classeDiametro: string | null
+  /**
+   * Saldo geral físico ATUAL em estoque do produto (RM.TPRD.SALDOGERALFISICO,
+   * via ComputedColumn LOOKUP `SALDO_FISICO_ATUAL` no dataset
+   * `fase3_saldo_produtos`) — pedido do usuário 2026-09-10: "checar se o
+   * saldo é suficiente para alcançar o ritmo necessário". Repete o MESMO
+   * valor em toda linha do produto (é saldo de cadastro, não do movimento) —
+   * usado só para achar, por CODIGOPRD, o saldo atual em `compararComCotas`.
+   */
+  saldoFisico: number
 }
 
 const REGEX_CLASSE_DIAMETRO = /X\s*(\d{2})\s*-\s*(\d{2})/
@@ -268,6 +277,7 @@ export function prepararVendas(rows: Row[], from: string, to: string, config: Co
       recModificadoEm: String(r.RECMODIFIEDON ?? '').slice(0, 19),
       marca: String(r.Marca ?? 'Amaru'),
       classeDiametro: classeDiametro(produto),
+      saldoFisico: num(r.SALDO_FISICO_ATUAL),
     })
   }
   return out
@@ -1038,6 +1048,25 @@ export interface ClienteHistorico {
   historicoMensal: { mes: string; faturamento: number }[]
 }
 
+// Estado (FCFO.CODETD) → tabela de ICMS — mesma cascata da coluna
+// TABELA_PRECO calculada em SQL na consulta de vendas (QUERY_FASE3_VENDAS_
+// MADEIRA, prisma/seed.ts). Replicada aqui em JS para uso em telas de
+// CADASTRO de cliente (aba Clientes, pedido do usuário 2026-09-10: "mostre
+// dados do cliente, exemplo qual a tabela de ICMS dele") — o cadastro
+// (dataset `fase3_clientes`) só tem o estado (CODETD), não a tabela de ICMS
+// já calculada como a consulta de vendas tem.
+const ESTADOS_ICMS_7 = new Set(['AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'PA', 'PB', 'PE', 'PI', 'RN', 'RO', 'RR', 'SE', 'TO'])
+const ESTADOS_ICMS_12 = new Set(['PR', 'RS', 'RJ', 'SC', 'SP'])
+const ESTADOS_ICMS_18 = new Set(['MG'])
+
+export function tabelaIcmsPorEstado(codetd: string): string | null {
+  const uf = codetd.trim().toUpperCase()
+  if (ESTADOS_ICMS_7.has(uf)) return 'ICMS 7%'
+  if (ESTADOS_ICMS_12.has(uf)) return 'ICMS 12%'
+  if (ESTADOS_ICMS_18.has(uf)) return 'ICMS 18%'
+  return null
+}
+
 /**
  * Pedido original da nota Fase 3, nunca implementado: "clientes que tendem a
  * reduzir volume de compra, clientes que tem compras recorrentes e ficaram
@@ -1094,4 +1123,187 @@ export function analisarClientes(linhas: VendaLinha[], mesReferencia: string): C
   }
 
   return out.sort((a, b) => (Number(b.parado) - Number(a.parado)) || (Number(b.emQueda) - Number(a.emQueda)) || b.faturamentoTotal - a.faturamentoTotal)
+}
+
+// Tolerâncias de arredondamento (centavo e milésimo de unidade) — abaixo
+// disso a diferença é ruído de ponto flutuante, não divergência real.
+const TOLERANCIA_VALOR = 0.01
+const TOLERANCIA_QUANTIDADE = 0.001
+
+export interface ItemConferencia {
+  codigoPrd: string
+  produto: string
+  quantidadeOrigem: number
+  quantidadeDevolvida: number
+  diferencaQuantidade: number
+  valorOrigem: number
+  valorDevolvido: number
+  diferencaValor: number
+  m3Origem: number
+  m3Devolvido: number
+  ok: boolean
+}
+
+export interface NotaOrigem {
+  numeroMov: string
+  data: string
+  tipoMovimento: TipoMovimento
+}
+
+export interface NotaDevolucao {
+  numeroMov: string
+  data: string
+}
+
+export interface GrupoConferencia {
+  idMov: string
+  distribuidor: string
+  cliente: string
+  notasOrigem: NotaOrigem[]
+  notasDevolucao: NotaDevolucao[]
+  itens: ItemConferencia[]
+  valorOrigemTotal: number
+  valorDevolvidoTotal: number
+  ok: boolean
+}
+
+export interface DevolucaoSemOrigem {
+  numeroMov: string
+  data: string
+  distribuidor: string
+  cliente: string
+  produto: string
+  quantidade: number
+  valorBruto: number
+  idMovRelac: string
+}
+
+export interface ConferenciaDevolucoes {
+  grupos: GrupoConferencia[]
+  semOrigem: DevolucaoSemOrigem[]
+}
+
+/**
+ * Confere se as devoluções realmente "zeram" a venda/bonificação que
+ * reverteram — pedido do usuário 2026-09-09: "vamos agrupar as notas para
+ * que possamos confirmar que o valor esta zerando e quando os quantitativos
+ * e/ou valores forem diferentes podermos validar os numeros". Liga cada
+ * devolução à sua origem via TMOV.IDMOVRELAC=IDMOV (chave real do Oracle,
+ * mesma usada em `agregarVendas` desde 2026-09-04 — a devolução sempre traz
+ * IDMOVRELAC preenchido, confirmado pelo usuário), e compara item a item por
+ * CODIGOPRD (não só o total da nota): um grupo só fica "ok" quando TODO
+ * produto bate quantidade e valor bruto entre origem e devolução, dentro da
+ * tolerância de arredondamento. Devolução cujo IDMOVRELAC não bate com
+ * nenhuma origem carregada no período (vazio, ou origem fora do recorte)
+ * entra em `semOrigem` — sinalizada à parte, nunca escondida, porque sem a
+ * origem não dá para confirmar que zerou.
+ */
+export function conferenciaDevolucoes(linhas: VendaLinha[]): ConferenciaDevolucoes {
+  const origemPorIdMov = new Map<string, VendaLinha[]>()
+  for (const l of linhas) {
+    if ((l.tipoMovimento === 'Vendas' || l.tipoMovimento === 'Bonificacoes') && l.idMov) {
+      const arr = origemPorIdMov.get(l.idMov) ?? []
+      arr.push(l)
+      origemPorIdMov.set(l.idMov, arr)
+    }
+  }
+
+  const devolucaoPorIdMov = new Map<string, VendaLinha[]>()
+  const semOrigem: DevolucaoSemOrigem[] = []
+  for (const l of linhas) {
+    if (l.tipoMovimento !== 'Devolucoes') continue
+    if (l.idMovRelac && origemPorIdMov.has(l.idMovRelac)) {
+      const arr = devolucaoPorIdMov.get(l.idMovRelac) ?? []
+      arr.push(l)
+      devolucaoPorIdMov.set(l.idMovRelac, arr)
+    } else {
+      semOrigem.push({
+        numeroMov: l.numeroMov,
+        data: l.data,
+        distribuidor: l.distribuidor,
+        cliente: l.cliente,
+        produto: l.produto,
+        quantidade: l.quantidade,
+        valorBruto: l.valorBruto,
+        idMovRelac: l.idMovRelac,
+      })
+    }
+  }
+
+  const grupos: GrupoConferencia[] = []
+  for (const [idMov, origemLinhas] of origemPorIdMov) {
+    const devolucaoLinhas = devolucaoPorIdMov.get(idMov)
+    if (!devolucaoLinhas?.length) continue // sem devolução vinculada — fora do escopo desta conferência
+
+    const porProduto = new Map<
+      string,
+      { produto: string; qtdOrigem: number; valorOrigem: number; m3Origem: number; qtdDevolvida: number; valorDevolvido: number; m3Devolvido: number }
+    >()
+    const entrada = (codigoPrd: string, produto: string) =>
+      porProduto.get(codigoPrd) ??
+      { produto, qtdOrigem: 0, valorOrigem: 0, m3Origem: 0, qtdDevolvida: 0, valorDevolvido: 0, m3Devolvido: 0 }
+    for (const l of origemLinhas) {
+      const e = entrada(l.codigoPrd, l.produto)
+      e.qtdOrigem += l.quantidade
+      e.valorOrigem += l.valorBruto
+      e.m3Origem += l.m3Total
+      porProduto.set(l.codigoPrd, e)
+    }
+    for (const l of devolucaoLinhas) {
+      const e = entrada(l.codigoPrd, l.produto)
+      e.qtdDevolvida += l.quantidade
+      e.valorDevolvido += l.valorBruto
+      e.m3Devolvido += l.m3Total
+      porProduto.set(l.codigoPrd, e)
+    }
+
+    const itens: ItemConferencia[] = [...porProduto.entries()]
+      .map(([codigoPrd, e]) => {
+        const diferencaQuantidade = e.qtdOrigem - e.qtdDevolvida
+        const diferencaValor = e.valorOrigem - e.valorDevolvido
+        return {
+          codigoPrd,
+          produto: e.produto,
+          quantidadeOrigem: e.qtdOrigem,
+          quantidadeDevolvida: e.qtdDevolvida,
+          diferencaQuantidade,
+          valorOrigem: e.valorOrigem,
+          valorDevolvido: e.valorDevolvido,
+          diferencaValor,
+          m3Origem: e.m3Origem,
+          m3Devolvido: e.m3Devolvido,
+          ok: Math.abs(diferencaQuantidade) <= TOLERANCIA_QUANTIDADE && Math.abs(diferencaValor) <= TOLERANCIA_VALOR,
+        }
+      })
+      .sort((a, b) => b.valorOrigem - a.valorOrigem)
+
+    const notaKey = (l: VendaLinha) => l.numeroMov || '—'
+    const notasOrigem = [...new Map(origemLinhas.map((l) => [notaKey(l), l])).values()].map((l) => ({
+      numeroMov: notaKey(l),
+      data: l.data,
+      tipoMovimento: l.tipoMovimento,
+    }))
+    const notasDevolucao = [...new Map(devolucaoLinhas.map((l) => [notaKey(l), l])).values()].map((l) => ({
+      numeroMov: notaKey(l),
+      data: l.data,
+    }))
+    const primeira = origemLinhas[0]
+
+    grupos.push({
+      idMov,
+      distribuidor: primeira.distribuidor,
+      cliente: primeira.cliente,
+      notasOrigem,
+      notasDevolucao,
+      itens,
+      valorOrigemTotal: itens.reduce((s, i) => s + i.valorOrigem, 0),
+      valorDevolvidoTotal: itens.reduce((s, i) => s + i.valorDevolvido, 0),
+      ok: itens.every((i) => i.ok),
+    })
+  }
+
+  grupos.sort((a, b) => Number(a.ok) - Number(b.ok) || b.valorOrigemTotal - a.valorOrigemTotal)
+  semOrigem.sort((a, b) => b.valorBruto - a.valorBruto)
+
+  return { grupos, semOrigem }
 }

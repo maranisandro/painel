@@ -439,6 +439,16 @@ export interface ComparativoProdutoCota {
   metaM3: number | null
   vendidoM3: number
   pctAtingido: number | null
+  /** RM.TPRD.SALDOGERALFISICO atual (dataset `fase3_saldo_produtos`) — `null` quando o produto não apareceu em nenhuma linha do período (sem como saber o saldo). */
+  saldoFisico: number | null
+  /** cotaUnidades − vendidoUnidades, nunca negativo — quanto falta vender para bater a cota do mês */
+  necessarioRestanteUnidades: number
+  /**
+   * saldoFisico ≥ necessarioRestanteUnidades — pedido do usuário 2026-09-10:
+   * "checar se o saldo é suficiente para alcançar o ritmo necessário". `null`
+   * sem saldo conhecido (produto sem venda no período filtrado).
+   */
+  saldoSuficiente: boolean | null
 }
 export interface ComparativoCotas {
   temCadastro: boolean
@@ -555,13 +565,34 @@ export function compararComCotas(
     .sort((a, b) => (a.pctAtingido ?? 0) - (b.pctAtingido ?? 0))
 
   const agregadoPorProduto = new Map(agregarVendas(linhas, (l) => l.codigoPrd || '—').map((a) => [a.chave, a]))
+  // Saldo físico atual por produto (pedido do usuário 2026-09-10) — mesmo
+  // valor em toda linha do produto (dado de cadastro, não de movimento),
+  // então basta pegar de qualquer linha; `linhas` já é a MESMA janela usada
+  // para vendidoUnidades/vendidoM3 acima, então um produto sem nenhuma linha
+  // no período fica sem saldo conhecido aqui (`null`), não por falta de
+  // estoque de fato.
+  const saldoPorProduto = new Map<string, number>()
+  for (const l of linhas) {
+    if (l.codigoPrd) saldoPorProduto.set(l.codigoPrd, l.saldoFisico)
+  }
   const produtos: ComparativoProdutoCota[] = meta.produtos
     .map((q) => {
       const a = agregadoPorProduto.get(q.codigoPrd)
       const vendidoUnidades = a?.vendasUN ?? 0
       const vendidoM3 = a?.m3Total ?? 0
       const metaM3 = q.m3PorUnidade != null ? q.cotaUnidades * q.m3PorUnidade : null
-      return { ...q, vendidoUnidades, vendidoM3, metaM3, pctAtingido: q.cotaUnidades > 0 ? vendidoUnidades / q.cotaUnidades : null }
+      const saldoFisico = saldoPorProduto.get(q.codigoPrd) ?? null
+      const necessarioRestanteUnidades = Math.max(0, q.cotaUnidades - vendidoUnidades)
+      return {
+        ...q,
+        vendidoUnidades,
+        vendidoM3,
+        metaM3,
+        pctAtingido: q.cotaUnidades > 0 ? vendidoUnidades / q.cotaUnidades : null,
+        saldoFisico,
+        necessarioRestanteUnidades,
+        saldoSuficiente: saldoFisico != null ? saldoFisico >= necessarioRestanteUnidades : null,
+      }
     })
     .sort((a, b) => (a.pctAtingido ?? 0) - (b.pctAtingido ?? 0))
 

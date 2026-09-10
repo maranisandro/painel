@@ -11,6 +11,7 @@ import { PainelEstrategico } from './PainelEstrategico'
 import { TabelaDistribuidores } from './TabelaDistribuidores'
 import { BonificacoesTab } from './BonificacoesTab'
 import { CriticaModeloTab } from './CriticaModeloTab'
+import { ConferenciaDevolucoesTab } from './ConferenciaDevolucoesTab'
 import { MelhorCargaTab } from './MelhorCargaTab'
 import { ClientesTab } from './ClientesTab'
 import { ClientesPotenciaisTab } from './ClientesPotenciaisTab'
@@ -392,7 +393,7 @@ function CardFinanceiro({
  * distribuidor — a mesma lógica das medidas `.Valor M3 Vendido` /
  * `.ValorminM3` / `.IndicadorPrecoMedio` do relatório original.
  */
-type Aba = 'tatico' | 'estrategico' | 'nota' | 'diario' | 'bonificacoes' | 'melhorcarga' | 'clientes' | 'potenciais' | 'critica'
+type Aba = 'tatico' | 'estrategico' | 'nota' | 'diario' | 'bonificacoes' | 'melhorcarga' | 'clientes' | 'potenciais' | 'conferenciaDevolucoes' | 'critica'
 
 const ABA_LABEL: Record<Aba, string> = {
   tatico: 'Análise por período',
@@ -403,6 +404,7 @@ const ABA_LABEL: Record<Aba, string> = {
   melhorcarga: 'Melhor carga',
   clientes: 'Clientes',
   potenciais: 'Clientes potenciais',
+  conferenciaDevolucoes: 'Conferência de devoluções',
   critica: 'Crítica ao modelo',
 }
 
@@ -495,7 +497,7 @@ export function Fase3Dashboard() {
       </div>
 
       <div className="flex flex-wrap gap-2 border-b border-slate-200 print:hidden">
-        {(['tatico', 'estrategico', 'nota', 'diario', 'bonificacoes', 'melhorcarga', 'clientes', 'potenciais', 'critica'] as Aba[]).map((a) => (
+        {(['tatico', 'estrategico', 'nota', 'diario', 'bonificacoes', 'melhorcarga', 'clientes', 'potenciais', 'conferenciaDevolucoes', 'critica'] as Aba[]).map((a) => (
           <button
             key={a}
             onClick={() => setAba(a)}
@@ -682,6 +684,8 @@ export function Fase3Dashboard() {
         <ClientesTab />
       ) : aba === 'potenciais' ? (
         <ClientesPotenciaisTab />
+      ) : aba === 'conferenciaDevolucoes' ? (
+        <ConferenciaDevolucoesTab />
       ) : aba === 'critica' ? (
         <CriticaModeloTab />
       ) : (

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSessionUser, hasModuleAccess } from '@/lib/authz'
 import { getDatasetView } from '@/lib/semantic/dataset-view'
-import { prepararVendas, agregarVendas, analisarClientes } from '@/lib/fase3/faturamento'
+import { prepararVendas, agregarVendas, analisarClientes, tabelaIcmsPorEstado } from '@/lib/fase3/faturamento'
 import { resolverConfigVendas } from '@/lib/fase3/cotas'
 
 /**
@@ -41,14 +41,47 @@ export async function GET(req: NextRequest) {
 
   const clientes = analisarClientes(linhas, mesReferencia)
 
+  // Dados de cadastro do cliente (pedido do usuário 2026-09-10: "mostre
+  // dados do cliente, exemplo qual a tabela de ICMS dele") — cruza pelo NOME
+  // com o dataset `fase3_clientes` (mesmo padrão já usado em
+  // /api/fase3/clientes-potenciais), trazendo distribuidor/cidade/estado do
+  // cadastro e derivando a tabela de ICMS a partir do estado.
+  let cadastroPorCliente = new Map<string, { distribuidor: string; cidade: string; codetd: string }>()
+  try {
+    const clientesView = await getDatasetView('fase3_clientes')
+    cadastroPorCliente = new Map(
+      clientesView.map((r) => [
+        String(r.CLIENTE ?? '').trim(),
+        {
+          distribuidor: String(r.ABREV_DISTRIBUIDOR ?? 'SEM DISTRIBUIDOR'),
+          cidade: String(r.CIDADE ?? '').trim(),
+          codetd: String(r.CODETD ?? '').trim(),
+        },
+      ]),
+    )
+  } catch {
+    cadastroPorCliente = new Map()
+  }
+
+  const clientesComCadastro = clientes.map((c) => {
+    const cadastro = cadastroPorCliente.get(c.cliente)
+    return {
+      ...c,
+      distribuidor: cadastro?.distribuidor ?? 'SEM DISTRIBUIDOR',
+      cidade: cadastro?.cidade || '—',
+      codetd: cadastro?.codetd || '—',
+      tabelaIcms: cadastro?.codetd ? tabelaIcmsPorEstado(cadastro.codetd) : null,
+    }
+  })
+
   return NextResponse.json({
     mesReferencia,
     categoriasDisponiveis,
     porCategoria,
-    totalClientes: clientes.length,
-    clientesRecorrentes: clientes.filter((c) => c.recorrente).length,
-    clientesParados: clientes.filter((c) => c.parado),
-    clientesEmQueda: clientes.filter((c) => c.emQueda && !c.parado),
-    todosClientes: clientes,
+    totalClientes: clientesComCadastro.length,
+    clientesRecorrentes: clientesComCadastro.filter((c) => c.recorrente).length,
+    clientesParados: clientesComCadastro.filter((c) => c.parado),
+    clientesEmQueda: clientesComCadastro.filter((c) => c.emQueda && !c.parado),
+    todosClientes: clientesComCadastro,
   })
 }

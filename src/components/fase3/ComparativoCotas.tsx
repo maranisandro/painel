@@ -57,6 +57,9 @@ interface ComparativoProdutoCota {
   metaM3: number | null
   vendidoM3: number
   pctAtingido: number | null
+  saldoFisico: number | null
+  necessarioRestanteUnidades: number
+  saldoSuficiente: boolean | null
 }
 export interface ComparativoCotasData {
   temCadastro: boolean
@@ -205,6 +208,36 @@ export function ComparativoCotas({ data, periodoLabel }: { data: ComparativoCota
       sortValue: (p) => p.pctAtingido ?? 0,
       render: (p) => <span className={`font-medium ${corAtingido(p.pctAtingido)}`}>{fmtPct(p.pctAtingido, 1)}</span>,
     },
+    {
+      key: 'necessarioRestanteUnidades',
+      label: 'Falta vender (un.)',
+      align: 'right',
+      sortValue: (p) => p.necessarioRestanteUnidades,
+      render: (p) => fmt(p.necessarioRestanteUnidades),
+    },
+    {
+      key: 'saldoFisico',
+      label: 'Saldo em estoque (un.)',
+      align: 'right',
+      sortValue: (p) => p.saldoFisico ?? -1,
+      render: (p) => (p.saldoFisico != null ? fmt(p.saldoFisico) : <span className="text-slate-400">—</span>),
+    },
+    {
+      key: 'saldoSuficiente',
+      label: 'Estoque p/ bater a cota',
+      align: 'center',
+      sortValue: (p) => (p.saldoSuficiente == null ? 1 : p.saldoSuficiente ? 2 : 0),
+      render: (p) =>
+        p.saldoSuficiente == null ? (
+          <span className="text-slate-400">sem dado</span>
+        ) : p.saldoSuficiente ? (
+          <span className="rounded bg-emerald-100 px-1.5 py-0.5 font-medium text-emerald-800">Suficiente</span>
+        ) : (
+          <span className="rounded bg-red-100 px-1.5 py-0.5 font-medium text-red-700">
+            Insuficiente (faltam {fmt((p.necessarioRestanteUnidades - (p.saldoFisico ?? 0)))})
+          </span>
+        ),
+    },
   ]
 
   return (
@@ -317,6 +350,15 @@ export function ComparativoCotas({ data, periodoLabel }: { data: ComparativoCota
       {produtos.length > 0 && (
         <div>
           <p className="mb-2 text-xs font-medium text-slate-600">Por produto</p>
+          {(() => {
+            const insuficientes = produtos.filter((p) => p.saldoSuficiente === false)
+            return insuficientes.length > 0 ? (
+              <p className="mb-2 rounded-md border border-red-300 bg-red-50 px-2 py-1.5 text-xs text-red-900">
+                <strong>{insuficientes.length} produto(s)</strong> com saldo em estoque insuficiente para bater a cota
+                do mês, mesmo vendendo tudo o que resta em saldo — repor estoque ou revisar a cota destes produtos.
+              </p>
+            ) : null
+          })()}
           <div className="max-h-96 overflow-y-auto overflow-x-auto rounded-lg border border-slate-200 text-xs">
             <SortableTable
               columns={colunasProduto}

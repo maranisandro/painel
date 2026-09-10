@@ -219,6 +219,30 @@ AND     UPPER(TPRD.NOMEFANTASIA) NOT LIKE '%ALCATR%'
 AND     UPPER(TPRD.NOMEFANTASIA) NOT LIKE '%LATEX%'
 `.trim()
 
+// Saldo físico atual em estoque, por produto (pedido do usuário 2026-09-10:
+// "na consulta de vendas tem um campo que é saldogeralfisico... checar se o
+// saldo é suficiente para alcançar o ritmo necessário"). Consulta separada
+// (fornecida pelo usuário) em vez de um campo a mais na query de vendas
+// acima: SALDOGERALFISICO é dado de CADASTRO do produto (RM.TPRD), não do
+// movimento — colado na consulta de vendas, cada linha antiga mostraria o
+// saldo de quando aquela linha foi sincronizada (não o saldo ATUAL), e o
+// sync incremental por RECMODIFIEDON nunca voltaria a atualizar linhas
+// antigas já sincronizadas. Dataset próprio, SEM incrementalField (carga
+// completa a cada sync — RM.TPRD não tem um campo confiável de "mudou o
+// saldo", e o volume é pequeno), ligado à consulta de vendas por um
+// ComputedColumn LOOKUP (`SALDO_FISICO_ATUAL`, ver abaixo) — assim toda
+// leitura do dataset de vendas já traz o saldo mais recente sincronizado,
+// sem precisar duplicar a coluna produto a produto na query grande.
+const QUERY_FASE3_SALDO_PRODUTOS = `
+SELECT
+TPRD.CODCOLIGADA,
+TPRD.CODIGOPRD,
+TPRD.SALDOGERALFISICO
+FROM RM.TPRD
+WHERE TPRD.CODCOLIGADA = 5
+AND   TPRD.INATIVO = 0
+`.trim()
+
 // Cadastro de clientes (D_CLIENTES no Power BI "Planep_Faturamento_New") —
 // colado pelo usuário na nota Fase 3 em 2026-08-04 ("acertarmos os
 // distribuidores, pois esta incorreto" + base para a aba de clientes
@@ -984,6 +1008,27 @@ FROM rm.zfuncionarios
     create: { datasetId: datasetFase3.id, intervalMinutes: 60 },
   })
 
+  // --- Dataset Fase 3: saldo físico atual por produto (RM.TPRD) ---
+  // Carga completa a cada sync (sem incrementalField) — ver comentário de
+  // QUERY_FASE3_SALDO_PRODUTOS acima.
+  const datasetFase3SaldoProdutos = await prisma.dataset.upsert({
+    where: { code: 'fase3_saldo_produtos' },
+    update: { query: QUERY_FASE3_SALDO_PRODUTOS, primaryKeyFields: 'CODCOLIGADA,CODIGOPRD' },
+    create: {
+      dataSourceId: oracle.id,
+      code: 'fase3_saldo_produtos',
+      name: 'Fase 3 — Saldo físico atual por produto (TOTVS RM)',
+      description: 'Saldo geral físico em estoque por produto (RM.TPRD.SALDOGERALFISICO) — usado para checar se o estoque é suficiente para alcançar a cota de venda do mês.',
+      query: QUERY_FASE3_SALDO_PRODUTOS,
+      primaryKeyFields: 'CODCOLIGADA,CODIGOPRD',
+    },
+  })
+  await prisma.syncSchedule.upsert({
+    where: { datasetId: datasetFase3SaldoProdutos.id },
+    update: {},
+    create: { datasetId: datasetFase3SaldoProdutos.id, intervalMinutes: 60 },
+  })
+
   // Classificação TipoProduto — migrada literalmente da cascata Text.Contains
   // do PowerQuery de D_PRODUTOS (etapa "Add TipoProduto"), na MESMA ordem
   // (primeira regra que bate vence) — "Agronegócio" é o balde padrão (else),
@@ -1160,6 +1205,21 @@ FROM rm.zfuncionarios
           { when: [{ field: 'PRODUTO', op: 'contains', value: 'X 12 -' }], then: '12 a 16' },
         ],
         else: 'Outros',
+      },
+    },
+    // Saldo físico atual em estoque (RM.TPRD.SALDOGERALFISICO) — pedido do
+    // usuário 2026-09-10, via lookup no dataset `fase3_saldo_produtos` (ver
+    // comentário de QUERY_FASE3_SALDO_PRODUTOS): usado para checar se o
+    // estoque cobre o que falta vender para bater a cota do produto no mês
+    // (ver `compararComCotas`/ComparativoProdutoCota em src/lib/fase3/cotas.ts).
+    {
+      name: 'SALDO_FISICO_ATUAL',
+      position: 10,
+      type: 'LOOKUP',
+      rules: {
+        dataset: 'fase3_saldo_produtos',
+        matchOn: [{ local: 'CODIGOPRD', remote: 'CODIGOPRD' }],
+        return: 'SALDOGERALFISICO',
       },
     },
   ]

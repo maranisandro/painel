@@ -15,6 +15,11 @@ interface ClienteHistorico {
   faturamentoUltimos3Meses: number
   faturamentoAnteriores3Meses: number
   historicoMensal: { mes: string; faturamento: number }[]
+  distribuidor: string
+  cidade: string
+  codetd: string
+  /** derivada do estado (CODETD) do cadastro — `null` sem estado cadastrado */
+  tabelaIcms: string | null
 }
 
 interface ClientesData {
@@ -43,6 +48,14 @@ function fmtMes(iso: string): string {
 function colunas(): SortableColumn<ClienteHistorico>[] {
   return [
     { key: 'cliente', label: 'Cliente', sortValue: (c) => c.cliente, render: (c) => <span className="font-medium">{c.cliente}</span> },
+    { key: 'distribuidor', label: 'Distribuidor', sortValue: (c) => c.distribuidor, render: (c) => c.distribuidor },
+    { key: 'cidade', label: 'Cidade/UF', sortValue: (c) => c.cidade, render: (c) => `${c.cidade}${c.codetd && c.codetd !== '—' ? '/' + c.codetd : ''}` },
+    {
+      key: 'tabelaIcms',
+      label: 'Tabela ICMS',
+      sortValue: (c) => c.tabelaIcms ?? '',
+      render: (c) => (c.tabelaIcms ? <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-700">{c.tabelaIcms}</span> : <span className="text-slate-400">—</span>),
+    },
     { key: 'ultimoMes', label: 'Última compra', sortValue: (c) => c.ultimoMes, render: (c) => fmtMes(c.ultimoMes) },
     { key: 'mesesComCompra', label: 'Meses com compra (total)', align: 'right', sortValue: (c) => c.mesesComCompra, render: (c) => fmt(c.mesesComCompra) },
     { key: 'faturamentoTotal', label: 'Faturamento total', align: 'right', sortValue: (c) => c.faturamentoTotal, render: (c) => fmtMoeda(c.faturamentoTotal) },
