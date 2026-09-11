@@ -23,7 +23,19 @@ interface UsuarioInativo {
   userId: string
   nome: string
   email: string
-  ultimoLogin: string | null
+  /** Mais recente entre login (AuditLog) e atividade real (UsageEvent) — ver nota em /api/estatisticas-uso/data. */
+  ultimoAcesso: string | null
+}
+interface SessaoModulo {
+  module: string
+  minutosAtivos: number
+  paginas: string[]
+}
+interface Sessao {
+  inicio: string
+  fim: string
+  duracaoMinutos: number
+  modulos: SessaoModulo[]
 }
 interface EstatisticasUsoData {
   period: { from: string; to: string }
@@ -62,6 +74,13 @@ function fmtMinutos(min: number): string {
   const h = Math.floor(min / 60)
   const m = min % 60
   return m === 0 ? `${h}h` : `${h}h${String(m).padStart(2, '0')}`
+}
+
+function fmtDataHoraBR(iso: string): string {
+  return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+function fmtHoraBR(iso: string): string {
+  return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 }
 
 function StatTile({ label, valor, sub }: { label: string; valor: string | number; sub?: string }) {
@@ -113,6 +132,26 @@ export default function EstatisticasUsoPage() {
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState('')
 
+  // Detalhe de sessões por usuário — pedido do usuário 2026-09-11: "preciso
+  // de detalhes das sessões, quanto tempo o usuário ficou no sistema, o que
+  // ele acessou de forma ativa, detalhes de cada sessão". Clicar no nome em
+  // qualquer ranking abre o modal e busca as sessões daquele usuário no
+  // mesmo período filtrado na tela.
+  const [usuarioSessoes, setUsuarioSessoes] = useState<{ userId: string; nome: string } | null>(null)
+  const [sessoes, setSessoes] = useState<Sessao[] | null>(null)
+  const [carregandoSessoes, setCarregandoSessoes] = useState(false)
+
+  async function abrirSessoes(userId: string, nome: string) {
+    setUsuarioSessoes({ userId, nome })
+    setSessoes(null)
+    setCarregandoSessoes(true)
+    const res = await fetch(`/api/estatisticas-uso/sessoes?userId=${userId}&from=${from}&to=${to}`)
+    setCarregandoSessoes(false)
+    if (!res.ok) return
+    const body = await res.json()
+    setSessoes(body.sessoes)
+  }
+
   const carregar = useCallback(async () => {
     setLoading(true)
     setErro('')
@@ -132,12 +171,20 @@ export default function EstatisticasUsoPage() {
     void carregar()
   }, [carregar])
 
+  function NomeClicavel({ userId, nome }: { userId: string; nome: string }) {
+    return (
+      <button type="button" onClick={() => abrirSessoes(userId, nome)} className="text-left text-emerald-700 hover:underline" title="Ver sessões deste usuário">
+        {nome}
+      </button>
+    )
+  }
+
   const colunasAcessos: SortableColumn<RankingAcesso>[] = [
-    { key: 'nome', label: 'Usuário', sortValue: (r) => r.nome, render: (r) => r.nome },
+    { key: 'nome', label: 'Usuário', sortValue: (r) => r.nome, render: (r) => <NomeClicavel userId={r.userId} nome={r.nome} /> },
     { key: 'logins', label: 'Logins no período', align: 'right', sortValue: (r) => r.logins, render: (r) => r.logins.toLocaleString('pt-BR') },
   ]
   const colunasUsoReal: SortableColumn<RankingUso>[] = [
-    { key: 'nome', label: 'Usuário', sortValue: (r) => r.nome, render: (r) => r.nome },
+    { key: 'nome', label: 'Usuário', sortValue: (r) => r.nome, render: (r) => <NomeClicavel userId={r.userId} nome={r.nome} /> },
     {
       key: 'minutosAtivos',
       label: 'Tempo ativo (navegação real)',
@@ -147,13 +194,13 @@ export default function EstatisticasUsoPage() {
     },
   ]
   const colunasInativos: SortableColumn<UsuarioInativo>[] = [
-    { key: 'nome', label: 'Usuário', sortValue: (r) => r.nome, render: (r) => r.nome },
+    { key: 'nome', label: 'Usuário', sortValue: (r) => r.nome, render: (r) => <NomeClicavel userId={r.userId} nome={r.nome} /> },
     { key: 'email', label: 'E-mail', sortValue: (r) => r.email, render: (r) => r.email },
     {
-      key: 'ultimoLogin',
-      label: 'Último login',
-      sortValue: (r) => r.ultimoLogin ?? '',
-      render: (r) => (r.ultimoLogin ? fmtDateBR(r.ultimoLogin) : <span className="text-red-700">nunca</span>),
+      key: 'ultimoAcesso',
+      label: 'Último acesso',
+      sortValue: (r) => r.ultimoAcesso ?? '',
+      render: (r) => (r.ultimoAcesso ? fmtDateBR(r.ultimoAcesso) : <span className="text-red-700">nunca</span>),
     },
   ]
 
@@ -218,18 +265,74 @@ export default function EstatisticasUsoPage() {
 
           <div className="rounded-xl border border-slate-200 bg-white">
             <div className="border-b border-slate-100 px-4 py-3 font-medium">
-              Quem não usa (sem login há 7+ dias, ou nunca)
+              Quem não usa (sem acesso há 7+ dias, ou nunca)
             </div>
+            <p className="border-b border-slate-100 px-4 py-2 text-[11px] text-slate-500">
+              &quot;Acesso&quot; conta login OU navegação/heartbeat real — sessão do painel dura até 30 dias, então quem fica logado sem
+              digitar a senha de novo não gera um novo login, mas continua contando aqui pelo uso real.
+            </p>
             <SortableTable
               columns={colunasInativos}
               rows={data.quemNaoUsa}
               rowKey={(r) => r.userId}
-              defaultSortKey="ultimoLogin"
+              defaultSortKey="ultimoAcesso"
               defaultSortDir="asc"
               emptyMessage="Todos os usuários ativos acessaram nos últimos 7 dias."
             />
           </div>
         </>
+      )}
+
+      {usuarioSessoes && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4" onClick={() => setUsuarioSessoes(null)}>
+          <div
+            className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">Sessões — {usuarioSessoes.nome}</h2>
+                <p className="text-sm text-slate-500">
+                  {fmtDateBR(from)} a {fmtDateBR(to)} — cada sessão fecha após 60min sem nenhuma navegação/heartbeat.
+                </p>
+              </div>
+              <button type="button" onClick={() => setUsuarioSessoes(null)} className="text-slate-500 hover:text-slate-900">
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {carregandoSessoes && <p className="text-sm text-slate-500">carregando…</p>}
+              {!carregandoSessoes && sessoes && sessoes.length === 0 && (
+                <p className="text-sm text-slate-500">Nenhuma sessão neste período.</p>
+              )}
+              {!carregandoSessoes &&
+                sessoes?.map((s, i) => (
+                  <div key={i} className="rounded-lg border border-slate-200 p-3">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <p className="text-sm font-medium">
+                        {fmtDataHoraBR(s.inicio)} — {fmtHoraBR(s.fim)}
+                      </p>
+                      <p className="text-sm text-emerald-700">{fmtMinutos(s.duracaoMinutos)}</p>
+                    </div>
+                    <div className="mt-2 space-y-1">
+                      {s.modulos.map((m) => (
+                        <div key={m.module} className="flex items-center justify-between text-xs text-slate-600">
+                          <span>
+                            {nomeModulo(m.module)}{' '}
+                            <span className="text-slate-400">
+                              ({m.paginas.length} {m.paginas.length === 1 ? 'página' : 'páginas'})
+                            </span>
+                          </span>
+                          <span className="font-medium">{fmtMinutos(m.minutosAtivos)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

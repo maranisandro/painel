@@ -15,8 +15,15 @@ export async function GET(req: NextRequest) {
   const fromDate = new Date(`${from}T00:00:00`)
   const toDate = new Date(`${to}T23:59:59.999`)
 
-  const [usuariosAtivos, loginsNoPeriodo, heartbeatsNoPeriodo, pageViewsNoPeriodo, ultimoLoginPorUsuario, eventosDoPeriodo] =
-    await Promise.all([
+  const [
+    usuariosAtivos,
+    loginsNoPeriodo,
+    heartbeatsNoPeriodo,
+    pageViewsNoPeriodo,
+    ultimoLoginPorUsuario,
+    eventosDoPeriodo,
+    ultimaAtividadePorUsuario,
+  ] = await Promise.all([
       prisma.user.findMany({ where: { active: true }, select: { id: true, name: true, email: true } }),
       prisma.auditLog.groupBy({
         by: ['userId', 'userName'],
@@ -45,6 +52,16 @@ export async function GET(req: NextRequest) {
         where: { occurredAt: { gte: fromDate, lte: toDate } },
         select: { occurredAt: true },
       }),
+      // Última atividade REAL (qualquer PAGE_VIEW/HEARTBEAT, todo o
+      // histórico) — pedido do usuário 2026-09-11: "está falando que o
+      // último login é 13/08, no entanto estou logado no sistema". Sessão
+      // JWT do NextAuth dura até 30 dias (`session.strategy: 'jwt'`, sem
+      // `maxAge` customizado) e o AuditLog só grava LOGIN quando a senha é
+      // digitada de novo — não a cada visita. Um usuário com sessão longa
+      // "nunca" gera novo LOGIN mesmo usando o sistema todo dia, então
+      // `ultimoLogin` sozinho SUBESTIMA a atividade real. `ultimoAcesso`
+      // abaixo usa o mais recente entre login e atividade de verdade.
+      prisma.usageEvent.groupBy({ by: ['userId'], _max: { occurredAt: true } }),
     ])
 
   const nomeUsuario = new Map(usuariosAtivos.map((u) => [u.id, u.name] as const))
@@ -78,15 +95,19 @@ export async function GET(req: NextRequest) {
       .filter((l): l is typeof l & { userId: string } => !!l.userId)
       .map((l) => [l.userId, l._max.createdAt] as const),
   )
+  const ultimaAtividadeMap = new Map(ultimaAtividadePorUsuario.map((a) => [a.userId, a._max.occurredAt] as const))
   const quemNaoUsa = usuariosAtivos
-    .map((u) => ({
-      userId: u.id,
-      nome: u.name,
-      email: u.email,
-      ultimoLogin: ultimoLoginMap.get(u.id) ?? null,
-    }))
-    .filter((u) => !u.ultimoLogin || u.ultimoLogin.getTime() < corteInatividade)
-    .sort((a, b) => (a.ultimoLogin?.getTime() ?? 0) - (b.ultimoLogin?.getTime() ?? 0))
+    .map((u) => {
+      const ultimoLogin = ultimoLoginMap.get(u.id) ?? null
+      const ultimaAtividade = ultimaAtividadeMap.get(u.id) ?? null
+      const ultimoAcesso =
+        ultimoLogin && ultimaAtividade
+          ? (ultimoLogin.getTime() >= ultimaAtividade.getTime() ? ultimoLogin : ultimaAtividade)
+          : (ultimoLogin ?? ultimaAtividade)
+      return { userId: u.id, nome: u.name, email: u.email, ultimoAcesso }
+    })
+    .filter((u) => !u.ultimoAcesso || u.ultimoAcesso.getTime() < corteInatividade)
+    .sort((a, b) => (a.ultimoAcesso?.getTime() ?? 0) - (b.ultimoAcesso?.getTime() ?? 0))
 
   return NextResponse.json({
     period: { from, to },
