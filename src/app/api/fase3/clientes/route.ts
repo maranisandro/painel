@@ -3,6 +3,7 @@ import { getSessionUser, hasModuleAccess } from '@/lib/authz'
 import { getDatasetView } from '@/lib/semantic/dataset-view'
 import { prepararVendas, agregarVendas, analisarClientes, tabelaIcmsPorEstado } from '@/lib/fase3/faturamento'
 import { resolverConfigVendas } from '@/lib/fase3/cotas'
+import { aplicarEscopoUsuario } from '@/lib/fase3/escopo-usuario'
 
 /**
  * Fase 3 — Análise de clientes: pedido original da nota Fase 3, nunca
@@ -30,7 +31,7 @@ export async function GET(req: NextRequest) {
   let linhasTodas: ReturnType<typeof prepararVendas> = []
   try {
     const view = await getDatasetView('fase3_vendas_madeira_tratada')
-    linhasTodas = prepararVendas(view, '2000-01-01', '2999-12-31', config)
+    linhasTodas = aplicarEscopoUsuario(prepararVendas(view, '2000-01-01', '2999-12-31', config), user!.escopoVendas)
   } catch {
     linhasTodas = []
   }

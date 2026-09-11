@@ -3,6 +3,7 @@ import { getSessionUser, hasModuleAccess } from '@/lib/authz'
 import { getDatasetView } from '@/lib/semantic/dataset-view'
 import { prepararVendas, agregarVendas, registrosAlteradosAposFechamento } from '@/lib/fase3/faturamento'
 import { carregarMetaPeriodo, resolverConfigVendas } from '@/lib/fase3/cotas'
+import { aplicarEscopoUsuario } from '@/lib/fase3/escopo-usuario'
 import { buildCompositionResolver } from '@/lib/fase1/composition'
 import { mesclarComStatusAchados, STATUS_ACHADO_VALIDOS, type AchadoDetectado } from '@/lib/critica-modelo'
 import { prisma } from '@/lib/prisma'
@@ -46,7 +47,7 @@ export async function GET(req: NextRequest) {
   let linhas: ReturnType<typeof prepararVendas> = []
   try {
     const view = await getDatasetView('fase3_vendas_madeira_tratada')
-    linhas = prepararVendas(view, from, to, config)
+    linhas = aplicarEscopoUsuario(prepararVendas(view, from, to, config), user!.escopoVendas)
   } catch {
     linhas = []
   }

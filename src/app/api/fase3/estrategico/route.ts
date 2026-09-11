@@ -10,6 +10,7 @@ import {
   resolverConfigVendas,
   carregarSaldoFisicoProdutos,
 } from '@/lib/fase3/cotas'
+import { aplicarEscopoUsuario } from '@/lib/fase3/escopo-usuario'
 import { hojeBrasil } from '@/lib/horario-brasil'
 
 /** "ICMS 7%" -> 7, "ICMS 18%" -> 18 — para ordenar as tabelas por alíquota crescente em vez de alfabético (que colocaria "12%" antes de "7%"). */
@@ -75,7 +76,7 @@ export async function GET(req: NextRequest) {
   ].sort()
 
   const config = await resolverConfigVendas()
-  const linhasAno = prepararVendas(view, `${ano}-01-01`, `${ano}-12-31`, config)
+  const linhasAno = aplicarEscopoUsuario(prepararVendas(view, `${ano}-01-01`, `${ano}-12-31`, config), user!.escopoVendas)
   const categoriasDisponiveis = [...new Set(linhasAno.map((l) => l.tipoProduto))].sort()
   const porCategoria = agregarVendas(linhasAno, (l) => l.tipoProduto)
   // Filtro de Marca (AMARU x STANDARD) — mesmo princípio de categoriasDisponiveis/porCategoria: sempre sobre linhasAno, não filtrado pela própria marca.

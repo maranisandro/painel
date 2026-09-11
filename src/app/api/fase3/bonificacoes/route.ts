@@ -3,6 +3,7 @@ import { getSessionUser, hasModuleAccess } from '@/lib/authz'
 import { getDatasetView } from '@/lib/semantic/dataset-view'
 import { prepararVendas, bonificacoesSemTabela4 } from '@/lib/fase3/faturamento'
 import { resolverConfigVendas } from '@/lib/fase3/cotas'
+import { aplicarEscopoUsuario } from '@/lib/fase3/escopo-usuario'
 
 function monthStart(): string {
   const d = new Date()
@@ -33,7 +34,7 @@ export async function GET(req: NextRequest) {
   let linhasPeriodo: ReturnType<typeof prepararVendas> = []
   try {
     const view = await getDatasetView('fase3_vendas_madeira_tratada')
-    linhasPeriodo = prepararVendas(view, from, to, config)
+    linhasPeriodo = aplicarEscopoUsuario(prepararVendas(view, from, to, config), user!.escopoVendas)
   } catch {
     linhasPeriodo = []
   }

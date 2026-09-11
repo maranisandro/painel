@@ -25,6 +25,7 @@ import {
   PREFIXO_DESPESAS_IMPOSTOS_PCT_MES,
   carregarSaldoFisicoProdutos,
 } from '@/lib/fase3/cotas'
+import { aplicarEscopoUsuario } from '@/lib/fase3/escopo-usuario'
 import { hojeBrasil, corteOficial } from '@/lib/horario-brasil'
 
 function monthStart(): string {
@@ -102,7 +103,7 @@ export async function GET(req: NextRequest) {
   // acompanhamento de "hoje" abaixo precisam do mesmo `config`.
   const config = await resolverConfigVendas()
 
-  const linhasPeriodoTodosMovimentos = prepararVendas(view, from, toOficial, config)
+  const linhasPeriodoTodosMovimentos = aplicarEscopoUsuario(prepararVendas(view, from, toOficial, config), user!.escopoVendas)
   const linhasPeriodo = tipoMovimentoSelecionado
     ? linhasPeriodoTodosMovimentos.filter((l) => tipoMovimentoSelecionado.includes(l.tipoMovimento))
     : linhasPeriodoTodosMovimentos
@@ -112,7 +113,7 @@ export async function GET(req: NextRequest) {
   // visível aqui para quem quer saber "o que já vendemos hoje" sem esperar
   // o corte liberar.
   const hojeStr = hojeBrasil()
-  const linhasHojeTodosMovimentos = to >= hojeStr ? prepararVendas(view, hojeStr, hojeStr, config) : []
+  const linhasHojeTodosMovimentos = to >= hojeStr ? aplicarEscopoUsuario(prepararVendas(view, hojeStr, hojeStr, config), user!.escopoVendas) : []
   const linhasHoje = tipoMovimentoSelecionado
     ? linhasHojeTodosMovimentos.filter((l) => tipoMovimentoSelecionado.includes(l.tipoMovimento))
     : linhasHojeTodosMovimentos
