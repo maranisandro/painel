@@ -51,6 +51,9 @@ next-env.d.ts
 # fallback local de auditoria (src/lib/audit.ts) - nunca versionar, pode conter dado sensível
 /logs/
 
+# workspace de execução do subagent-driven-development (ledger, briefs, reports por plano)
+/.superpowers/
+
 # planilhas de trabalho usadas para testar importações - dado de negócio, nunca versionar
 *.xlsx
 *.xls
