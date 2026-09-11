@@ -31,6 +31,8 @@ model User {
   updatedAt          DateTime           @updatedAt @map("updated_at")
   moduleAccesses     UserModuleAccess[]
   adminAccesses      UserAdminAccess[]
+  distributorScopes  UserDistributorScope[]
+  clientScopes       UserClientScope[]
 
   @@map("users")
 }
@@ -864,4 +866,36 @@ model ProductQuota {
 
   @@unique([month, codigoPrd])
   @@map("product_quotas")
+}
+
+// Escopo de acesso por distribuidor/cliente (pedido do usuário 2026-09-11:
+// "criado no cadastro de usuário um acesso onde eu possa filtrar para que
+// possa ver um ou mais distribuidor e/ou um ou mais cliente. Não pode ser
+// por filtro de URL"). Sem vínculo = sem restrição (comportamento atual
+// preservado); com vínculo, aplicado server-side em TODA rota da Fase 3
+// que retorna venda, ANTES de qualquer filtro vindo de query string — ver
+// `aplicarEscopoUsuario` em src/lib/fase3/escopo-usuario.ts.
+model UserDistributorScope {
+  userId       String   @map("user_id")
+  // Mesmo valor de VendaLinha.distribuidor (bucket ABREV_DISTRIBUIDOR),
+  // igual ao filtro-checkbox de distribuidor já existente na Fase 3 —
+  // não é CODDISTRIBUIDOR (código bruto).
+  distribuidor String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@id([userId, distribuidor])
+  @@map("user_distributor_scopes")
+}
+
+model UserClientScope {
+  userId    String   @map("user_id")
+  // Mesmo valor de VendaLinha.cliente (nome), igual ao ClienteFiltro
+  // (combo de busca) já existente na Fase 3 — não é CODCFO (código).
+  cliente   String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@id([userId, cliente])
+  @@map("user_client_scopes")
 }
