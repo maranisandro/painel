@@ -138,6 +138,39 @@ export function TabelaDistribuidores({
         rowKey={(d) => d.chave}
         defaultSortKey="faturamentoLiquido"
         emptyMessage="Nenhuma venda no recorte."
+        // Totalizador — pedido do usuário 2026-09-11: "preciso de um
+        // totalizador que certamente bate com os cards superiores".
+        // faturamentoLiquido/vendasUN/m3Total/perdaEstimada somam direto
+        // (bate por construção com totalGeral, mesma base de `linhas`).
+        // valorM3Vendido/precoPonderado são preço médio (R$/m³), então a
+        // soma correta é a MÉDIA PONDERADA por m3Total — não a soma bruta
+        // — que também bate com totalGeral.valorM3Vendido/precoPonderado
+        // porque valorM3Vendido_i × m3Total_i = faturamento base daquele
+        // distribuidor, então Σ(valorM3Vendido_i × m3Total_i) ÷ Σm3Total =
+        // o mesmo valor agregado que o card do topo mostra.
+        renderFooter={(linhas) => {
+          const somaM3 = linhas.reduce((s, d) => s + d.m3Total, 0)
+          const somaFaturamento = linhas.reduce((s, d) => s + d.faturamentoLiquido, 0)
+          const somaVendasUN = linhas.reduce((s, d) => s + d.vendasUN, 0)
+          const somaPerda = linhas.reduce((s, d) => s + d.perdaEstimada, 0)
+          const valorM3Ponderado = somaM3 > 0 ? linhas.reduce((s, d) => s + (d.valorM3Vendido ?? 0) * d.m3Total, 0) / somaM3 : null
+          const metaPonderada = somaM3 > 0 ? linhas.reduce((s, d) => s + (d.precoPonderado ?? 0) * d.m3Total, 0) / somaM3 : null
+          const abaixoDoMinimoTotal = valorM3Ponderado != null && metaPonderada != null && valorM3Ponderado < metaPonderada
+          return (
+            <>
+              <td className="px-3 py-2">Total ({linhas.length})</td>
+              <td className="px-3 py-2 text-right">{fmtMoeda(somaFaturamento)}</td>
+              <td className="px-3 py-2 text-right">{fmt(somaVendasUN, 0)}</td>
+              <td className="px-3 py-2 text-right">{fmt(somaM3, 1)}</td>
+              <td className="px-3 py-2 text-right">{fmtMoeda(valorM3Ponderado)}</td>
+              <td className="px-3 py-2 text-right">{fmtMoeda(metaPonderada)}</td>
+              <td className="px-3 py-2 text-right">{somaPerda > 0 ? <span className="text-red-700">{fmtMoeda(somaPerda)}</span> : <span className="text-slate-400">—</span>}</td>
+              <td className="px-3 py-2">
+                <SituacaoBadge v={{ chave: 'total', faturamentoLiquido: somaFaturamento, vendasUN: somaVendasUN, m3Total: somaM3, valorM3Vendido: valorM3Ponderado, precoPonderado: metaPonderada, abaixoDoMinimo: abaixoDoMinimoTotal, perdaEstimada: somaPerda }} />
+              </td>
+            </>
+          )
+        }}
         renderExpanded={(d) => {
           const clientes = (clientesPorDistribuidor.get(d.chave) ?? []).sort((a, b) => b.faturamentoLiquido - a.faturamentoLiquido)
           return (

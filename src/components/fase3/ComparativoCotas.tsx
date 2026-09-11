@@ -414,6 +414,30 @@ export function ComparativoCotas({ data, periodoLabel }: { data: ComparativoCota
               defaultSortKey="pctAtingido"
               defaultSortDir="asc"
               emptyMessage="Nenhuma meta cadastrada."
+              // Totalizador — pedido do usuário 2026-09-11: "preciso de um
+              // somatório para saber como está o fechamento total". Meta/
+              // Realizado somam direto (R$); % atingido do total é
+              // Σrealizado ÷ Σmeta (não a média dos % de cada linha, que
+              // distorceria o peso de distribuidores pequenos).
+              renderFooter={(linhas) => {
+                const somaMeta = linhas.reduce((s, d) => s + d.metaValor, 0)
+                const somaRealizado = linhas.reduce((s, d) => s + d.realizado, 0)
+                const somaRitmoEsperado = linhas.reduce((s, d) => s + (d.ritmo.ritmoEsperado ?? 0), 0)
+                const somaProjecao = linhas.reduce((s, d) => s + (d.ritmo.projecaoFechamento ?? 0), 0)
+                const somaNecessario = linhas.reduce((s, d) => s + (d.ritmo.necessarioPorDiaUtil ?? 0), 0)
+                const pctTotal = somaMeta > 0 ? somaRealizado / somaMeta : null
+                return (
+                  <>
+                    <td className="px-3 py-2">Total ({linhas.length})</td>
+                    <td className="px-3 py-2 text-right">{fmtMoeda(somaMeta)}</td>
+                    <td className="px-3 py-2 text-right">{fmtMoeda(somaRealizado)}</td>
+                    <td className="px-3 py-2 text-right">{fmtMoeda(somaRitmoEsperado)}</td>
+                    <td className="px-3 py-2 text-right">{fmtMoeda(somaProjecao)}</td>
+                    <td className="px-3 py-2 text-right">{somaNecessario > 0 ? fmtMoeda(somaNecessario) : <span className="text-emerald-700">meta já alcançada</span>}</td>
+                    <td className="px-3 py-2 text-right">{fmtPct(pctTotal, 1)}</td>
+                  </>
+                )
+              }}
             />
           </div>
         </div>

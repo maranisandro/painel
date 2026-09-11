@@ -176,7 +176,29 @@ export async function GET(req: NextRequest) {
     const [distribuidor, tipoProduto, tabelaPreco] = a.chave.split('|')
     return { ...a, distribuidor, tipoProduto, tabelaPreco }
   })
-  const porCliente = agregarVendas(linhas, (l) => l.cliente || '—')
+  // Alíquota de ICMS (tabelaPreco) predominante de cada cliente — pedido do
+  // usuário 2026-09-11: "mostrar uma coluna com a alíquota de ICMS" na
+  // tabela Por cliente. Um cliente normalmente tem uma única UF/alíquota,
+  // mas usa o m³ pra desempatar (não a 1ª linha encontrada) caso apareça
+  // mais de uma no recorte.
+  const m3PorClienteTabela = new Map<string, number>()
+  for (const l of linhas) {
+    const cliente = l.cliente || '—'
+    const chave = `${cliente}|${l.tabelaPreco}`
+    m3PorClienteTabela.set(chave, (m3PorClienteTabela.get(chave) ?? 0) + l.m3Total)
+  }
+  const tabelaPrecoPorCliente = new Map<string, string>()
+  for (const [chave, m3] of m3PorClienteTabela) {
+    const [cliente, tabelaPreco] = chave.split('|')
+    const atual = tabelaPrecoPorCliente.get(cliente)
+    if (!atual || m3 > (m3PorClienteTabela.get(`${cliente}|${atual}`) ?? 0)) {
+      tabelaPrecoPorCliente.set(cliente, tabelaPreco)
+    }
+  }
+  const porCliente = agregarVendas(linhas, (l) => l.cliente || '—').map((c) => ({
+    ...c,
+    tabelaPreco: tabelaPrecoPorCliente.get(c.chave) ?? null,
+  }))
   // Clientes abertos por distribuidor (pedido do usuário 2026-08-04: "abrir
   // clientes por distribuidor") + distribuidores conhecidos sem nenhuma
   // venda/cliente no período (não aparecem em porDistribuidor por não terem

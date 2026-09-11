@@ -196,7 +196,7 @@ interface ApiData {
   porDistribuidorClienteProduto: (DistribuidorCliente & { produto: string })[]
   distribuidoresSemVenda: string[]
   porProduto: VendaPorProduto[]
-  porCliente: VendaAgregada[]
+  porCliente: (VendaAgregada & { tabelaPreco: string | null })[]
   porClienteProduto: ClienteProduto[]
   porClienteProdutoNota: ClienteProdutoNota[]
   porNota: NotaFiscal[]
@@ -1327,16 +1327,22 @@ export function Fase3Dashboard() {
         </div>
         <SortableTable
           columns={[
-            { key: 'chave', label: 'Cliente', sortValue: (c: VendaAgregada) => c.chave, render: (c) => <span className="font-medium">{c.chave}</span> },
-            { key: 'faturamentoLiquido', label: 'Faturamento líquido', align: 'right', sortValue: (c: VendaAgregada) => c.faturamentoLiquido, render: (c) => fmtMoeda(c.faturamentoLiquido) },
-            { key: 'vendasUN', label: 'Quantidade (un)', align: 'right', sortValue: (c: VendaAgregada) => c.vendasUN, render: (c) => fmt(c.vendasUN, 0) },
-            { key: 'm3Total', label: 'm³ vendido', align: 'right', sortValue: (c: VendaAgregada) => c.m3Total, render: (c) => fmt(c.m3Total, 1) },
-            { key: 'valorM3Vendido', label: 'R$/m³ vendido', align: 'right', sortValue: (c: VendaAgregada) => c.valorM3Vendido ?? 0, render: (c) => fmtMoeda(c.valorM3Vendido) },
-            { key: 'precoPonderado', label: 'Meta de destino', align: 'right', sortValue: (c: VendaAgregada) => c.precoPonderado ?? 0, render: (c) => fmtMoeda(c.precoPonderado) },
+            { key: 'chave', label: 'Cliente', sortValue: (c) => c.chave, render: (c) => <span className="font-medium">{c.chave}</span> },
+            {
+              key: 'tabelaPreco',
+              label: 'ICMS',
+              sortValue: (c) => c.tabelaPreco ?? '',
+              render: (c) => (c.tabelaPreco ? <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-700">{c.tabelaPreco}</span> : <span className="text-slate-400">—</span>),
+            },
+            { key: 'faturamentoLiquido', label: 'Faturamento líquido', align: 'right', sortValue: (c) => c.faturamentoLiquido, render: (c) => fmtMoeda(c.faturamentoLiquido) },
+            { key: 'vendasUN', label: 'Quantidade (un)', align: 'right', sortValue: (c) => c.vendasUN, render: (c) => fmt(c.vendasUN, 0) },
+            { key: 'm3Total', label: 'm³ vendido', align: 'right', sortValue: (c) => c.m3Total, render: (c) => fmt(c.m3Total, 1) },
+            { key: 'valorM3Vendido', label: 'R$/m³ vendido', align: 'right', sortValue: (c) => c.valorM3Vendido ?? 0, render: (c) => fmtMoeda(c.valorM3Vendido) },
+            { key: 'precoPonderado', label: 'Meta de destino', align: 'right', sortValue: (c) => c.precoPonderado ?? 0, render: (c) => fmtMoeda(c.precoPonderado) },
             {
               key: 'situacao',
               label: 'Situação',
-              sortValue: (c: VendaAgregada) => (c.abaixoDoMinimo ? 0 : 1),
+              sortValue: (c) => (c.abaixoDoMinimo ? 0 : 1),
               render: (c) =>
                 c.valorM3Vendido == null ? (
                   <span className="text-slate-400">sem m³</span>
