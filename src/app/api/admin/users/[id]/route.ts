@@ -12,6 +12,8 @@ const updateSchema = z.object({
   moduleCodes: z.array(z.string().min(1)).transform((codes) => [...new Set(codes)]),
   // Acesso granular por tela de Cadastro (pedido do usuário 2026-08-14) — mesmo padrão de moduleCodes
   resourceCodes: z.array(z.string().min(1)).default([]).transform((codes) => [...new Set(codes)]),
+  distribuidores: z.array(z.string().min(1)).default([]).transform((codes) => [...new Set(codes)]),
+  clientes: z.array(z.string().min(1)).default([]).transform((codes) => [...new Set(codes)]),
 })
 
 const userSelect = {
@@ -34,6 +36,8 @@ const userSelect = {
       resource: { select: { id: true, code: true, name: true, position: true } },
     },
   },
+  distributorScopes: { select: { distribuidor: true } },
+  clientScopes: { select: { cliente: true } },
 }
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -54,6 +58,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       active: true,
       moduleAccesses: { select: { module: { select: { code: true } } } },
       adminAccesses: { select: { resource: { select: { code: true } } } },
+      distributorScopes: { select: { distribuidor: true } },
+      clientScopes: { select: { cliente: true } },
     },
   })
   if (!existing) return NextResponse.json({ error: 'Usuário não encontrado' }, { status: 404 })
@@ -93,6 +99,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     active: existing.active,
     moduleCodes: existing.moduleAccesses.map((access) => access.module.code).sort(),
     resourceCodes: existing.adminAccesses.map((access) => access.resource.code).sort(),
+    distribuidores: existing.distributorScopes.map((s) => s.distribuidor).sort(),
+    clientes: existing.clientScopes.map((s) => s.cliente).sort(),
   }
 
   let user
@@ -113,6 +121,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
       await tx.userModuleAccess.deleteMany({ where: { userId: id } })
       await tx.userAdminAccess.deleteMany({ where: { userId: id } })
+      await tx.userDistributorScope.deleteMany({ where: { userId: id } })
+      await tx.userClientScope.deleteMany({ where: { userId: id } })
       return tx.user.update({
         where: { id },
         data: {
@@ -131,6 +141,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           adminAccesses:
             parsed.data.role !== 'ADMIN' && resources.length > 0
               ? { create: resources.map((resource) => ({ resourceId: resource.id })) }
+              : undefined,
+          distributorScopes:
+            parsed.data.role !== 'ADMIN' && parsed.data.distribuidores.length > 0
+              ? { create: parsed.data.distribuidores.map((distribuidor) => ({ distribuidor })) }
+              : undefined,
+          clientScopes:
+            parsed.data.role !== 'ADMIN' && parsed.data.clientes.length > 0
+              ? { create: parsed.data.clientes.map((cliente) => ({ cliente })) }
               : undefined,
         },
         select: userSelect,
@@ -158,6 +176,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         active: user.active,
         moduleCodes: user.moduleAccesses.map((access) => access.module.code).sort(),
         resourceCodes: user.adminAccesses.map((access) => access.resource.code).sort(),
+        distribuidores: user.distributorScopes.map((s) => s.distribuidor).sort(),
+        clientes: user.clientScopes.map((s) => s.cliente).sort(),
       },
     },
   })

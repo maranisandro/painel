@@ -19,6 +19,8 @@ const createSchema = z.object({
   moduleCodes: z.array(z.string().min(1)).default([]).transform((codes) => [...new Set(codes)]),
   // Acesso granular por tela de Cadastro (pedido do usuário 2026-08-14) — mesmo padrão de moduleCodes
   resourceCodes: z.array(z.string().min(1)).default([]).transform((codes) => [...new Set(codes)]),
+  distribuidores: z.array(z.string().min(1)).default([]).transform((codes) => [...new Set(codes)]),
+  clientes: z.array(z.string().min(1)).default([]).transform((codes) => [...new Set(codes)]),
 })
 
 const userSelect = {
@@ -41,6 +43,8 @@ const userSelect = {
       resource: { select: { id: true, code: true, name: true, position: true } },
     },
   },
+  distributorScopes: { select: { distribuidor: true } },
+  clientScopes: { select: { cliente: true } },
 }
 
 function generateTemporaryPassword(): string {
@@ -120,6 +124,14 @@ export async function POST(req: NextRequest) {
         parsed.data.role !== 'ADMIN' && resources.length > 0
           ? { create: resources.map((resource) => ({ resourceId: resource.id })) }
           : undefined,
+      distributorScopes:
+        parsed.data.role !== 'ADMIN' && parsed.data.distribuidores.length > 0
+          ? { create: parsed.data.distribuidores.map((distribuidor) => ({ distribuidor })) }
+          : undefined,
+      clientScopes:
+        parsed.data.role !== 'ADMIN' && parsed.data.clientes.length > 0
+          ? { create: parsed.data.clientes.map((cliente) => ({ cliente })) }
+          : undefined,
     },
     select: userSelect,
   })
@@ -136,6 +148,8 @@ export async function POST(req: NextRequest) {
       role: user.role,
       moduleCodes: user.moduleAccesses.map((access) => access.module.code),
       resourceCodes: user.adminAccesses.map((access) => access.resource.code),
+      distribuidores: user.distributorScopes.map((s) => s.distribuidor),
+      clientes: user.clientScopes.map((s) => s.cliente),
       mustChangePassword: true,
     },
   })
