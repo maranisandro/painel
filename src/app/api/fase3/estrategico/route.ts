@@ -82,10 +82,6 @@ export async function GET(req: NextRequest) {
   // Filtro de Marca (AMARU x STANDARD) — mesmo princípio de categoriasDisponiveis/porCategoria: sempre sobre linhasAno, não filtrado pela própria marca.
   const marcasDisponiveis = [...new Set(linhasAno.map((l) => l.marca))].sort()
   const porMarca = agregarVendas(linhasAno, (l) => l.marca)
-  // Lista de clientes SEMPRE sobre linhasAno (não filtrado) — mesmo
-  // princípio de categoriasDisponiveis, o combo de busca mostra o universo
-  // inteiro do ano, não só o que sobrou depois de outros filtros.
-  const clientesDisponiveis = [...new Set(linhasAno.map((l) => l.cliente || '—'))].sort()
   // Distribuidores disponíveis SEMPRE sobre linhasAno (não filtrado) — mesmo
   // princípio de categoriasDisponiveis/marcasDisponiveis acima.
   const distribuidoresDisponiveis = [...new Set(linhasAno.map((l) => l.distribuidor))].sort()
@@ -103,6 +99,12 @@ export async function GET(req: NextRequest) {
   const linhasDistribuidorFiltro = distribuidoresSelecionados
     ? linhasMarca.filter((l) => distribuidoresSelecionados.includes(l.distribuidor))
     : linhasMarca
+  // Lista de clientes SEMPRE sobre linhasDistribuidorFiltro (respeita o
+  // distribuidor selecionado, mas não o próprio cliente) — pedido do
+  // usuário 2026-09-11: "quando seleciono o distribuidor só liste os
+  // clientes daquele distribuidor". Antes desta mudança usava linhasAno
+  // (universo inteiro), ignorando o filtro de distribuidor.
+  const clientesDisponiveis = [...new Set(linhasDistribuidorFiltro.map((l) => l.cliente || '—'))].sort()
   const linhasClienteFiltro = clienteSelecionado
     ? linhasDistribuidorFiltro.filter((l) => (l.cliente || '—') === clienteSelecionado)
     : linhasDistribuidorFiltro

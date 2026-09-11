@@ -138,11 +138,6 @@ export async function GET(req: NextRequest) {
   // pedido do usuário 2026-08-04: "trazer todas as categorias com um filtro
   // superior por categoria, deixando o agronegócio como padrão marcado".
   const categoriasDisponiveis = [...new Set(linhasPeriodo.map((l) => l.tipoProduto))].sort()
-  // Lista de clientes SEMPRE sobre linhasPeriodo (não filtrado por categoria
-  // nem pelo próprio cliente já selecionado) — mesmo princípio de
-  // categoriasDisponiveis: o combo de busca sempre mostra o universo inteiro
-  // do período, não só o que sobrou depois de outros filtros.
-  const clientesDisponiveis = [...new Set(linhasPeriodo.map((l) => l.cliente || '—'))].sort()
   // Distribuidores disponíveis SEMPRE sobre linhasPeriodo (não filtrado pelo
   // próprio distribuidor) — mesmo princípio de categoriasDisponiveis/
   // marcasDisponiveis acima.
@@ -155,6 +150,12 @@ export async function GET(req: NextRequest) {
   const linhasDistribuidorFiltro = distribuidoresSelecionados
     ? linhasMarca.filter((l) => distribuidoresSelecionados.includes(l.distribuidor))
     : linhasMarca
+  // Lista de clientes SEMPRE sobre linhasDistribuidorFiltro (respeita o
+  // distribuidor selecionado, mas não o próprio cliente) — pedido do
+  // usuário 2026-09-11: "quando seleciono o distribuidor só liste os
+  // clientes daquele distribuidor". Antes desta mudança usava linhasPeriodo
+  // (universo inteiro), ignorando o filtro de distribuidor.
+  const clientesDisponiveis = [...new Set(linhasDistribuidorFiltro.map((l) => l.cliente || '—'))].sort()
   const linhasClienteFiltro = clienteSelecionado
     ? linhasDistribuidorFiltro.filter((l) => (l.cliente || '—') === clienteSelecionado)
     : linhasDistribuidorFiltro
