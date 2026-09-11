@@ -15,7 +15,7 @@ export default async function AdminPage() {
   // pra Cotas de venda, que continua no esquema antigo por módulo).
   if (!admin && (user?.resourceCodes.length ?? 0) === 0 && !canEditFase3) redirect('/dashboard')
 
-  const [locais, rotas, parametros, composicoes, produtos, precosFrete, manutencoes, ferias, tickets, usuarios, cotasProduto] =
+  const [locais, rotas, parametros, composicoes, produtos, precosFrete, manutencoes, ferias, tickets, usuarios, cotasProduto, eventosUso] =
     await Promise.all([
       prisma.location.count(),
       prisma.route.count(),
@@ -28,6 +28,7 @@ export default async function AdminPage() {
       prisma.tripTicket.count(),
       admin ? prisma.user.count() : Promise.resolve(0),
       canEditFase3 ? prisma.productQuota.count() : Promise.resolve(0),
+      hasResourceAccess(user, 'estatisticas-uso') ? prisma.usageEvent.count() : Promise.resolve(0),
     ])
 
   // Cada card só aparece se o usuário tiver acesso ao AdminResource
@@ -96,6 +97,13 @@ export default async function AdminPage() {
       title: 'Tickets de viagem',
       count: tickets,
       desc: 'Conciliação de tickets de pesagem (foto/PDF) com as notas fiscais emitidas.',
+    },
+    {
+      resource: 'estatisticas-uso',
+      href: '/dashboard/admin/estatisticas-uso',
+      title: 'Estatísticas de uso',
+      count: eventosUso,
+      desc: 'Quem acessa, quem realmente usa, o que é mais usado, horários de uso, e quem não usa.',
     },
   ].filter((c) => hasResourceAccess(user, c.resource))
 
