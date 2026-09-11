@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSessionUser, hasModuleAccess } from '@/lib/authz'
+import { getSessionUser, hasModuleAccess, isAdmin } from '@/lib/authz'
 import { getDatasetView, getUltimaAtualizacao } from '@/lib/semantic/dataset-view'
 import {
   prepararVendas,
@@ -306,7 +306,7 @@ export async function GET(req: NextRequest) {
   // produziria ritmo/margem incorretos (meta global vs. realizado parcial).
   // Achado da revisão final de código (2026-09-11): para usuário restrito,
   // simplesmente não calcular o comparativo.
-  const comparativoCotas =
+  const comparativoCotasBruto =
     user!.escopoVendas == null
       ? compararComCotas(
           linhas,
@@ -318,6 +318,27 @@ export async function GET(req: NextRequest) {
           saldoFisicoPorProduto,
         )
       : null
+  // Cards de "Resultado do mês" restritos ao ADMIN — pedido do usuário
+  // 2026-09-11: "deixar os cards de resultado no momento somente para o
+  // perfil de administrador até que o cálculo seja ajustado, está
+  // incorreto". Zera os campos financeiros de margemMes pra quem não é
+  // ADMIN (o frontend usa o campo `isAdmin` da resposta pra nem renderizar
+  // os cards, mas isto evita que o número incorreto trafegue no JSON).
+  const comparativoCotas =
+    comparativoCotasBruto && !isAdmin(user)
+      ? {
+          ...comparativoCotasBruto,
+          margemMes: {
+            ...comparativoCotasBruto.margemMes,
+            precoM3Vendido: null,
+            custoProducaoM3: null,
+            despesasImpostosPct: null,
+            resultadoM3: null,
+            pctResultado: null,
+            resultadoTotalMes: null,
+          },
+        }
+      : comparativoCotasBruto
   // Proporção 8-10/10-12 (pedido do usuário 2026-08-13, gauge do Power BI de
   // referência) — comparada com a meta cadastrada em ProductQuota para os
   // mesmos dois produtos, quando existir.
@@ -447,6 +468,7 @@ export async function GET(req: NextRequest) {
   const ultimaAtualizacao = await getUltimaAtualizacao(['fase3_vendas_madeira_tratada'])
 
   return NextResponse.json({
+    isAdmin: isAdmin(user),
     period: { from, to: toOficial, toSolicitado: to },
     ultimaAtualizacao,
     hoje: hojeResumo,

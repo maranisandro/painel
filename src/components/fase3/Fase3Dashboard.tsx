@@ -157,6 +157,7 @@ interface NotaFiscal extends VendaAgregada {
 }
 
 interface ApiData {
+  isAdmin: boolean
   period: { from: string; to: string; toSolicitado: string }
   ultimaAtualizacao: string | null
   hoje: {
@@ -377,6 +378,7 @@ function CardFinanceiro({
   subClassName = 'text-slate-500',
   ativo,
   onClick,
+  restritoAdmin = false,
 }: {
   label: string
   formula: string
@@ -386,14 +388,19 @@ function CardFinanceiro({
   subClassName?: string
   ativo: boolean
   onClick: (ctrl: boolean) => void
+  /** Marca visualmente o card como restrito ao ADMIN (anel roxo) — pedido do usuário 2026-09-11. */
+  restritoAdmin?: boolean
 }) {
   return (
     <button
       type="button"
       onClick={(e) => onClick(e.ctrlKey || e.metaKey)}
-      className={`rounded-xl border p-4 text-left transition-colors ${ativo ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-white hover:border-emerald-300'}`}
+      className={`rounded-xl border p-4 text-left transition-colors ${ativo ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-white hover:border-emerald-300'} ${restritoAdmin ? 'ring-2 ring-purple-400' : ''}`}
     >
-      <p className="text-xs text-slate-500">{label}</p>
+      <p className="text-xs text-slate-500">
+        {label}
+        {restritoAdmin && <span className="ml-1.5 rounded bg-purple-100 px-1.5 py-0.5 text-[10px] font-medium text-purple-700">admin</span>}
+      </p>
       <p className={`text-lg font-semibold ${valorClassName}`}>{valor}</p>
       <p className="mt-1 text-[11px] leading-snug text-slate-400">{formula}</p>
       {sub && <p className={`mt-0.5 text-xs font-medium ${subClassName}`}>{sub}</p>}
@@ -916,55 +923,66 @@ export function Fase3Dashboard() {
             ativo={tipoMovimentoFiltro.size === 0}
             onClick={() => setTipoMovimentoFiltro(new Set())}
           />
-          <CardFinanceiro
-            label={`Resultado do mês (R$/m³)${data?.comparativoCotas?.margemMes.mesReferencia ? ' — ' + fmtMes(data.comparativoCotas.margemMes.mesReferencia) : ''}`}
-            formula={
-              data?.comparativoCotas?.margemMes.resultadoM3 != null
-                ? // Pedido do usuário 2026-09-10: "mostrar os numeros que fazem parte
-                  // do calculo, não consegui chegar no numero demostrado nos cards" —
-                  // a fórmula agora interpola os valores reais usados (não só o texto
-                  // genérico), pra dar pra reproduzir a conta na mão.
-                  `${fmtMoeda(data!.comparativoCotas!.margemMes.precoM3Vendido)} − ${fmtPct((data!.comparativoCotas!.margemMes.despesasImpostosPct ?? 0) / 100)} − ${fmtMoeda(data!.comparativoCotas!.margemMes.custoProducaoM3)} (preço − despesas/impostos − custo)`
-                : 'R$/m³ vendido no mês − % despesas/impostos − custo de produção (Cadastros → Parâmetros)'
-            }
-            valor={
-              data?.comparativoCotas?.margemMes.resultadoM3 != null
-                ? fmtMoeda(data.comparativoCotas.margemMes.resultadoM3)
-                : 'sem cadastro'
-            }
-            valorClassName={
-              data?.comparativoCotas?.margemMes.resultadoM3 == null
-                ? 'text-slate-400'
-                : data.comparativoCotas.margemMes.resultadoM3 < 0
-                  ? 'text-red-700'
-                  : 'text-emerald-700'
-            }
-            sub={
-              data?.comparativoCotas?.margemMes.resultadoTotalMes != null
-                ? `${fmtMoeda(data.comparativoCotas.margemMes.resultadoTotalMes)} no mês (× ${fmt(data.comparativoCotas.margemMes.m3TotalMes, 1)} m³)`
-                : 'cadastre custo de produção e % de despesas/impostos do mês'
-            }
-            ativo={tipoMovimentoFiltro.size === 0}
-            onClick={() => setTipoMovimentoFiltro(new Set())}
-          />
-          <CardFinanceiro
-            label="% de resultado do mês"
-            formula={
-              data?.comparativoCotas?.margemMes.pctResultado != null
-                ? `${fmtMoeda(data!.comparativoCotas!.margemMes.resultadoM3)} ÷ ${fmtMoeda(data!.comparativoCotas!.margemMes.precoM3Vendido)}`
-                : 'Resultado (R$/m³) ÷ R$/m³ vendido'
-            }
-            valor={data?.comparativoCotas?.margemMes.pctResultado != null ? fmtPct(data.comparativoCotas.margemMes.pctResultado) : '—'}
-            valorClassName={
-              data?.comparativoCotas?.margemMes.pctResultado == null
-                ? ''
-                : data.comparativoCotas.margemMes.pctResultado < 0
-                  ? 'text-red-700'
-                  : 'text-emerald-700'
-            }
-            ativo={tipoMovimentoFiltro.size === 0}
-            onClick={() => setTipoMovimentoFiltro(new Set())}
-          />
+          {/* Restrito ao ADMIN — pedido do usuário 2026-09-11: "deixar os
+              cards de resultado no momento somente para o perfil de
+              administrador até que o cálculo seja ajustado, está incorreto".
+              O backend já zera os campos financeiros pra quem não é admin;
+              aqui também não renderiza o card pra esse perfil. */}
+          {data?.isAdmin && (
+            <>
+              <CardFinanceiro
+                label={`Resultado do mês (R$/m³)${data?.comparativoCotas?.margemMes.mesReferencia ? ' — ' + fmtMes(data.comparativoCotas.margemMes.mesReferencia) : ''}`}
+                restritoAdmin
+                formula={
+                  data?.comparativoCotas?.margemMes.resultadoM3 != null
+                    ? // Pedido do usuário 2026-09-10: "mostrar os numeros que fazem parte
+                      // do calculo, não consegui chegar no numero demostrado nos cards" —
+                      // a fórmula agora interpola os valores reais usados (não só o texto
+                      // genérico), pra dar pra reproduzir a conta na mão.
+                      `${fmtMoeda(data!.comparativoCotas!.margemMes.precoM3Vendido)} − ${fmtPct((data!.comparativoCotas!.margemMes.despesasImpostosPct ?? 0) / 100)} − ${fmtMoeda(data!.comparativoCotas!.margemMes.custoProducaoM3)} (preço − despesas/impostos − custo)`
+                    : 'R$/m³ vendido no mês − % despesas/impostos − custo de produção (Cadastros → Parâmetros)'
+                }
+                valor={
+                  data?.comparativoCotas?.margemMes.resultadoM3 != null
+                    ? fmtMoeda(data.comparativoCotas.margemMes.resultadoM3)
+                    : 'sem cadastro'
+                }
+                valorClassName={
+                  data?.comparativoCotas?.margemMes.resultadoM3 == null
+                    ? 'text-slate-400'
+                    : data.comparativoCotas.margemMes.resultadoM3 < 0
+                      ? 'text-red-700'
+                      : 'text-emerald-700'
+                }
+                sub={
+                  data?.comparativoCotas?.margemMes.resultadoTotalMes != null
+                    ? `${fmtMoeda(data.comparativoCotas.margemMes.resultadoTotalMes)} no mês (× ${fmt(data.comparativoCotas.margemMes.m3TotalMes, 1)} m³)`
+                    : 'cadastre custo de produção e % de despesas/impostos do mês'
+                }
+                ativo={tipoMovimentoFiltro.size === 0}
+                onClick={() => setTipoMovimentoFiltro(new Set())}
+              />
+              <CardFinanceiro
+                label="% de resultado do mês"
+                restritoAdmin
+                formula={
+                  data?.comparativoCotas?.margemMes.pctResultado != null
+                    ? `${fmtMoeda(data!.comparativoCotas!.margemMes.resultadoM3)} ÷ ${fmtMoeda(data!.comparativoCotas!.margemMes.precoM3Vendido)}`
+                    : 'Resultado (R$/m³) ÷ R$/m³ vendido'
+                }
+                valor={data?.comparativoCotas?.margemMes.pctResultado != null ? fmtPct(data.comparativoCotas.margemMes.pctResultado) : '—'}
+                valorClassName={
+                  data?.comparativoCotas?.margemMes.pctResultado == null
+                    ? ''
+                    : data.comparativoCotas.margemMes.pctResultado < 0
+                      ? 'text-red-700'
+                      : 'text-emerald-700'
+                }
+                ativo={tipoMovimentoFiltro.size === 0}
+                onClick={() => setTipoMovimentoFiltro(new Set())}
+              />
+            </>
+          )}
         </div>
       </div>
 
