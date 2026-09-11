@@ -14,6 +14,8 @@ export interface SessionUser {
   moduleCodes: string[]
   /** Códigos de AdminResource (telas de Cadastro) que o usuário tem vínculo — ver hasResourceAccess/canEditResource */
   resourceCodes: string[]
+  /** Escopo de venda (distribuidor/cliente) — `null` = sem restrição (ADMIN, ou usuário sem nenhum vínculo). Ver `aplicarEscopoUsuario`. */
+  escopoVendas: { distribuidores: string[]; clientes: string[] } | null
 }
 
 /**
@@ -36,6 +38,8 @@ export async function getSessionUser(): Promise<SessionUser | null> {
       sessionVersion: true,
       moduleAccesses: { select: { module: { select: { code: true } } } },
       adminAccesses: { select: { resource: { select: { code: true } } } },
+      distributorScopes: { select: { distribuidor: true } },
+      clientScopes: { select: { cliente: true } },
     },
   })
   if (!user || !user.active) return null
@@ -51,6 +55,13 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     sessionVersion: user.sessionVersion,
     moduleCodes: user.moduleAccesses.map((access) => access.module.code),
     resourceCodes: user.adminAccesses.map((access) => access.resource.code),
+    escopoVendas:
+      user.role === 'ADMIN' || (user.distributorScopes.length === 0 && user.clientScopes.length === 0)
+        ? null
+        : {
+            distribuidores: user.distributorScopes.map((s) => s.distribuidor),
+            clientes: user.clientScopes.map((s) => s.cliente),
+          },
   }
 }
 
