@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { getSessionUser, isAdmin, canEditModule, hasModuleAccess } from '@/lib/authz'
 import { LogoutButton } from '@/components/LogoutButton'
 import { MobileTabBar, type NavLink } from '@/components/dashboard/MobileTabBar'
+import { UsageTracker } from '@/components/dashboard/UsageTracker'
 import { HomeIcon, moduleIcon, type IconComponent } from '@/components/shared/ui/icons'
 
 // Ícones são renderizados aqui (Server Component) e o resultado (um elemento
@@ -53,6 +54,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <div className="flex h-dvh flex-col">
+      <UsageTracker />
       <header className="shrink-0 border-b border-neutral-200 bg-white print:hidden">
         <div className="mx-auto flex max-w-none items-center justify-between gap-3 px-4 py-3">
           <div className="flex min-w-0 items-center gap-6">
