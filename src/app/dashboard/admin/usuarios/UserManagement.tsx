@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { SortableTable, type SortableColumn } from '@/components/shared/SortableTable'
+import { ClienteEscopoSelecao } from './ClienteEscopoSelecao'
 
 type Role = 'ADMIN' | 'EDITOR' | 'VIEWER'
 
@@ -32,6 +33,8 @@ interface UserRow {
   createdAt: string
   moduleCodes: string[]
   resourceCodes: string[]
+  distribuidores: string[]
+  clientes: string[]
 }
 
 interface FormState {
@@ -41,6 +44,8 @@ interface FormState {
   active: boolean
   moduleCodes: string[]
   resourceCodes: string[]
+  distribuidores: string[]
+  clientes: string[]
 }
 
 interface TemporaryCredential {
@@ -56,6 +61,8 @@ const EMPTY_FORM: FormState = {
   active: true,
   moduleCodes: [],
   resourceCodes: [],
+  distribuidores: [],
+  clientes: [],
 }
 
 const roleLabel: Record<Role, string> = {
@@ -74,11 +81,15 @@ export function UserManagement({
   users,
   modules,
   resources,
+  distribuidoresDisponiveis,
+  clientesDisponiveis,
   currentUserId,
 }: {
   users: UserRow[]
   modules: ModuleOption[]
   resources: ResourceOption[]
+  distribuidoresDisponiveis: string[]
+  clientesDisponiveis: string[]
   currentUserId: string
 }) {
   const router = useRouter()
@@ -120,6 +131,8 @@ export function UserManagement({
       active: user.active,
       moduleCodes: user.moduleCodes,
       resourceCodes: user.resourceCodes,
+      distribuidores: user.distribuidores,
+      clientes: user.clientes,
     })
     setError('')
   }
@@ -142,6 +155,15 @@ export function UserManagement({
     }))
   }
 
+  function toggleDistribuidor(distribuidor: string) {
+    setForm((current) => ({
+      ...current,
+      distribuidores: current.distribuidores.includes(distribuidor)
+        ? current.distribuidores.filter((item) => item !== distribuidor)
+        : [...current.distribuidores, distribuidor],
+    }))
+  }
+
   async function save(event: React.FormEvent) {
     event.preventDefault()
     setSaving(true)
@@ -155,6 +177,8 @@ export function UserManagement({
         ...form,
         moduleCodes: form.role === 'ADMIN' ? [] : form.moduleCodes,
         resourceCodes: form.role === 'ADMIN' ? [] : form.resourceCodes,
+        distribuidores: form.role === 'ADMIN' ? [] : form.distribuidores,
+        clientes: form.role === 'ADMIN' ? [] : form.clientes,
       }),
     })
     const body = await res.json().catch(() => ({}))
@@ -509,6 +533,50 @@ export function UserManagement({
                   </label>
                 ))}
               </div>
+            </div>
+
+            <div className="mt-5">
+              <p className="text-sm font-medium">Restringir a distribuidor(es)</p>
+              <p className="text-xs text-slate-500">
+                Sem nenhum selecionado, o usuário vê venda de todos os distribuidores (padrão atual). Selecionando um ou
+                mais, ele só vê venda desses distribuidores (ou dos clientes marcados abaixo).
+              </p>
+              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {distribuidoresDisponiveis.map((distribuidor) => (
+                  <label
+                    key={distribuidor}
+                    className={`flex items-center gap-2 rounded-lg border p-2 text-sm ${
+                      form.role === 'ADMIN' ? 'border-slate-100 bg-slate-50 text-slate-400' : 'border-slate-200'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      disabled={form.role === 'ADMIN'}
+                      checked={form.role === 'ADMIN' || form.distribuidores.includes(distribuidor)}
+                      onChange={() => toggleDistribuidor(distribuidor)}
+                    />
+                    {distribuidor}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-5">
+              <p className="text-sm font-medium">Restringir a cliente(s)</p>
+              <p className="text-xs text-slate-500">
+                Some-se ao filtro de distribuidor acima (o usuário vê venda que bata com QUALQUER um dos dois).
+              </p>
+              {form.role === 'ADMIN' ? (
+                <p className="mt-2 text-xs text-slate-400">Administrador sempre vê todos os clientes.</p>
+              ) : (
+                <div className="mt-2">
+                  <ClienteEscopoSelecao
+                    disponiveis={clientesDisponiveis}
+                    selecionados={form.clientes}
+                    onChange={(clientes) => setForm({ ...form, clientes })}
+                  />
+                </div>
+              )}
             </div>
 
             {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
