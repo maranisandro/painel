@@ -62,6 +62,7 @@ interface ComparativoProdutoCota {
   saldoSuficiente: boolean | null
   ritmo: RitmoInfo
   dentroDoRitmoEfetivo: boolean | null
+  ritmoProducao: RitmoInfo
 }
 interface ProdutoAcimaMeta {
   mes: string
@@ -258,6 +259,23 @@ export function ComparativoCotas({ data, periodoLabel }: { data: ComparativoCota
         }
         if (p.saldoSuficiente === true && p.ritmo.dentroDoRitmo === false) {
           return <span className="rounded bg-emerald-100 px-1.5 py-0.5 font-medium text-emerald-800">Coberto por estoque</span>
+        }
+        return <span className="rounded bg-emerald-100 px-1.5 py-0.5 font-medium text-emerald-800">No ritmo</span>
+      },
+    },
+    {
+      key: 'ritmoProducao',
+      label: 'Ritmo de produção',
+      align: 'center',
+      sortValue: (p) => (p.ritmoProducao.dentroDoRitmo == null ? 1 : p.ritmoProducao.dentroDoRitmo ? 2 : 0),
+      render: (p) => {
+        if (p.ritmoProducao.ritmoEsperado == null) return <span className="text-slate-400">sem dado</span>
+        if (p.ritmoProducao.dentroDoRitmo === false) {
+          return (
+            <span className="rounded bg-red-100 px-1.5 py-0.5 font-medium text-red-700">
+              Produção atrasada (esperado {fmt(p.ritmoProducao.ritmoEsperado)} un. em estoque)
+            </span>
+          )
         }
         return <span className="rounded bg-emerald-100 px-1.5 py-0.5 font-medium text-emerald-800">No ritmo</span>
       },

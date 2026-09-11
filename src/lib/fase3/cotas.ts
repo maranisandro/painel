@@ -411,6 +411,40 @@ function calcularRitmo(meta: number | null, realizado: number, diasDoMes: number
   return { diasDoMes, diasComFaturamento, ritmoEsperado, dentroDoRitmo, projecaoFechamento, diasUteisRestantes, necessarioPorDiaUtil }
 }
 
+/**
+ * Ritmo de PRODUÇÃO — pedido do usuário 2026-09-11: "a meta de produção é a
+ * mesma de venda, no entanto para meta de produção preciso considerar o que
+ * já tenho em estoque. Exemplo: cota de 30000 peças mês e 20000 em estoque,
+ * até o dia 20 a produção está dentro (cumpre a meta), se não produzir mais
+ * a partir do dia 21 passa a ser deficitária, mesmo que a venda não
+ * aconteça." Mesma cota do produto (`ProductQuota.cotaUnidades`) e mesma
+ * fórmula de `calcularRitmo`, só que comparando o SALDO FÍSICO atual (proxy
+ * do que já foi produzido/disponibilizado) contra o esperado pelos dias
+ * decorridos do mês — independente de venda, ao contrário do `ritmo`
+ * (venda) já existente em `ComparativoProdutoCota`. `null` quando o produto
+ * não tem saldo físico conhecido (não trata "sem dado" como estoque zero).
+ */
+function calcularRitmoProducao(
+  meta: number | null,
+  saldoFisico: number | null,
+  diasDoMes: number | null,
+  diasDecorridos: number,
+  mesReferencia: string,
+): RitmoInfo {
+  if (saldoFisico == null) {
+    return {
+      diasDoMes,
+      diasComFaturamento: diasDecorridos,
+      ritmoEsperado: null,
+      dentroDoRitmo: null,
+      projecaoFechamento: null,
+      diasUteisRestantes: diasUteisRestantesNoMes(mesReferencia),
+      necessarioPorDiaUtil: null,
+    }
+  }
+  return calcularRitmo(meta, saldoFisico, diasDoMes, diasDecorridos, mesReferencia)
+}
+
 /** Carrega e consolida (soma/média ponderada) as cotas cadastradas para todo mês tocado pelo período `from`..`to`. */
 export async function carregarMetaPeriodo(from: string, to: string): Promise<MetaPeriodo> {
   const meses = monthsBetween(from, to)
@@ -585,6 +619,14 @@ export interface ComparativoProdutoCota {
    * UI usa para decidir vermelho/verde.
    */
   dentroDoRitmoEfetivo: boolean | null
+  /**
+   * Ritmo de PRODUÇÃO (pedido do usuário 2026-09-11) — mesma cota do
+   * produto, mas comparada contra o SALDO FÍSICO atual pelos dias decorridos
+   * do mês, independente de venda. Avaliação separada e adicional a `ritmo`
+   * (venda): um produto pode estar em dia na venda e atrasado na produção,
+   * ou vice-versa. Ver `calcularRitmoProducao`.
+   */
+  ritmoProducao: RitmoInfo
 }
 
 export interface ProdutoAcimaMeta {
@@ -782,6 +824,7 @@ export function compararComCotas(
       // momento" — estoque já suficiente pra cobrir o restante da cota
       // anula o atraso de ritmo (só falta vender, não importa quando).
       const dentroDoRitmoEfetivo = saldoSuficiente === true ? true : ritmo.dentroDoRitmo
+      const ritmoProducao = calcularRitmoProducao(metaProdutoMes.get(q.codigoPrd) ?? null, saldoFisico, diasDoMes, diasDecorridosMes ?? 0, mesReferencia)
       return {
         ...q,
         vendidoUnidades,
@@ -793,6 +836,7 @@ export function compararComCotas(
         saldoSuficiente,
         ritmo,
         dentroDoRitmoEfetivo,
+        ritmoProducao,
       }
     })
     .sort((a, b) => (a.pctAtingido ?? 0) - (b.pctAtingido ?? 0))
