@@ -198,7 +198,16 @@ export async function GET(req: NextRequest) {
     carregarNomesClientes(),
     carregarSaldoFisicoProdutos(),
   ])
-  const comparativoCotas = compararComCotas(linhas, metaAno, toRitmo, nomesClientes, undefined, undefined, saldoFisicoPorProduto)
+  // Usuário restrito (escopoVendas != null): a meta/cota é company-wide, não
+  // segmentada por distribuidor/cliente — comparar o realizado (já filtrado
+  // pelo escopo) contra ela vazaria nome/meta de outros distribuidores e
+  // produziria ritmo/margem incorretos (meta global vs. realizado parcial).
+  // Achado da revisão final de código (2026-09-11): para usuário restrito,
+  // simplesmente não calcular o comparativo.
+  const comparativoCotas =
+    user!.escopoVendas == null
+      ? compararComCotas(linhas, metaAno, toRitmo, nomesClientes, undefined, undefined, saldoFisicoPorProduto)
+      : null
   // Proporção 8-10/10-12 (pedido do usuário 2026-08-13) — mesmo cálculo do tático.
   const insightDiametroMourao = calcularInsightDiametroMourao(linhas, metaAno.produtos)
 

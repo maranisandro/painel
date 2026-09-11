@@ -11,7 +11,7 @@ export default async function UsuariosPage() {
   const currentUser = await getSessionUser()
   if (!isAdmin(currentUser)) redirect('/dashboard')
 
-  const [users, modules, resources, vendasView] = await Promise.all([
+  const [users, modules, resources, clientesView] = await Promise.all([
     prisma.user.findMany({
       select: {
         id: true,
@@ -46,13 +46,16 @@ export default async function UsuariosPage() {
       select: { id: true, code: true, name: true, position: true },
       orderBy: { position: 'asc' },
     }),
-    // Universo de clientes pro seletor de escopo (Task 7) — mesmo dataset já
-    // usado pelos filtros de venda da Fase 3, sem cadastro novo.
-    getDatasetView('fase3_vendas_madeira_tratada').catch(() => []),
+    // Universo de clientes pro seletor de escopo (Task 7) — usa o dataset
+    // `fase3_clientes` (1 linha por cliente, já usado por `carregarNomesClientes`
+    // em src/lib/fase3/cotas.ts), bem menor que o fato de vendas completo e sem
+    // recomputar as colunas calculadas dele a cada request (achado da revisão
+    // final de código 2026-09-11: esta página é `force-dynamic`).
+    getDatasetView('fase3_clientes').catch(() => []),
   ])
 
   const clientesDisponiveis = [
-    ...new Set((vendasView as Record<string, unknown>[]).map((r) => String(r.CLIENTE ?? '').trim()).filter(Boolean)),
+    ...new Set((clientesView as Record<string, unknown>[]).map((r) => String(r.CLIENTE ?? '').trim()).filter(Boolean)),
   ].sort()
 
   return (
