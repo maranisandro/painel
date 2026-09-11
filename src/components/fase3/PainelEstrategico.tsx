@@ -99,6 +99,8 @@ interface EstrategicoData {
   categoriasDisponiveis: string[]
   porCategoria: VendaAgregada[]
   clientesDisponiveis: string[]
+  distribuidoresDisponiveis: string[]
+  porDistribuidorTodos: VendaAgregada[]
   totalGeral: VendaAgregada | null
   porTabelaAno: VendaAgregada[]
   porSubTipoProdutoAno: VendaAgregada[]
@@ -215,6 +217,10 @@ export function PainelEstrategico() {
   const [categorias, setCategorias] = useState<string[]>([CATEGORIA_PADRAO])
   const [marcas, setMarcas] = useState<string[]>([])
   const [clienteFiltro, setClienteFiltro] = useState<string | null>(null)
+  // Filtro por Distribuidor (pedido do usuário 2026-08-24, checkbox nunca
+  // tinha sido implementado na tela apesar do backend já suportar — achado
+  // do usuário 2026-09-11 ao testar o escopo por distribuidor/cliente).
+  const [distribuidoresFiltro, setDistribuidoresFiltro] = useState<string[]>([])
   const [mesSelecionado, setMesSelecionado] = useState<string | null>(null)
   const [data, setData] = useState<EstrategicoData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -243,11 +249,14 @@ export function PainelEstrategico() {
     const subTiposParam = subTiposFiltro.size ? `&subtipos=${encodeURIComponent([...subTiposFiltro].join(','))}` : ''
     const clienteParam = clienteFiltro ? `&cliente=${encodeURIComponent(clienteFiltro)}` : ''
     const marcasParam = marcas.length ? `&marcas=${encodeURIComponent(marcas.join(','))}` : ''
-    fetch(`/api/fase3/estrategico?ano=${ano}&categorias=${encodeURIComponent(categorias.join(','))}${mesParam}${tabelasParam}${subTiposParam}${clienteParam}${marcasParam}`)
+    const distribuidoresParam = distribuidoresFiltro.length
+      ? `&distribuidores=${encodeURIComponent(distribuidoresFiltro.join(','))}`
+      : ''
+    fetch(`/api/fase3/estrategico?ano=${ano}&categorias=${encodeURIComponent(categorias.join(','))}${mesParam}${tabelasParam}${subTiposParam}${clienteParam}${marcasParam}${distribuidoresParam}`)
       .then((r) => r.json())
       .then(setData)
       .finally(() => setLoading(false))
-  }, [ano, categorias, mesSelecionado, tabelasFiltro, subTiposFiltro, clienteFiltro, marcas])
+  }, [ano, categorias, mesSelecionado, tabelasFiltro, subTiposFiltro, clienteFiltro, marcas, distribuidoresFiltro])
 
   const anos = data?.anosDisponiveis?.length ? data.anosDisponiveis : [ano]
 
@@ -341,6 +350,13 @@ export function PainelEstrategico() {
           porCategoria={data?.porMarca ?? []}
           selecionadas={marcas}
           onChange={setMarcas}
+        />
+        <CategoriaFiltro
+          titulo="Distribuidor"
+          categoriasDisponiveis={data?.distribuidoresDisponiveis ?? []}
+          porCategoria={data?.porDistribuidorTodos ?? []}
+          selecionadas={distribuidoresFiltro}
+          onChange={setDistribuidoresFiltro}
         />
         <ClienteFiltro
           clientesDisponiveis={data?.clientesDisponiveis ?? []}

@@ -94,7 +94,8 @@ function renderClienteExpandido(c: ClienteHistorico) {
           </tr>
         </thead>
         <tbody>
-          {meses.map((m) => (
+          {/* Meses mais recentes primeiro (pedido do usuário 2026-09-11: "inverter a lista") — a tabela lê de cima pra baixo do mais atual pro mais antigo; o texto acima continua "primeiro a último" cronológico. */}
+          {[...meses].reverse().map((m) => (
             <tr key={m.mes} className="border-t border-slate-100">
               <td className="px-2 py-1">{fmtMes(m.mes)}</td>
               <td className="px-2 py-1 text-right">{fmtMoeda(m.faturamento)}</td>

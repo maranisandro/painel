@@ -168,6 +168,8 @@ interface ApiData {
   categoriasDisponiveis: string[]
   porCategoria: VendaAgregada[]
   clientesDisponiveis: string[]
+  distribuidoresDisponiveis: string[]
+  porDistribuidorTodos: VendaAgregada[]
   totalGeral: (VendaAgregada & { bonificacaoDoMes: number }) | null
   porDia: (VendaAgregada & Record<string, unknown>)[]
   porMes: (VendaAgregada & Record<string, unknown>)[]
@@ -784,6 +786,13 @@ export function Fase3Dashboard() {
           porCategoria={data?.porMarca ?? []}
           selecionadas={marcas}
           onChange={setMarcas}
+        />
+        <CategoriaFiltro
+          titulo="Distribuidor"
+          categoriasDisponiveis={data?.distribuidoresDisponiveis ?? []}
+          porCategoria={data?.porDistribuidorTodos ?? []}
+          selecionadas={distribuidores}
+          onChange={setDistribuidores}
         />
         <ClienteFiltro
           clientesDisponiveis={data?.clientesDisponiveis ?? []}
