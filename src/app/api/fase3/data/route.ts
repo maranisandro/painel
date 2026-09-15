@@ -24,6 +24,8 @@ import {
   PREFIXO_CUSTO_PRODUCAO_MES,
   PREFIXO_DESPESAS_IMPOSTOS_PCT_MES,
   carregarSaldoFisicoProdutos,
+  mapaAtributosProduto,
+  filtrarMetaProdutosPorFiltro,
 } from '@/lib/fase3/cotas'
 import { aplicarEscopoUsuario } from '@/lib/fase3/escopo-usuario'
 import { hojeBrasil, corteOficial } from '@/lib/horario-brasil'
@@ -322,6 +324,18 @@ export async function GET(req: NextRequest) {
     carregarValoresMensais(PREFIXO_DESPESAS_IMPOSTOS_PCT_MES),
     carregarSaldoFisicoProdutos(),
   ])
+  // Restringe a lista de produtos-cota aos que batem com os filtros de
+  // Categoria/Marca/Subtipo ativos na tela — pedido do usuário 2026-09-15:
+  // "as cotas ainda aparecem produtos diferente do filtro". Atributo vem de
+  // `linhasPeriodo` (antes desses filtros), pra cobrir todo produto do
+  // período independente do que está selecionado agora. Ver `cotas.ts`.
+  const metaPeriodoFiltrada = filtrarMetaProdutosPorFiltro(
+    metaPeriodo,
+    mapaAtributosProduto(linhasPeriodo),
+    categoriasSelecionadas,
+    marcasSelecionadas,
+    subTiposSelecionados,
+  )
   // Usuário restrito (escopoVendas != null): a meta/cota é company-wide, não
   // segmentada por distribuidor/cliente — comparar o realizado (já filtrado
   // pelo escopo) contra ela vazaria nome/meta de outros distribuidores e
@@ -332,7 +346,7 @@ export async function GET(req: NextRequest) {
     user!.escopoVendas == null
       ? compararComCotas(
           linhas,
-          metaPeriodo,
+          metaPeriodoFiltrada,
           toOficial,
           nomesClientes,
           (mes) => resolverValorMensal(mes, custosProducaoCadastrados),
@@ -364,7 +378,7 @@ export async function GET(req: NextRequest) {
   // Proporção 8-10/10-12 (pedido do usuário 2026-08-13, gauge do Power BI de
   // referência) — comparada com a meta cadastrada em ProductQuota para os
   // mesmos dois produtos, quando existir.
-  const insightDiametroMourao = calcularInsightDiametroMourao(linhas, metaPeriodo.produtos)
+  const insightDiametroMourao = calcularInsightDiametroMourao(linhas, metaPeriodoFiltrada.produtos)
 
   // Gráfico diário — pedido do usuário 2026-08-05: "análise por período
   // montar um gráfico por dia da média e do ponderado" — R$/m³ realmente

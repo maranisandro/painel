@@ -681,13 +681,13 @@ export function CriticaModeloTab() {
           as 3 alíquotas de ICMS).
         </p>
         <p className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
-          <strong>Decisão pendente</strong>: a aba "Bonificações" (destino de bonificações) e a análise
-          "abaixo da tabela preço base" continuam usando <code>bonificacaoOriginal</code> (CODTMV=2.2.48), não esse
-          flag bruto. As {fmt(data?.achado10FlagBonificacaoSemCodtmv.transacoes ?? 0)} linhas acima têm
-          desconto embutido mas NÃO aparecem hoje na aba Bonificações nem são excluídas da análise "abaixo da
-          tabela preço base" (já que são "Vendas" pelo CODTMV). Quer que essas linhas passem a contar como bonificação
-          também nessas duas telas, ou faz sentido mantê-las separadas (um desconto comercial numa venda
-          normal é diferente de uma bonificação formal, mesmo que o preço_base contábil trate os dois igual)?
+          <strong>Decisão do usuário (2026-09-15)</strong>: mantido como está — a aba "Bonificações" e a análise
+          "abaixo da tabela preço base" continuam usando só <code>bonificacaoOriginal</code> (CODTMV=2.2.48).
+          As {fmt(data?.achado10FlagBonificacaoSemCodtmv.transacoes ?? 0)} linhas acima têm o flag bruto de
+          bonificação mas são "Vendas" pelo CODTMV — o próprio usuário confirmou que devem CONTINUAR contando
+          como venda normal em toda parte, inclusive penalizando o preço médio do m³ (e por consequência a meta
+          de destino): "o que for bonificação tem o CODTMV específico". Não é um desconto a excluir nem uma
+          bonificação a reclassificar — é preço de venda mais baixo mesmo, e deve pesar como tal.
         </p>
       </Achado>
 

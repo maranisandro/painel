@@ -346,6 +346,60 @@ function monthsBetween(from: string, to: string): Date[] {
   return out
 }
 
+/**
+ * Categoria/marca/subtipo de cada CODIGOPRD — pedido do usuário 2026-09-15:
+ * "as cotas ainda aparecem produtos diferente do filtro". Construído a
+ * partir de `linhas` ANTES dos filtros de categoria/marca/subtipo (ex.
+ * `linhasPeriodo`/`linhasAno` nas rotas), pra cobrir todo produto que
+ * apareceu em qualquer venda do período, independente do filtro ativo no
+ * momento — o atributo do produto é fixo (vem do cadastro), não muda com o
+ * filtro selecionado.
+ */
+export function mapaAtributosProduto(linhas: VendaLinha[]): Map<string, { tipoProduto: string; subTipoProduto: string; marca: string }> {
+  const map = new Map<string, { tipoProduto: string; subTipoProduto: string; marca: string }>()
+  for (const l of linhas) {
+    if (l.codigoPrd && !map.has(l.codigoPrd)) {
+      map.set(l.codigoPrd, { tipoProduto: l.tipoProduto, subTipoProduto: l.subTipoProduto, marca: l.marca })
+    }
+  }
+  return map
+}
+
+/**
+ * Restringe `meta.produtos`/`meta.produtosPorMes` (todo produto com cota
+ * cadastrada no mês, sem noção de categoria/marca/subtipo) aos produtos cujo
+ * atributo bate com os filtros de Categoria/Marca/Subtipo ativos na tela —
+ * pedido do usuário 2026-09-15: sem isso, a tabela "produtos x cota"
+ * continuava mostrando produto de outra categoria/marca/subtipo mesmo com o
+ * filtro (ex. Subtipo "Peças") já escondendo esse produto do resto do
+ * painel. Produto sem nenhuma venda no período (atributo desconhecido) fica
+ * visível independente do filtro — não há como confirmar se bate ou não, e
+ * esconder por falta de dado esconderia justamente o caso "cota cadastrada,
+ * zero vendido" que o usuário precisa ver.
+ */
+export function filtrarMetaProdutosPorFiltro(
+  meta: MetaPeriodo,
+  atributos: Map<string, { tipoProduto: string; subTipoProduto: string; marca: string }>,
+  categorias: string[] | null,
+  marcas: string[] | null,
+  subTipos: string[] | null,
+): MetaPeriodo {
+  if (!categorias && !marcas && !subTipos) return meta
+  const bate = (codigoPrd: string) => {
+    const a = atributos.get(codigoPrd)
+    if (!a) return true
+    if (categorias && !categorias.includes(a.tipoProduto)) return false
+    if (marcas && !marcas.includes(a.marca)) return false
+    if (subTipos && !subTipos.includes(a.subTipoProduto)) return false
+    return true
+  }
+  return {
+    ...meta,
+    produtos: meta.produtos.filter((p) => bate(p.codigoPrd)),
+    produtosPorMes: meta.produtosPorMes.filter((p) => bate(p.codigoPrd)),
+  }
+}
+
 export interface MetaPeriodo {
   metaVolumeM3: number
   icms7Pct: number | null

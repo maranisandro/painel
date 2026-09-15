@@ -9,6 +9,8 @@ import {
   calcularInsightDiametroMourao,
   resolverConfigVendas,
   carregarSaldoFisicoProdutos,
+  mapaAtributosProduto,
+  filtrarMetaProdutosPorFiltro,
 } from '@/lib/fase3/cotas'
 import { aplicarEscopoUsuario } from '@/lib/fase3/escopo-usuario'
 import { hojeBrasil } from '@/lib/horario-brasil'
@@ -198,6 +200,18 @@ export async function GET(req: NextRequest) {
     carregarNomesClientes(),
     carregarSaldoFisicoProdutos(),
   ])
+  // Restringe a lista de produtos-cota aos que batem com os filtros de
+  // Categoria/Marca/Subtipo ativos na tela — pedido do usuário 2026-09-15:
+  // "as cotas ainda aparecem produtos diferente do filtro". Atributo vem de
+  // `linhasAno` (antes desses filtros), pra cobrir todo produto do ano
+  // independente do que está selecionado agora. Ver `cotas.ts`.
+  const metaAnoFiltrada = filtrarMetaProdutosPorFiltro(
+    metaAno,
+    mapaAtributosProduto(linhasAno),
+    categoriasSelecionadas,
+    marcasSelecionadas,
+    subTiposSelecionados,
+  )
   // Usuário restrito (escopoVendas != null): a meta/cota é company-wide, não
   // segmentada por distribuidor/cliente — comparar o realizado (já filtrado
   // pelo escopo) contra ela vazaria nome/meta de outros distribuidores e
@@ -206,7 +220,7 @@ export async function GET(req: NextRequest) {
   // simplesmente não calcular o comparativo.
   const comparativoCotasBruto =
     user!.escopoVendas == null
-      ? compararComCotas(linhas, metaAno, toRitmo, nomesClientes, undefined, undefined, saldoFisicoPorProduto)
+      ? compararComCotas(linhas, metaAnoFiltrada, toRitmo, nomesClientes, undefined, undefined, saldoFisicoPorProduto)
       : null
   // Cards de "Resultado do mês" restritos ao ADMIN — pedido do usuário
   // 2026-09-11: "deixar os cards de resultado no momento somente para o
@@ -230,7 +244,7 @@ export async function GET(req: NextRequest) {
         }
       : comparativoCotasBruto
   // Proporção 8-10/10-12 (pedido do usuário 2026-08-13) — mesmo cálculo do tático.
-  const insightDiametroMourao = calcularInsightDiametroMourao(linhas, metaAno.produtos)
+  const insightDiametroMourao = calcularInsightDiametroMourao(linhas, metaAnoFiltrada.produtos)
 
   // Cards pedidos pelo usuário 2026-08-05: "% em volume vendido para cada
   // alíquota de ICMS, Faturamento Líquido Total, Preço médio e meta de
