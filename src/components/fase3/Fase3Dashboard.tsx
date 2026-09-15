@@ -6,6 +6,7 @@ import { DateRangeInputs, fmtDateBR } from '@/components/shared/DateRangeInputs'
 import { SortableTable } from '@/components/shared/SortableTable'
 import { CategoriaFiltro, CATEGORIA_PADRAO } from './CategoriaFiltro'
 import { ComparativoCotas, type ComparativoCotasData } from './ComparativoCotas'
+import { VisibilidadeBadge, type Visibilidade } from './VisibilidadeBadge'
 import { ClienteFiltro } from './ClienteFiltro'
 import { PainelEstrategico } from './PainelEstrategico'
 import { TabelaDistribuidores } from './TabelaDistribuidores'
@@ -378,7 +379,7 @@ function CardFinanceiro({
   subClassName = 'text-slate-500',
   ativo,
   onClick,
-  restritoAdmin = false,
+  visibilidade = 'externo',
 }: {
   label: string
   formula: string
@@ -388,18 +389,18 @@ function CardFinanceiro({
   subClassName?: string
   ativo: boolean
   onClick: (ctrl: boolean) => void
-  /** Marca visualmente o card como restrito ao ADMIN (anel roxo) — pedido do usuário 2026-09-11. */
-  restritoAdmin?: boolean
+  /** Selo de quem vê o card (admin/interno/externo) — pedido do usuário 2026-09-11 (admin) e 2026-09-14 (interno/externo). Ver VisibilidadeBadge. */
+  visibilidade?: Visibilidade
 }) {
   return (
     <button
       type="button"
       onClick={(e) => onClick(e.ctrlKey || e.metaKey)}
-      className={`rounded-xl border p-4 text-left transition-colors ${ativo ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-white hover:border-emerald-300'} ${restritoAdmin ? 'ring-2 ring-purple-400' : ''}`}
+      className={`rounded-xl border p-4 text-left transition-colors ${ativo ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-white hover:border-emerald-300'} ${visibilidade === 'admin' ? 'ring-2 ring-purple-400' : ''}`}
     >
       <p className="text-xs text-slate-500">
         {label}
-        {restritoAdmin && <span className="ml-1.5 rounded bg-purple-100 px-1.5 py-0.5 text-[10px] font-medium text-purple-700">admin</span>}
+        <VisibilidadeBadge nivel={visibilidade} />
       </p>
       <p className={`text-lg font-semibold ${valorClassName}`}>{valor}</p>
       <p className="mt-1 text-[11px] leading-snug text-slate-400">{formula}</p>
@@ -593,7 +594,10 @@ export function Fase3Dashboard() {
             </div>
           )}
           <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-            <div className="border-b border-slate-100 px-4 py-3 font-medium">Por nota fiscal ({data?.porNota.length ?? 0})</div>
+            <div className="border-b border-slate-100 px-4 py-3 font-medium">
+              Por nota fiscal ({data?.porNota.length ?? 0})
+              <VisibilidadeBadge nivel="externo" />
+            </div>
             <SortableTable
               columns={[
                 { key: 'numeroMov', label: 'NF', sortValue: (n: NotaFiscal) => n.numeroMov, render: (n) => <span className="font-medium">{n.numeroMov || '—'}</span> },
@@ -754,7 +758,10 @@ export function Fase3Dashboard() {
       {data?.hoje && (
         <div className="rounded-xl border border-slate-200 bg-white p-4">
           <div className="flex items-baseline justify-between">
-            <p className="text-sm font-medium">Hoje ({fmtDateBR(data.hoje.data)}) — acompanhamento</p>
+            <p className="text-sm font-medium">
+              Hoje ({fmtDateBR(data.hoje.data)}) — acompanhamento
+              <VisibilidadeBadge nivel="externo" />
+            </p>
             <span className={`text-xs ${data.hoje.incluidoNoOficial ? 'text-emerald-700' : 'text-amber-700'}`}>
               {data.hoje.incluidoNoOficial ? 'já incluído no comparativo oficial' : 'ainda não incluído no comparativo oficial'}
             </span>
@@ -932,7 +939,7 @@ export function Fase3Dashboard() {
             <>
               <CardFinanceiro
                 label={`Resultado do mês (R$/m³)${data?.comparativoCotas?.margemMes.mesReferencia ? ' — ' + fmtMes(data.comparativoCotas.margemMes.mesReferencia) : ''}`}
-                restritoAdmin
+                visibilidade="admin"
                 formula={
                   data?.comparativoCotas?.margemMes.resultadoM3 != null
                     ? // Pedido do usuário 2026-09-10: "mostrar os numeros que fazem parte
@@ -964,7 +971,7 @@ export function Fase3Dashboard() {
               />
               <CardFinanceiro
                 label="% de resultado do mês"
-                restritoAdmin
+                visibilidade="admin"
                 formula={
                   data?.comparativoCotas?.margemMes.pctResultado != null
                     ? `${fmtMoeda(data!.comparativoCotas!.margemMes.resultadoM3)} ÷ ${fmtMoeda(data!.comparativoCotas!.margemMes.precoM3Vendido)}`
@@ -1020,6 +1027,7 @@ export function Fase3Dashboard() {
               {multiMes
                 ? 'Clique num mês para abrir o detalhe dia a dia daquele mês (Ctrl/Cmd+clique estende o período até aquele mês).'
                 : 'Inclui hoje (sem afetar as médias) — clique num dia para filtrar só ele e investigar o que impactou o resultado.'}
+              <VisibilidadeBadge nivel="externo" />
             </p>
             {acima + abaixo > 0 && (
               <p className="text-xs">
@@ -1098,6 +1106,10 @@ export function Fase3Dashboard() {
           análise por período e no estratégico com os mesmos conceitos" —
           mesmos cards de ICMS/Mourão-Peças/insight do painel estratégico,
           clicáveis (Ctrl para multi-seleção) e vermelho quando abaixo da meta. */}
+      <p className="text-xs font-medium text-slate-600">
+        Preço por alíquota de ICMS
+        <VisibilidadeBadge nivel="externo" />
+      </p>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {(data?.porTabelaPeriodo ?? []).map((t) => {
           const m3TotalGeral = data?.totalGeral?.m3Total ?? 0
@@ -1134,7 +1146,10 @@ export function Fase3Dashboard() {
       {(data?.porSubTipoProdutoPeriodo?.length ?? 0) > 0 && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <p className="mb-2 text-xs font-medium text-slate-600">Mourão x Peças — proporção e preço médio do m³</p>
+            <p className="mb-2 text-xs font-medium text-slate-600">
+              Mourão x Peças — proporção e preço médio do m³
+              <VisibilidadeBadge nivel="externo" />
+            </p>
             <div className="grid grid-cols-2 gap-3">
               {(data?.porSubTipoProdutoPeriodo ?? []).map((s) => {
                 const m3TotalMix = (data?.porSubTipoProdutoPeriodo ?? []).reduce((acc, x) => acc + x.m3Total, 0)
@@ -1169,6 +1184,7 @@ export function Fase3Dashboard() {
               <p className="mb-1 text-xs font-medium text-amber-800">
                 Insight — preço mínimo necessário dado o mix atual (
                 {fmt(data.insightMouraoPecas.pctMourao * 100, 0)}% Mourão / {fmt(data.insightMouraoPecas.pctPecas * 100, 0)}% Peças)
+                <VisibilidadeBadge nivel="externo" />
               </p>
               <p className="text-xs text-amber-900">
                 Meta de destino (mínimo ponderado por ICMS, mesmo para os dois): <strong>{fmtMoeda(data.insightMouraoPecas.metaBlend)}</strong>
@@ -1207,6 +1223,7 @@ export function Fase3Dashboard() {
           <p className="mb-2 text-xs font-medium text-slate-600">
             Proporção {data.insightDiametroMourao.classe1} x {data.insightDiametroMourao.classe2} — Mourão 2,20m
             <span className="font-normal text-slate-400"> (% por unidade vendida)</span>
+            <VisibilidadeBadge nivel="externo" />
           </p>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className="rounded-lg bg-slate-50 p-3">
@@ -1260,10 +1277,19 @@ export function Fase3Dashboard() {
         </div>
       )}
 
-      <ComparativoCotas
-        data={data?.comparativoCotas}
-        periodoLabel={data?.period ? `${fmtDateBR(data.period.from)} a ${fmtDateBR(data.period.to)}` : 'o período selecionado'}
-      />
+      {/* Cotas cadastradas em Cadastros → Cotas de venda hoje só cobrem a
+          linha Agronegócio (pedido do usuário 2026-09-14: "quando eu
+          seleciono o perfil ele continua mostrando cotas de agronegócio,
+          precisa filtrar tudo sobre perfil") — mostrar a comparação com
+          outra categoria selecionada (ex. Perfil) compararia o realizado
+          errado contra a meta de Agronegócio, então a seção some quando
+          Agronegócio não está entre as categorias marcadas. */}
+      {categorias.includes(CATEGORIA_PADRAO) && (
+        <ComparativoCotas
+          data={data?.comparativoCotas}
+          periodoLabel={data?.period ? `${fmtDateBR(data.period.from)} a ${fmtDateBR(data.period.to)}` : 'o período selecionado'}
+        />
+      )}
 
       <TabelaDistribuidores
         titulo="Por distribuidor"
@@ -1276,6 +1302,7 @@ export function Fase3Dashboard() {
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
         <div className="border-b border-slate-100 px-4 py-3 font-medium">
           Por distribuidor × tipo de produto × tabela de ICMS ({data?.porProduto.length ?? 0})
+          <VisibilidadeBadge nivel="externo" />
         </div>
         <SortableTable
           columns={[
@@ -1324,6 +1351,7 @@ export function Fase3Dashboard() {
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
         <div className="border-b border-slate-100 px-4 py-3 font-medium">
           Por cliente ({data?.porCliente.length ?? 0}) — clientes abaixo do mínimo abrem para mostrar qual produto pesa mais
+          <VisibilidadeBadge nivel="externo" />
         </div>
         <SortableTable
           columns={[
@@ -1448,6 +1476,7 @@ export function Fase3Dashboard() {
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
         <div className="border-b border-slate-100 px-4 py-3 font-medium">
           Por produto específico ({data?.porProdutoEspecifico.length ?? 0})
+          <VisibilidadeBadge nivel="externo" />
         </div>
         <SortableTable
           columns={[
@@ -1484,6 +1513,7 @@ export function Fase3Dashboard() {
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
         <div className="border-b border-slate-100 px-4 py-3 font-medium">
           Produtos ao longo do tempo — meses com perda de preço x meses OK
+          <VisibilidadeBadge nivel="externo" />
         </div>
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-slate-600">
@@ -1603,6 +1633,7 @@ export function Fase3Dashboard() {
             <div className="border-b border-slate-100 px-4 py-3 font-medium">
               Principais ofensores por {DIMENSAO_OFENSOR_LABEL[dimensaoOfensor].toLowerCase()} ({linhasOfensor?.length ?? 0})
               {dimensaoOfensor === 'cliente' && <span className="ml-2 text-xs font-normal text-slate-400">top 50</span>}
+              <VisibilidadeBadge nivel="externo" />
             </div>
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-left text-slate-600">
@@ -1653,6 +1684,7 @@ export function Fase3Dashboard() {
         <div className="border-b border-slate-100 px-4 py-3 font-medium">
           Dispersão de preço por produto × ICMS (top 30) — mesmo produto, mesma alíquota, preços muito
           diferentes entre vendas
+          <VisibilidadeBadge nivel="externo" />
         </div>
         <SortableTable
           columns={[
@@ -1735,6 +1767,7 @@ export function Fase3Dashboard() {
               — {fmt(data.abaixoTabela4Total.transacoes)} transações no período, {fmtMoeda(data.abaixoTabela4Total.valorPerdido)} de diferença total
             </span>
           )}
+          <VisibilidadeBadge nivel="externo" />
         </div>
         <p className="px-4 pb-2 text-xs text-slate-500">
           Pedido original da nota Fase 3 ("demonstrar quando o preço vendido for menor que o preço de

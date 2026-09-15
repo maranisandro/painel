@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { SortableTable, type SortableColumn } from '@/components/shared/SortableTable'
+import { VisibilidadeBadge } from './VisibilidadeBadge'
 
 interface RitmoInfo {
   diasDoMes: number | null
@@ -153,7 +154,10 @@ export function ComparativoCotas({ data, periodoLabel }: { data: ComparativoCota
   if (!data.temCadastro) {
     return (
       <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <p className="text-sm font-medium">Cotas de venda — meta x realizado</p>
+        <p className="text-sm font-medium">
+          Cotas de venda — meta x realizado
+          <VisibilidadeBadge nivel="interno" />
+        </p>
         <p className="mt-1 text-sm text-slate-500">
           Nenhuma cota cadastrada para {periodoLabel}. Cadastre em{' '}
           <Link href="/dashboard/admin/cotas-venda" className="text-emerald-700 underline">
@@ -315,7 +319,15 @@ export function ComparativoCotas({ data, periodoLabel }: { data: ComparativoCota
   return (
     <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-4">
       <div className="flex items-baseline justify-between">
-        <p className="text-sm font-medium">Cotas de venda — meta x realizado ({periodoLabel})</p>
+        <p className="text-sm font-medium">
+          Cotas de venda — meta x realizado ({periodoLabel})
+          {/* Backend só calcula `comparativoCotas` para usuário sem
+              `escopoVendas` (ver /api/fase3/data e /api/fase3/estrategico) —
+              o futuro usuário externo (distribuidor/cliente) nunca chega a
+              ver esta seção, então fica marcada `interno` (pedido do
+              usuário 2026-09-14). */}
+          <VisibilidadeBadge nivel="interno" />
+        </p>
         <Link href="/dashboard/admin/cotas-venda" className="text-xs text-emerald-700 underline">
           gerenciar cotas
         </Link>

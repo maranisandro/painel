@@ -2,6 +2,7 @@
 
 import { Fragment, useState } from 'react'
 import { SortableTable, type SortableColumn } from '@/components/shared/SortableTable'
+import { VisibilidadeBadge } from './VisibilidadeBadge'
 
 interface VendaAgregada {
   chave: string
@@ -131,6 +132,7 @@ export function TabelaDistribuidores({
     <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
       <div className="border-b border-slate-100 px-4 py-3 font-medium">
         {titulo} ({porDistribuidor.length})
+        <VisibilidadeBadge nivel="externo" />
       </div>
       <SortableTable
         columns={colunas}
@@ -252,6 +254,12 @@ export function TabelaDistribuidores({
       {distribuidoresSemVenda.length > 0 && (
         <div className="border-t border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">
           Sem nenhum cliente/venda neste recorte: <strong>{distribuidoresSemVenda.join(', ')}</strong>
+          {/* Vem de DISTRIBUIDORES_CONHECIDOS (lista global, não filtrada pelo
+              escopo do usuário) — pra um futuro usuário restrito por
+              distribuidor/cliente, isso vazaria nome de OUTRO distribuidor
+              da empresa, então fica marcado como `interno` (pedido do
+              usuário 2026-09-14), diferente do resto desta tabela. */}
+          <VisibilidadeBadge nivel="interno" />
         </div>
       )}
     </div>

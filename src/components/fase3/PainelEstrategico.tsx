@@ -6,6 +6,7 @@ import { CategoriaFiltro, CATEGORIA_PADRAO } from './CategoriaFiltro'
 import { ComparativoCotas, type ComparativoCotasData } from './ComparativoCotas'
 import { ClienteFiltro } from './ClienteFiltro'
 import { TabelaDistribuidores } from './TabelaDistribuidores'
+import { VisibilidadeBadge } from './VisibilidadeBadge'
 import { SortableTable, type SortableColumn } from '@/components/shared/SortableTable'
 
 // Cores fixas por identidade (Mourão/Peças), nunca cicladas — mesma paleta
@@ -198,7 +199,10 @@ function TabelaGanhoPerda({
   ]
   return (
     <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-      <div className="border-b border-slate-100 px-4 py-3 font-medium">{titulo}</div>
+      <div className="border-b border-slate-100 px-4 py-3 font-medium">
+        {titulo}
+        <VisibilidadeBadge nivel="externo" />
+      </div>
       <SortableTable columns={colunas} rows={linhas} rowKey={(d, i) => `${d.chave}-${i}`} defaultSortKey="margem" emptyMessage="Nenhum ganho no recorte." />
     </div>
   )
@@ -371,6 +375,10 @@ export function PainelEstrategico() {
         </div>
       )}
 
+      <p className="text-xs font-medium text-slate-600">
+        Resumo do ano
+        <VisibilidadeBadge nivel="externo" />
+      </p>
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
         <div className="rounded-xl border border-slate-200 bg-white p-4">
           <p className="text-xs text-slate-500">Faturamento líquido ({ano})</p>
@@ -412,6 +420,10 @@ export function PainelEstrategico() {
           "todos os cards precisam ser clicáveis com o ctrl para
           selecionar") — clique filtra só aquela alíquota, Ctrl+clique
           adiciona/remove da seleção. */}
+      <p className="text-xs font-medium text-slate-600">
+        Preço por alíquota de ICMS ({ano})
+        <VisibilidadeBadge nivel="externo" />
+      </p>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {(data?.porTabelaAno ?? []).map((t) => {
           const m3TotalGeral = data?.totalGeral?.m3Total ?? 0
@@ -453,7 +465,10 @@ export function PainelEstrategico() {
       {(data?.porSubTipoProdutoAno?.length ?? 0) > 0 && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <p className="mb-2 text-xs font-medium text-slate-600">Mourão x Peças — proporção e preço médio do m³</p>
+            <p className="mb-2 text-xs font-medium text-slate-600">
+              Mourão x Peças — proporção e preço médio do m³
+              <VisibilidadeBadge nivel="externo" />
+            </p>
             <div className="grid grid-cols-2 gap-3">
               {(data?.porSubTipoProdutoAno ?? []).map((s) => {
                 const m3TotalMix = (data?.porSubTipoProdutoAno ?? []).reduce((acc, x) => acc + x.m3Total, 0)
@@ -488,6 +503,7 @@ export function PainelEstrategico() {
               <p className="mb-1 text-xs font-medium text-amber-800">
                 Insight — preço mínimo necessário dado o mix atual (
                 {fmt(data.insightMouraoPecas.pctMourao * 100, 0)}% Mourão / {fmt(data.insightMouraoPecas.pctPecas * 100, 0)}% Peças)
+                <VisibilidadeBadge nivel="externo" />
               </p>
               <p className="text-xs text-amber-900">
                 Meta de destino (mínimo ponderado por ICMS, mesmo para os dois): <strong>{fmtMoeda(data.insightMouraoPecas.metaBlend)}</strong>
@@ -526,6 +542,7 @@ export function PainelEstrategico() {
           <p className="mb-2 text-xs font-medium text-slate-600">
             Proporção {data.insightDiametroMourao.classe1} x {data.insightDiametroMourao.classe2} — Mourão 2,20m
             <span className="font-normal text-slate-400"> (% por unidade vendida)</span>
+            <VisibilidadeBadge nivel="externo" />
           </p>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className="rounded-lg bg-slate-50 p-3">
@@ -587,7 +604,10 @@ export function PainelEstrategico() {
       {(data?.evolucaoMouraoPecas?.length ?? 0) > 1 && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <p className="mb-2 text-xs font-medium text-slate-600">Evolução mensal — % do volume (Mourão x Peças)</p>
+            <p className="mb-2 text-xs font-medium text-slate-600">
+              Evolução mensal — % do volume (Mourão x Peças)
+              <VisibilidadeBadge nivel="externo" />
+            </p>
             <ResponsiveContainer width="100%" height={240}>
               <BarChart data={data?.evolucaoMouraoPecas ?? []} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
@@ -605,7 +625,10 @@ export function PainelEstrategico() {
           </div>
 
           <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <p className="mb-2 text-xs font-medium text-slate-600">Evolução mensal — R$/m³ vendido (Mourão x Peças)</p>
+            <p className="mb-2 text-xs font-medium text-slate-600">
+              Evolução mensal — R$/m³ vendido (Mourão x Peças)
+              <VisibilidadeBadge nivel="externo" />
+            </p>
             <ResponsiveContainer width="100%" height={240}>
               <LineChart data={data?.evolucaoMouraoPecas ?? []} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
@@ -624,6 +647,7 @@ export function PainelEstrategico() {
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
         <div className="border-b border-slate-100 px-4 py-3 font-medium">
           Mês a mês ({ano}) — clique no mês para ver o detalhe
+          <VisibilidadeBadge nivel="externo" />
         </div>
         <SortableTable
           columns={colunasMes}
@@ -740,7 +764,14 @@ export function PainelEstrategico() {
         />
       </div>
 
-      <ComparativoCotas data={data?.comparativoCotas} periodoLabel={`o ano de ${ano}`} />
+      {/* Cotas cadastradas em Cadastros → Cotas de venda hoje só cobrem a
+          linha Agronegócio (pedido do usuário 2026-09-14: "quando eu
+          seleciono o perfil ele continua mostrando cotas de agronegócio,
+          precisa filtrar tudo sobre perfil") — mesma regra do tático: a
+          seção some quando Agronegócio não está entre as categorias
+          marcadas, pra não comparar o realizado de outra categoria contra a
+          meta de Agronegócio. */}
+      {categorias.includes(CATEGORIA_PADRAO) && <ComparativoCotas data={data?.comparativoCotas} periodoLabel={`o ano de ${ano}`} />}
 
       <TabelaDistribuidores
         titulo={`Onde estão as perdas — por distribuidor (${ano})`}
@@ -754,6 +785,7 @@ export function PainelEstrategico() {
         <div key={tabelaPreco} className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
           <div className="border-b border-slate-100 px-4 py-3 font-medium">
             Onde estão as perdas — por produto — {tabelaPreco} ({ano}) — clique na linha para ver por mês
+            <VisibilidadeBadge nivel="externo" />
           </div>
           <SortableTable
             columns={colunasProduto}
