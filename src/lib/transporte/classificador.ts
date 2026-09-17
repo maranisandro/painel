@@ -24,7 +24,10 @@ export interface RegraTransporte {
 
 /** Carrega as regras ativas, em ordem de prioridade (primeira que bater, vence). */
 export async function carregarRegrasTransporte(): Promise<RegraTransporte[]> {
-  const rows = await prisma.transportTypeRule.findMany({ where: { ativo: true }, orderBy: { prioridade: 'asc' } })
+  const rows = await prisma.transportTypeRule.findMany({
+    where: { ativo: true },
+    orderBy: [{ prioridade: 'asc' }, { createdAt: 'asc' }],
+  })
   return rows.map((r) => ({
     tipo: r.tipo,
     prioridade: r.prioridade,

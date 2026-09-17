@@ -19,7 +19,7 @@ const ruleSchema = z.object({
 export async function GET() {
   const auth = await requireResourceViewer('regras_transporte')
   if ('error' in auth) return auth.error
-  const rules = await prisma.transportTypeRule.findMany({ orderBy: { prioridade: 'asc' } })
+  const rules = await prisma.transportTypeRule.findMany({ orderBy: [{ prioridade: 'asc' }, { createdAt: 'asc' }] })
   return NextResponse.json(rules)
 }
 

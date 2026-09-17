@@ -104,6 +104,7 @@ TMOV.CODCOLIGADA,
 TMOV.CODFILIAL,
 TMOV.IDMOV,
 TMOV.NUMEROMOV,
+TITMMOV.NSEQITMMOV,
 TMOV.DATASAIDA,
 TMOV.CODTMV,
 TMOV.CODLOC,
@@ -132,6 +133,7 @@ AND (
   )
 AND TMOV.CODTMV IN ('2.2.28','2.2.88')
 AND TMOV.STATUS <> 'C'
+AND TMOV.DATASAIDA >= TO_DATE('01/01/2026', 'DD/MM/YYYY')
 `.trim()
 
 // Consulta de origem do painel Power BI "Planep_Faturamento_New" (Fase 3 —
@@ -628,7 +630,12 @@ async function main() {
   // --- Dataset Transporte: movimentações internas (tipos 2-4) ---
   const datasetTransporteInterno = await prisma.dataset.upsert({
     where: { code: 'transporte_movimentos_internos' },
-    update: { query: QUERY_TRANSPORTE_INTERNO, incrementalField: 'RECMODIFIEDON', incrementalType: 'DATETIME' },
+    update: {
+      query: QUERY_TRANSPORTE_INTERNO,
+      primaryKeyFields: 'CODCOLIGADA,CODFILIAL,IDMOV,CODIGOPRD,NSEQITMMOV',
+      incrementalField: 'RECMODIFIEDON',
+      incrementalType: 'DATETIME',
+    },
     create: {
       dataSourceId: oracle.id,
       code: 'transporte_movimentos_internos',
@@ -636,7 +643,12 @@ async function main() {
       description:
         'Transferência entre unidades, madeira para carvão e madeira para tratamento — base do módulo Transporte unificado para os tipos que não são venda (tipo 1, que continua em fase1_vendas_transporte).',
       query: QUERY_TRANSPORTE_INTERNO,
-      primaryKeyFields: 'CODCOLIGADA,CODFILIAL,IDMOV,CODIGOPRD',
+      // BUG REAL corrigido em fase3_vendas_madeira_tratada (2026-08-04),
+      // mesmo problema aqui: (CODCOLIGADA,CODFILIAL,IDMOV,CODIGOPRD) não é
+      // único — o mesmo produto pode aparecer 2x na mesma NF, cada
+      // ocorrência com seu próprio TITMMOV.NSEQITMMOV. Sem esse campo na
+      // chave, o upsert do sync descartaria silenciosamente uma das linhas.
+      primaryKeyFields: 'CODCOLIGADA,CODFILIAL,IDMOV,CODIGOPRD,NSEQITMMOV',
       incrementalField: 'RECMODIFIEDON',
       incrementalType: 'DATETIME',
     },
@@ -645,7 +657,11 @@ async function main() {
   await prisma.syncSchedule.upsert({
     where: { datasetId: datasetTransporteInterno.id },
     update: {},
-    create: { datasetId: datasetTransporteInterno.id, intervalMinutes: 60 },
+    // Desabilitado: nada no código ainda consome este dataset — o Plano 2
+    // (follow-up) vai habilitar depois que o classificador estiver ligado a
+    // uma UI e a suposição de CODLOC/coluna de destino for validada contra
+    // dado real.
+    create: { datasetId: datasetTransporteInterno.id, intervalMinutes: 60, enabled: false },
   })
 
   // --- Dataset: transportadoras (dTransportadorasRM) ---

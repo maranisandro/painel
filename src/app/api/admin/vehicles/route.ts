@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { logAudit } from '@/lib/audit'
@@ -25,7 +26,15 @@ export async function POST(req: NextRequest) {
   const parsed = vehicleSchema.safeParse(await req.json())
   if (!parsed.success) return badRequest(parsed.error.issues.map((i) => i.message).join('; '))
 
-  const vehicle = await prisma.vehicle.create({ data: parsed.data })
+  let vehicle
+  try {
+    vehicle = await prisma.vehicle.create({ data: parsed.data })
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return badRequest('Placa já cadastrada')
+    }
+    throw error
+  }
   await logAudit({
     userId: auth.user.id,
     userName: auth.user.name,
