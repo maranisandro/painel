@@ -6,7 +6,7 @@ import { ExcelButtons } from '@/components/admin/ExcelButtons'
 import { LocationShapeMap } from '@/components/admin/LocationShapeMap'
 import { SortableTable, type SortableColumn } from '@/components/shared/SortableTable'
 
-type LocationType = 'UNIDADE' | 'CLIENTE' | 'CIDADE' | 'POSTO_GASOLINA' | 'OFICINA' | 'RESIDENCIA'
+type LocationType = 'UNIDADE' | 'CLIENTE' | 'CIDADE' | 'POSTO_GASOLINA' | 'OFICINA' | 'RESIDENCIA' | 'TALHAO'
 
 const TYPE_LABEL: Record<LocationType, string> = {
   UNIDADE: 'Unidade do grupo',
@@ -15,6 +15,7 @@ const TYPE_LABEL: Record<LocationType, string> = {
   POSTO_GASOLINA: 'Posto de gasolina',
   OFICINA: 'Oficina',
   RESIDENCIA: 'Residência',
+  TALHAO: 'Talhão',
 }
 const TYPE_BADGE: Record<LocationType, string> = {
   UNIDADE: 'bg-emerald-100 text-emerald-800',
@@ -23,6 +24,7 @@ const TYPE_BADGE: Record<LocationType, string> = {
   POSTO_GASOLINA: 'bg-yellow-100 text-yellow-800',
   OFICINA: 'bg-violet-100 text-violet-800',
   RESIDENCIA: 'bg-pink-100 text-pink-800',
+  TALHAO: 'bg-lime-100 text-lime-800',
 }
 
 interface Location {

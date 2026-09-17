@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { loadGoogleMaps } from '@/lib/google-maps'
 
-type LocationTypeMarker = 'UNIDADE' | 'CLIENTE' | 'CIDADE' | 'POSTO_GASOLINA' | 'OFICINA' | 'RESIDENCIA'
+type LocationTypeMarker = 'UNIDADE' | 'CLIENTE' | 'CIDADE' | 'POSTO_GASOLINA' | 'OFICINA' | 'RESIDENCIA' | 'TALHAO'
 
 interface LocationMarker {
   id: string
@@ -26,6 +26,7 @@ const LOCATION_COR: Record<LocationTypeMarker, string> = {
   POSTO_GASOLINA: '#ca8a04',
   OFICINA: '#7c3aed',
   RESIDENCIA: '#db2777',
+  TALHAO: '#65a30d',
 }
 const LOCATION_LABEL: Record<LocationTypeMarker, string> = {
   UNIDADE: 'Unidade do grupo',
@@ -34,6 +35,7 @@ const LOCATION_LABEL: Record<LocationTypeMarker, string> = {
   POSTO_GASOLINA: 'Posto de gasolina',
   OFICINA: 'Oficina',
   RESIDENCIA: 'Residência',
+  TALHAO: 'Talhão',
 }
 
 interface VehiclePositionMarker {

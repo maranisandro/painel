@@ -9,7 +9,7 @@ import { SortableTable } from '@/components/shared/SortableTable'
 interface LocationMarker {
   id: string
   name: string
-  type: 'UNIDADE' | 'CLIENTE' | 'CIDADE' | 'POSTO_GASOLINA' | 'OFICINA' | 'RESIDENCIA'
+  type: 'UNIDADE' | 'CLIENTE' | 'CIDADE' | 'POSTO_GASOLINA' | 'OFICINA' | 'RESIDENCIA' | 'TALHAO'
   latitude: number | null
   longitude: number | null
   raioMetros: number

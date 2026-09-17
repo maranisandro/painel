@@ -14,7 +14,7 @@ const polygonSchema = z
 const updateSchema = z.object({
   name: z.string().min(2).optional(),
   officialName: z.string().nullable().optional(),
-  type: z.enum(['UNIDADE', 'CLIENTE', 'CIDADE', 'POSTO_GASOLINA', 'OFICINA', 'RESIDENCIA']).optional(),
+  type: z.enum(['UNIDADE', 'CLIENTE', 'CIDADE', 'POSTO_GASOLINA', 'OFICINA', 'RESIDENCIA', 'TALHAO']).optional(),
   matchColigada: z.number().int().nullable().optional(),
   matchFilial: z.number().int().nullable().optional(),
   matchClientePattern: z.string().nullable().optional(),
