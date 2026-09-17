@@ -17,18 +17,18 @@ enum UserRole {
 }
 
 model User {
-  id                 String             @id @default(uuid())
-  email              String             @unique
+  id                 String                 @id @default(uuid())
+  email              String                 @unique
   password           String
   name               String
-  role               UserRole           @default(VIEWER)
-  active             Boolean            @default(true)
+  role               UserRole               @default(VIEWER)
+  active             Boolean                @default(true)
   // Força troca de senha no próximo login (usado no admin inicial do seed)
-  mustChangePassword Boolean            @default(false) @map("must_change_password")
+  mustChangePassword Boolean                @default(false) @map("must_change_password")
   // Incrementado quando uma redefinição administrativa deve invalidar JWTs antigos.
-  sessionVersion     Int                @default(0) @map("session_version")
-  createdAt          DateTime           @default(now()) @map("created_at")
-  updatedAt          DateTime           @updatedAt @map("updated_at")
+  sessionVersion     Int                    @default(0) @map("session_version")
+  createdAt          DateTime               @default(now()) @map("created_at")
+  updatedAt          DateTime               @updatedAt @map("updated_at")
   moduleAccesses     UserModuleAccess[]
   adminAccesses      UserAdminAccess[]
   distributorScopes  UserDistributorScope[]
@@ -179,16 +179,16 @@ enum SyncStatus {
 }
 
 model SyncRun {
-  id              String     @id @default(uuid())
-  datasetId       String     @map("dataset_id")
-  dataset         Dataset    @relation(fields: [datasetId], references: [id], onDelete: Cascade)
-  status          SyncStatus @default(RUNNING)
-  startedAt       DateTime   @default(now()) @map("started_at")
-  finishedAt      DateTime?  @map("finished_at")
-  rowsUpserted    Int?       @map("rows_upserted")
-  watermarkBefore String?    @map("watermark_before")
-  watermarkAfter  String?    @map("watermark_after")
-  error           String?
+  id               String              @id @default(uuid())
+  datasetId        String              @map("dataset_id")
+  dataset          Dataset             @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  status           SyncStatus          @default(RUNNING)
+  startedAt        DateTime            @default(now()) @map("started_at")
+  finishedAt       DateTime?           @map("finished_at")
+  rowsUpserted     Int?                @map("rows_upserted")
+  watermarkBefore  String?             @map("watermark_before")
+  watermarkAfter   String?             @map("watermark_after")
+  error            String?
   omnilinkDetalhes OmnilinkSyncPlaca[]
 
   @@index([datasetId, startedAt])
@@ -380,6 +380,12 @@ enum LocationType {
   POSTO_GASOLINA
   OFICINA
   RESIDENCIA
+  // Origem do transporte "madeira para carvão" (tipo 3 do módulo Transporte
+  // unificado, pedido do usuário 2026-09-15) — talhão de origem da madeira
+  // antes de ir para a unidade de carbonização. Sem match* definido ainda —
+  // validação de como resolver a partir do dado real fica para a
+  // implementação do classificador (ver spec, seção B.3).
+  TALHAO
 }
 
 // Local: origem (unidades do grupo) ou destino (clientes) das rotas, mais
@@ -604,6 +610,62 @@ model RouteFreightPrice {
 
   @@index([routeId, effectiveFrom])
   @@map("route_freight_prices")
+}
+
+// Cadastro central de veículo — pedido do usuário 2026-09-15: hoje a placa
+// é uma string solta em ~8 cadastros diferentes (PlateComposition,
+// VehiclePosition, SpeedAlert, VehicleMaintenance, DriverVacation,
+// TripTicket...), sem um registro único. Este model COMPLEMENTA, não
+// substitui, a resolução de transportadora que já existe (CODTRA → nome
+// via dataset dtransportadoras_rm, bucket Próprio/Outros) — só guarda o
+// que ainda não existe em lugar nenhum: a placa como registro central e o
+// flag de rastreamento. Os cadastros existentes continuam ligados por
+// placa (string), sem FK obrigatória por enquanto — ver spec
+// docs/superpowers/specs/2026-09-15-transporte-unificado-design.md.
+model Vehicle {
+  id                  String   @id @default(uuid())
+  placa               String   @unique
+  // false = caminhão sem rastreamento Omnilink (pedido do usuário
+  // 2026-09-15: "vamos ter caminhoes sem rastreamento, assim vamos
+  // precisar de um flag no cadastro para saber se precisa ou não ir na
+  // ominilink").
+  precisaRastreamento Boolean  @default(true) @map("precisa_rastreamento")
+  // Referência opcional de volta ao CODTRA já resolvido pelo lookup
+  // existente (nome/Próprio-Outros continuam vindo de lá, não duplicados
+  // aqui).
+  codTra              String?  @map("cod_tra")
+  ativo               Boolean  @default(true)
+  observacoes         String?
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@map("vehicles")
+}
+
+// Regra de classificação de movimentação de transporte em um dos 4 tipos
+// de negócio (pedido do usuário 2026-09-15) — cadastro dedicado em vez do
+// Parameter genérico porque a regra tem várias dimensões (CODTMV, produto,
+// origem, destino) que não cabem bem num campo de texto único. Testada em
+// ordem de `prioridade`; primeira regra cujos campos preenchidos batem
+// TODOS com a linha, vence. Campo null = "não filtra por isso".
+model TransportTypeRule {
+  id              String   @id @default(uuid())
+  // 'venda_rodoviaria' | 'transferencia_interna' | 'talhao_carbonizacao' | 'tratamento'
+  tipo            String
+  prioridade      Int      @default(0)
+  codtmv          String?
+  // lista separada por vírgula de CODIGOPRD, mesmo formato de paramList (cotas.ts)
+  produtos        String?
+  origemColigada  Int?     @map("origem_coligada")
+  origemFilial    Int?     @map("origem_filial")
+  destinoColigada Int?     @map("destino_coligada")
+  destinoFilial   Int?     @map("destino_filial")
+  ativo           Boolean  @default(true)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([ativo, prioridade])
+  @@map("transport_type_rules")
 }
 
 // Período de manutenção de um caminhão (placa). endDate NULL = manutenção em
