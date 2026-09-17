@@ -88,6 +88,52 @@ AND TMOV.STATUS <> 'C'
 AND TMOV.DATASAIDA >= TO_DATE('01/01/2026', 'DD/MM/YYYY')
 `.trim()
 
+// Consulta do módulo Transporte unificado (pedido do usuário 2026-09-15) —
+// só os tipos 2-4 (movimentação INTERNA: transferência entre unidades,
+// madeira para carvão, madeira para tratamento). Tipo 1 (venda) continua
+// vindo de QUERY_FASE1_VENDAS, sem duplicação. Deliberadamente enxuta: sem
+// FCFO/FCFOCOMPL/GCONSIST (não há cliente numa movimentação interna) e sem
+// filtro de produto/destino no SQL — a classificação em tipo 2/3/4 é feita
+// em código por `classificarTipoTransporte` (src/lib/transporte/
+// classificador.ts), a partir das regras cadastradas em TransportTypeRule.
+// CODLOC e CODCFO vão crus para o classificador resolver o destino (ver
+// spec, seção B.3 — ponto de validação contra dado real).
+const QUERY_TRANSPORTE_INTERNO = `
+SELECT
+TMOV.CODCOLIGADA,
+TMOV.CODFILIAL,
+TMOV.IDMOV,
+TMOV.NUMEROMOV,
+TMOV.DATASAIDA,
+TMOV.CODTMV,
+TMOV.CODLOC,
+TMOV.CODCFO,
+TMOV.PESOBRUTO,
+TMOV.PESOLIQUIDO,
+TMOV.CODTRA,
+TPRD.CODIGOPRD,
+TITMMOV.QUANTIDADE,
+TMOVCOMPL.PLACA,
+TMOVCOMPL.MOTORISTA,
+GREATEST(NVL(TMOV.RECMODIFIEDON,TMOV.RECCREATEDON), NVL(TITMMOV.RECMODIFIEDON,TITMMOV.RECCREATEDON)) RECMODIFIEDON
+FROM    RM.TMOV, RM.TMOVCOMPL, RM.TITMMOV, RM.TPRD
+WHERE   TMOV.CODCOLIGADA = TITMMOV.CODCOLIGADA
+AND     TMOV.IDMOV = TITMMOV.IDMOV
+AND     TITMMOV.CODCOLIGADA = TPRD.CODCOLIGADA
+AND     TITMMOV.IDPRD = TPRD.IDPRD
+AND     TMOV.IDMOV = TMOVCOMPL.IDMOV
+AND     TMOV.CODCOLIGADA = TMOVCOMPL.CODCOLIGADA
+AND (
+     (TMOV.CODCOLIGADA = 5 AND TMOV.CODFILIAL IN (3,4,6,11,12,13))
+  OR (TMOV.CODCOLIGADA = 6 AND TMOV.CODFILIAL IN (3,4,6,7,8,9,10,11,12))
+  OR (TMOV.CODCOLIGADA = 28 AND TMOV.CODFILIAL IN (4,5,6))
+  OR (TMOV.CODCOLIGADA = 33 AND TMOV.CODFILIAL IN (1))
+  OR (TMOV.CODCOLIGADA = 34 AND TMOV.CODFILIAL IN (1))
+  )
+AND TMOV.CODTMV IN ('2.2.28','2.2.88')
+AND TMOV.STATUS <> 'C'
+`.trim()
+
 // Consulta de origem do painel Power BI "Planep_Faturamento_New" (Fase 3 —
 // Produção e Venda de Madeira Tratada), tabela FaturamentoNovo. Migrado da
 // query ativa (2022 em diante) do arquivo .SemanticModel; a query anterior
@@ -441,6 +487,8 @@ async function main() {
     { code: 'ferias', name: 'Férias', position: 8 },
     { code: 'tickets_viagem', name: 'Tickets de viagem', position: 9 },
     { code: 'estatisticas-uso', name: 'Estatísticas de Uso', position: 10 },
+    { code: 'veiculos', name: 'Veículos', position: 11 },
+    { code: 'regras_transporte', name: 'Regras de Transporte', position: 12 },
   ]
   for (const r of adminResources) {
     await prisma.adminResource.upsert({ where: { code: r.code }, update: { name: r.name, position: r.position }, create: r })
@@ -575,6 +623,29 @@ async function main() {
     where: { datasetId: dataset.id },
     update: {},
     create: { datasetId: dataset.id, intervalMinutes: 60 },
+  })
+
+  // --- Dataset Transporte: movimentações internas (tipos 2-4) ---
+  const datasetTransporteInterno = await prisma.dataset.upsert({
+    where: { code: 'transporte_movimentos_internos' },
+    update: { query: QUERY_TRANSPORTE_INTERNO, incrementalField: 'RECMODIFIEDON', incrementalType: 'DATETIME' },
+    create: {
+      dataSourceId: oracle.id,
+      code: 'transporte_movimentos_internos',
+      name: 'Transporte — Movimentações internas (TOTVS RM)',
+      description:
+        'Transferência entre unidades, madeira para carvão e madeira para tratamento — base do módulo Transporte unificado para os tipos que não são venda (tipo 1, que continua em fase1_vendas_transporte).',
+      query: QUERY_TRANSPORTE_INTERNO,
+      primaryKeyFields: 'CODCOLIGADA,CODFILIAL,IDMOV,CODIGOPRD',
+      incrementalField: 'RECMODIFIEDON',
+      incrementalType: 'DATETIME',
+    },
+  })
+
+  await prisma.syncSchedule.upsert({
+    where: { datasetId: datasetTransporteInterno.id },
+    update: {},
+    create: { datasetId: datasetTransporteInterno.id, intervalMinutes: 60 },
   })
 
   // --- Dataset: transportadoras (dTransportadorasRM) ---
