@@ -15,7 +15,7 @@ export default async function AdminPage() {
   // pra Cotas de venda, que continua no esquema antigo por módulo).
   if (!admin && (user?.resourceCodes.length ?? 0) === 0 && !canEditFase3) redirect('/dashboard')
 
-  const [locais, rotas, parametros, composicoes, produtos, precosFrete, manutencoes, ferias, tickets, usuarios, cotasProduto, eventosUso] =
+  const [locais, rotas, parametros, composicoes, produtos, precosFrete, manutencoes, ferias, tickets, usuarios, cotasProduto, eventosUso, veiculos] =
     await Promise.all([
       prisma.location.count(),
       prisma.route.count(),
@@ -29,6 +29,7 @@ export default async function AdminPage() {
       admin ? prisma.user.count() : Promise.resolve(0),
       canEditFase3 ? prisma.productQuota.count() : Promise.resolve(0),
       hasResourceAccess(user, 'estatisticas-uso') ? prisma.usageEvent.count() : Promise.resolve(0),
+      prisma.vehicle.count(),
     ])
 
   // Cada card só aparece se o usuário tiver acesso ao AdminResource
@@ -104,6 +105,13 @@ export default async function AdminPage() {
       title: 'Estatísticas de uso',
       count: eventosUso,
       desc: 'Quem acessa, quem realmente usa, o que é mais usado, horários de uso, e quem não usa.',
+    },
+    {
+      resource: 'veiculos',
+      href: '/dashboard/admin/veiculos',
+      title: 'Veículos',
+      count: veiculos,
+      desc: 'Cadastro central da frota — placa, situação e se precisa reportar rastreamento (Omnilink).',
     },
   ].filter((c) => hasResourceAccess(user, c.resource))
 
