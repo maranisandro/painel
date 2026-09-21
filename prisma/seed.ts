@@ -944,8 +944,11 @@ FROM rm.zfuncionarios
   })
   await prisma.syncSchedule.upsert({
     where: { datasetId: omnilinkPosicoes.id },
-    update: { enabled: true },
-    create: { datasetId: omnilinkPosicoes.id, intervalMinutes: 15, enabled: true },
+    // Reduzido de 15 para 10 min (pedido do usuário 2026-09-21) — junto com
+    // a janela fixa de 1 min por placa (ver omnilink.ts), reduz bastante o
+    // volume de dado buscado a cada execução.
+    update: { enabled: true, intervalMinutes: 10 },
+    create: { datasetId: omnilinkPosicoes.id, intervalMinutes: 10, enabled: true },
   })
 
   // --- Colunas condicionais (migradas das etapas do PowerQuery) ---

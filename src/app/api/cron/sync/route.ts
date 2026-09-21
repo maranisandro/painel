@@ -6,6 +6,14 @@ import { limparUsageEventsAntigos } from '@/lib/usage/cleanup'
  * Endpoint chamado pelo Agendador de Tarefas do Windows (ou outro cron):
  *   curl -H "x-cron-secret: $CRON_SECRET" http://localhost:3002/api/cron/sync
  * Executa todas as agendas de sincronização vencidas.
+ *
+ * Gatilho reconfigurado para 1 em 1 minuto (pedido do usuário 2026-09-21,
+ * era 5 em 5 min) — necessário para o retry rápido de erro parcial do
+ * Omnilink (≈1 min, ver src/lib/sync/retry-policy.ts) rodar de fato a cada
+ * 1 min, e não só na próxima janela do cron externo. Cada dataset continua
+ * só rodando quando o próprio `nextRunAt` vence — chamar este endpoint mais
+ * vezes não sincroniza nada fora de hora, só reduz a latência de "vencido,
+ * mas ainda não percebido".
  */
 export async function GET(req: NextRequest) {
   const secret = req.headers.get('x-cron-secret')

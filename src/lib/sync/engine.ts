@@ -6,6 +6,7 @@ import { oracleConnector } from './connectors/oracle'
 import { mysqlConnector } from './connectors/mysql'
 import { webserviceConnector } from './connectors/webservice'
 import { POST_SYNC_PROCESSORS } from './post-process'
+import { RETRY_RAPIDO_MS, teveErroParcial } from './retry-policy'
 
 const connectors: Record<string, Connector> = {
   ORACLE: oracleConnector,
@@ -225,21 +226,31 @@ export async function runDueSchedules(): Promise<{ datasetId: string; ok: boolea
 
   const results: { datasetId: string; ok: boolean; error?: string }[] = []
   for (const schedule of due) {
+    let precisaRetryRapido = false
     try {
       await syncDataset(schedule.datasetId)
       results.push({ datasetId: schedule.datasetId, ok: true })
+      // Erro parcial (ex.: uma placa do Omnilink falhou) não derruba o
+      // SyncRun — pedido do usuário 2026-09-21: "caso apresente um erro,
+      // tentar no próximo minuto" precisa desta checagem à parte, senão a
+      // sincronização "parece" bem-sucedida e só tenta de novo no intervalo
+      // normal. Ver src/lib/sync/retry-policy.ts.
+      precisaRetryRapido = await teveErroParcial(schedule.dataset.code, schedule.datasetId)
     } catch (err) {
+      precisaRetryRapido = true
       results.push({
         datasetId: schedule.datasetId,
         ok: false,
         error: getPublicSyncError(err),
       })
     }
+    const intervaloNormalMs = schedule.intervalMinutes * 60_000
+    const proximaEmMs = precisaRetryRapido ? Math.min(RETRY_RAPIDO_MS, intervaloNormalMs) : intervaloNormalMs
     await prisma.syncSchedule.update({
       where: { id: schedule.id },
       data: {
         lastRunAt: new Date(),
-        nextRunAt: new Date(Date.now() + schedule.intervalMinutes * 60_000),
+        nextRunAt: new Date(Date.now() + proximaEmMs),
       },
     })
   }

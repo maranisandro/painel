@@ -252,89 +252,34 @@ export async function fetchPosicoesDaPlaca(
   }
 }
 
-// Teto de janela por execução — achado real 2026-08-17/18: com o schedule
-// parado por dias (ou o servidor de produção reiniciando por OOM, já
-// registrado antes), a marca d'água pode ficar dias/semanas atrasada; puxar
-// o atraso inteiro de uma vez (potencialmente centenas de milhares de linhas,
-// já que o dataset tem 700 mil+ linhas e cresce rápido) é o que historicamente
-// estourou a memória do container em produção — o processo cai, a
-// sincronização nunca termina, a marca d'água nunca avança, e o atraso só
-// cresce. Limitando a janela, cada execução processa no máximo esse período;
-// se o atraso for maior, as execuções seguintes (a cada 30 min) recuperam o
-// resto aos poucos, sem nunca segurar mais que ~1 dia de dados em memória.
-const JANELA_MAXIMA_MS = 24 * 3_600_000
-
-// Placas por execução — pedido do usuário 2026-08-18: "fazer as consultas
-// com um agrupamento menor de placas". Em vez de tentar a frota inteira
-// (~35-40 placas) a cada execução, cada ciclo processa só um lote; o resto
-// fica pra próxima execução (schedule de 30 min). Reduz a duração de cada
-// sincronização e, mais importante, o "estrago" de um erro real numa placa
-// (que ainda aborta a execução inteira) — com lote menor, o máximo que se
-// perde é esse lote, não a frota toda.
-const PLACAS_POR_EXECUCAO = 15
+// Janela fixa por execução — pedido do usuário 2026-09-21: "buscar a cada 10
+// minutos, mas trazer só um minuto anterior ao invés de trazer todo o
+// histórico, isto vai reduzir o volume de dados a recuperar". Substitui o
+// esquema anterior (marca d'água por placa + teto de 24h + rodízio de 15
+// placas por execução) por uma janela curta e FIXA, igual para toda placa,
+// toda execução — sempre "1 minuto atrás até agora", nunca crescendo pra
+// cobrir atraso acumulado. Trade-off aceito conscientemente: se o job ficar
+// fora do ar (deploy, crash, fila presa), o histórico daquele intervalo é
+// perdido (não há tentativa de recuperar depois) — aceitável porque o
+// consumo real deste dataset é "onde está o caminhão agora" (mapa da
+// frota), não reconstrução de viagem posição a posição.
+const JANELA_FIXA_MS = 60_000
 
 export async function fetchOmnilinkPosicoes(
   source: DataSource,
   _dataset: Dataset,
-  watermark: string | null,
+  _watermark: string | null,
   syncRunId?: string,
 ): Promise<ExternalRow[]> {
   const agora = new Date()
-  // Piso padrão: marca d'água do dataset inteiro, ou última hora se ainda
-  // não houver nenhuma (1ª sincronização) — usado só como fallback para
-  // placas sem nenhuma posição própria conhecida ainda.
-  const inicioPadrao = watermark ? new Date(watermark) : new Date(agora.getTime() - 3_600_000)
+  const inicio = new Date(agora.getTime() - JANELA_FIXA_MS)
 
-  const todasPlacas = await placasProprias()
-  if (todasPlacas.length === 0) return []
-
-  // Rodízio: prioriza as placas que estão há mais tempo sem NENHUMA tentativa
-  // de sincronização (incluindo buscas individuais via "buscar agora") — uma
-  // placa nunca tentada (sem registro em OmnilinkSyncPlaca) tem prioridade
-  // máxima. Sem precisar de nenhum estado novo: cada execução naturalmente
-  // continua de onde a anterior parou, e placas com erro/exceção também são
-  // repriorizadas (não ficam pra trás só porque falharam da última vez).
-  const ultimasTentativas = await prisma.omnilinkSyncPlaca.groupBy({
-    by: ['placa'],
-    where: { placa: { in: todasPlacas } },
-    _max: { createdAt: true },
-  })
-  const ultimaTentativaPorPlaca = new Map(ultimasTentativas.map((p) => [p.placa, p._max.createdAt]))
-  const placas = [...todasPlacas]
-    .sort((a, b) => (ultimaTentativaPorPlaca.get(a)?.getTime() ?? 0) - (ultimaTentativaPorPlaca.get(b)?.getTime() ?? 0))
-    .slice(0, PLACAS_POR_EXECUCAO)
-
-  // Início por placa (pedido do usuário 2026-08-18: "para cada caminhão
-  // podemos pegar os dados a partir da última viagem/posição, na tentativa
-  // de buscar menos dados") — em vez de toda placa recomeçar da MESMA marca
-  // d'água única do dataset (que fica presa no atraso da placa mais
-  // parada/problemática), cada placa busca a partir da SUA PRÓPRIA última
-  // posição já persistida. Uma placa já em dia (ex.: atualizada por "buscar
-  // agora") só busca o intervalo pequeno que falta, em vez de reprocessar
-  // dias de dados que já tem — reduz bastante o volume por execução.
-  const ultimasPosicoes = await prisma.vehiclePosition.groupBy({
-    by: ['placa'],
-    where: { placa: { in: placas } },
-    _max: { capturedAt: true },
-  })
-  const ultimaPosicaoPorPlaca = new Map(ultimasPosicoes.map((p) => [p.placa, p._max.capturedAt]))
-
-  // Fim da janela efetivamente consultada na última tentativa desta placa
-  // (achado real 2026-08-24, RHX5D99 "sem comunicação" de novo com dado novo
-  // confirmado ao vivo na Omnilink): sem isso, `inicio` só olhava a última
-  // posição JÁ SALVA — se a placa ficasse dias sem NENHUMA posição nova
-  // (ex.: em manutenção, ou o rastreador manda velocidade "-" numa janela
-  // parada), a janela de busca (`JANELA_MAXIMA_MS`) ficava CONGELADA sempre
-  // no mesmo intervalo antigo, nunca avançando até o presente mesmo com
-  // dado novo real disponível fora dessa janela. Usar o fim da última busca
-  // (mesmo sem posição nova) como piso adicional faz a janela sempre avançar
-  // a cada execução.
-  const ultimosBuscados = await prisma.omnilinkSyncPlaca.groupBy({
-    by: ['placa'],
-    where: { placa: { in: placas }, buscadoAte: { not: null } },
-    _max: { buscadoAte: true },
-  })
-  const buscadoAtePorPlaca = new Map(ultimosBuscados.map((p) => [p.placa, p._max.buscadoAte]))
+  // Sem rodízio (pedido do usuário 2026-09-21) — com a janela fixa de 1 min
+  // (bem mais leve que os até 24h de antes), consultar a frota inteira a
+  // cada execução deixou de ser pesado o suficiente para justificar
+  // processar só um lote por vez.
+  const placas = await placasProprias()
+  if (placas.length === 0) return []
 
   // IMPORTANTE (achado ao vivo 2026-07-30): se UMA única placa do array não
   // for reconhecida pela conta Omnilink, a API rejeita a consulta INTEIRA
@@ -345,14 +290,9 @@ export async function fetchOmnilinkPosicoes(
   // (token, rede, TLS, etc.) também não interrompe mais as demais placas do
   // lote (ver comentário no `continue` abaixo) — só fica registrado como
   // ERRO para aquela placa específica.
+  const fim = agora
   const linhas: ExternalRow[] = []
   for (const placa of placas) {
-    const ultimaConhecida = ultimaPosicaoPorPlaca.get(placa)
-    const buscadoAteAnterior = buscadoAtePorPlaca.get(placa)
-    let inicio = inicioPadrao
-    if (ultimaConhecida && ultimaConhecida > inicio) inicio = ultimaConhecida
-    if (buscadoAteAnterior && buscadoAteAnterior > inicio) inicio = buscadoAteAnterior
-    const fim = new Date(Math.min(agora.getTime(), inicio.getTime() + JANELA_MAXIMA_MS))
     const resultado = await fetchPosicoesDaPlaca(source, placa, inicio, fim)
     linhas.push(...resultado.linhas)
 
@@ -388,16 +328,14 @@ export async function fetchOmnilinkPosicoes(
     // comunicação" no app mesmo com dados recentes confirmados ao vivo na
     // API da Omnilink via Insomnia). Antes, um erro genuíno numa placa
     // (`throw` abaixo) interrompia a sincronização INTEIRA — as placas
-    // seguintes no rodízio daquela execução nunca chegavam a ser tentadas,
-    // e como o rodízio prioriza "há mais tempo sem tentativa", uma placa que
-    // fica atrás de uma falha some da fila por execuções seguidas. O gatilho
-    // real (SyncRun): falhas intermitentes de TLS ("self-signed certificate
-    // in certificate chain") ao falar com api.showtecnologia.com — nada a
-    // ver com a placa específica, mas travava o lote inteiro no meio.
-    // Agora só REGISTRA o erro desta placa (já feito acima) e segue para a
-    // próxima — uma placa com erro genuíno continua marcada ERRO no seu
-    // OmnilinkSyncPlaca e volta a ser priorizada no próximo ciclo (30 min),
-    // sem bloquear as outras 14 do mesmo lote.
+    // seguintes nunca chegavam a ser tentadas. O gatilho real (SyncRun):
+    // falhas intermitentes de TLS ("self-signed certificate in certificate
+    // chain") ao falar com api.showtecnologia.com — nada a ver com a placa
+    // específica, mas travava o lote inteiro no meio. Agora só REGISTRA o
+    // erro desta placa (já feito acima) e segue para a próxima — o motor de
+    // sync (`runDueSchedules`) detecta o `OmnilinkSyncPlaca` com status ERRO
+    // deste `syncRunId` e agenda um retry rápido (≈1 min, em vez dos 10 min
+    // normais) para a próxima execução, ver `src/lib/sync/engine.ts`.
     if (resultado.status === 'ERRO') {
       continue
     }
