@@ -8,6 +8,14 @@ const updateSchema = z.object({
   query: z.string().min(1).optional(),
   intervalMinutes: z.number().int().min(1).optional(),
   enabled: z.boolean().optional(),
+  // Limpa a marca d'água (pedido do usuário 2026-09-22: precisou de acesso
+  // direto ao banco de produção pra forçar um resync completo depois de uma
+  // correção de query — não existia jeito de fazer isso pela tela). `true`
+  // explícito em vez de aceitar `watermark: null` direto, pra não virar um
+  // campo qualquer do formulário de edição por acidente — é uma ação
+  // deliberada (força carga completa na próxima sincronização), não uma
+  // edição de valor comum.
+  clearWatermark: z.literal(true).optional(),
 })
 
 /**
@@ -24,16 +32,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const { id } = await params
   const parsed = updateSchema.safeParse(await req.json())
   if (!parsed.success) return badRequest(parsed.error.issues.map((i) => i.message).join('; '))
-  const { query, intervalMinutes, enabled } = parsed.data
-  if (query === undefined && intervalMinutes === undefined && enabled === undefined) {
+  const { query, intervalMinutes, enabled, clearWatermark } = parsed.data
+  if (query === undefined && intervalMinutes === undefined && enabled === undefined && !clearWatermark) {
     return badRequest('nada para atualizar')
   }
 
   const dataset = await prisma.dataset.findUnique({ where: { id }, include: { schedule: true } })
   if (!dataset) return NextResponse.json({ error: 'dataset não encontrado' }, { status: 404 })
 
-  if (query !== undefined) {
-    await prisma.dataset.update({ where: { id }, data: { query } })
+  if (query !== undefined || clearWatermark) {
+    await prisma.dataset.update({ where: { id }, data: { ...(query !== undefined ? { query } : {}), ...(clearWatermark ? { watermark: null } : {}) } })
   }
 
   if (intervalMinutes !== undefined || enabled !== undefined) {
@@ -66,7 +74,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     action: 'UPDATE',
     entity: 'Dataset',
     entityId: id,
-    details: { queryAlterada: query !== undefined, intervalMinutes, enabled },
+    details: { queryAlterada: query !== undefined, intervalMinutes, enabled, clearWatermark },
   })
 
   const updated = await prisma.dataset.findUniqueOrThrow({ where: { id }, include: { schedule: true } })

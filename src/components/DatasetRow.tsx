@@ -58,6 +58,7 @@ export function DatasetRow({
   const [erro, setErro] = useState<string | null>(null)
   const [sincronizando, setSincronizando] = useState(false)
   const [resultadoSync, setResultadoSync] = useState<{ ok: boolean; mensagem: string } | null>(null)
+  const [limpandoWatermark, setLimpandoWatermark] = useState(false)
 
   async function sincronizar() {
     setSincronizando(true)
@@ -74,6 +75,33 @@ export function DatasetRow({
     } finally {
       setSincronizando(false)
       onSyncEnd?.()
+    }
+  }
+
+  async function limparWatermark() {
+    if (
+      !confirm(
+        'Limpar a marca d\'água força uma carga COMPLETA na próxima sincronização (não só o que mudou desde a última vez) — pode demorar bem mais e recarregar todas as linhas. Confirma?',
+      )
+    ) {
+      return
+    }
+    setLimpandoWatermark(true)
+    try {
+      const res = await fetch(`/api/datasets/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clearWatermark: true }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error ?? 'Falha ao limpar a marca d\'água')
+      }
+      router.refresh()
+    } catch (err) {
+      setResultadoSync({ ok: false, mensagem: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setLimpandoWatermark(false)
     }
   }
 
@@ -136,6 +164,17 @@ export function DatasetRow({
                 <span className="block text-xs text-slate-500">
                   ≥ {watermark.slice(0, 10).split('-').reverse().join('/')}
                 </span>
+              )}
+              {watermark && (
+                <button
+                  type="button"
+                  onClick={limparWatermark}
+                  disabled={limpandoWatermark || disabled}
+                  title="Força carga completa na próxima sincronização"
+                  className="mt-0.5 block text-xs text-amber-700 hover:underline disabled:cursor-not-allowed disabled:text-slate-400"
+                >
+                  {limpandoWatermark ? 'limpando…' : 'limpar (forçar completa)'}
+                </button>
               )}
             </span>
           ) : (
