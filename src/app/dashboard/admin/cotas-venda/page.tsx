@@ -56,6 +56,7 @@ export default function CotasVendaPage() {
 
   const [distribuidores, setDistribuidores] = useState<DistributorQuota[]>([])
   const [distForm, setDistForm] = useState({ codDistribuidor: '', nomeDistribuidor: '', metaValor: '' })
+  const [distEditingId, setDistEditingId] = useState<string | null>(null)
   const [distError, setDistError] = useState('')
   const [distSaving, setDistSaving] = useState(false)
 
@@ -117,42 +118,47 @@ export default function CotasVendaPage() {
     await load(month)
   }
 
-  async function adicionarDistribuidor() {
+  async function salvarDistribuidor() {
     if (!distForm.codDistribuidor || !distForm.metaValor) return
     setDistSaving(true)
     setDistError('')
-    const res = await fetch('/api/admin/distributor-quotas', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        month,
-        codDistribuidor: distForm.codDistribuidor.trim(),
-        nomeDistribuidor: distForm.nomeDistribuidor.trim() || null,
-        metaValor: Number(distForm.metaValor),
-      }),
-    })
+    const res = await fetch(
+      distEditingId ? `/api/admin/distributor-quotas/${distEditingId}` : '/api/admin/distributor-quotas',
+      {
+        method: distEditingId ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...(distEditingId ? {} : { month, codDistribuidor: distForm.codDistribuidor.trim() }),
+          nomeDistribuidor: distForm.nomeDistribuidor.trim() || null,
+          metaValor: Number(distForm.metaValor),
+        }),
+      },
+    )
     setDistSaving(false)
     if (!res.ok) {
       setDistError((await res.json()).error ?? 'Erro ao salvar')
       return
     }
     setDistForm({ codDistribuidor: '', nomeDistribuidor: '', metaValor: '' })
+    setDistEditingId(null)
     await load(month)
+  }
+
+  function iniciarEdicaoDistribuidor(d: DistributorQuota) {
+    setDistEditingId(d.id)
+    setDistForm({ codDistribuidor: d.codDistribuidor, nomeDistribuidor: d.nomeDistribuidor ?? '', metaValor: d.metaValor })
+    setDistError('')
+  }
+
+  function cancelarEdicaoDistribuidor() {
+    setDistEditingId(null)
+    setDistForm({ codDistribuidor: '', nomeDistribuidor: '', metaValor: '' })
+    setDistError('')
   }
 
   async function excluirDistribuidor(id: string) {
     await fetch(`/api/admin/distributor-quotas/${id}`, { method: 'DELETE' })
-    await load(month)
-  }
-
-  async function editarNomeDistribuidor(d: DistributorQuota) {
-    const novoNome = window.prompt('Nome de exibição do distribuidor:', d.nomeDistribuidor ?? '')
-    if (novoNome === null) return
-    await fetch(`/api/admin/distributor-quotas/${d.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ metaValor: Number(d.metaValor), nomeDistribuidor: novoNome.trim() || null }),
-    })
+    if (distEditingId === id) cancelarEdicaoDistribuidor()
     await load(month)
   }
 
@@ -266,11 +272,7 @@ export default function CotasVendaPage() {
       key: 'nome',
       label: 'Nome',
       sortValue: (d) => d.nomeDistribuidor ?? '',
-      render: (d) => (
-        <button onClick={() => editarNomeDistribuidor(d)} className="text-left hover:underline" title="Clique para editar o nome">
-          {d.nomeDistribuidor ?? <span className="text-amber-600">sem nome — clique para definir</span>}
-        </button>
-      ),
+      render: (d) => d.nomeDistribuidor ?? <span className="text-amber-600">sem nome</span>,
     },
     {
       key: 'meta',
@@ -284,9 +286,14 @@ export default function CotasVendaPage() {
       label: '',
       sortValue: () => 0,
       render: (d) => (
-        <button onClick={() => excluirDistribuidor(d.id)} className="text-red-600 hover:underline">
-          excluir
-        </button>
+        <span className="whitespace-nowrap">
+          <button onClick={() => iniciarEdicaoDistribuidor(d)} className="text-emerald-700 hover:underline">
+            editar
+          </button>
+          <button onClick={() => excluirDistribuidor(d.id)} className="ml-3 text-red-600 hover:underline">
+            excluir
+          </button>
+        </span>
       ),
     },
   ]
@@ -441,9 +448,10 @@ export default function CotasVendaPage() {
             <label className="block text-xs font-medium text-slate-600">Cód. distribuidor</label>
             <input
               value={distForm.codDistribuidor}
+              disabled={!!distEditingId}
               onChange={(e) => setDistForm((f) => ({ ...f, codDistribuidor: e.target.value }))}
               placeholder="C00003154"
-              className="mt-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+              className="mt-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm disabled:bg-slate-100"
             />
           </div>
           <div>
@@ -464,12 +472,20 @@ export default function CotasVendaPage() {
             />
           </div>
           <button
-            onClick={adicionarDistribuidor}
+            onClick={salvarDistribuidor}
             disabled={distSaving}
             className="rounded-md bg-emerald-700 px-4 py-1.5 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
           >
-            Adicionar
+            {distSaving ? 'Salvando…' : distEditingId ? 'Salvar alterações' : 'Adicionar'}
           </button>
+          {distEditingId && (
+            <button
+              onClick={cancelarEdicaoDistribuidor}
+              className="rounded-md border border-slate-300 px-4 py-1.5 text-sm hover:bg-slate-100"
+            >
+              Cancelar
+            </button>
+          )}
         </div>
         {distError && <p className="mt-2 text-sm text-red-600">{distError}</p>}
         <div className="mt-3">
