@@ -472,14 +472,29 @@ function calcularRitmo(meta: number | null, realizado: number, diasDoMes: number
  * até o dia 20 a produção está dentro (cumpre a meta), se não produzir mais
  * a partir do dia 21 passa a ser deficitária, mesmo que a venda não
  * aconteça." Mesma cota do produto (`ProductQuota.cotaUnidades`) e mesma
- * fórmula de `calcularRitmo`, só que comparando o SALDO FÍSICO atual (proxy
- * do que já foi produzido/disponibilizado) contra o esperado pelos dias
- * decorridos do mês — independente de venda, ao contrário do `ritmo`
- * (venda) já existente em `ComparativoProdutoCota`. `null` quando o produto
- * não tem saldo físico conhecido (não trata "sem dado" como estoque zero).
+ * fórmula de `calcularRitmo`, comparando contra os dias decorridos do mês —
+ * independente de venda, ao contrário do `ritmo` (venda) já existente em
+ * `ComparativoProdutoCota`.
+ *
+ * Correção 2026-09-21 (achado real do usuário: produto 95.02.070006, cota
+ * 75.000, já tinha expedido 60.145 no mês — bem acima do ritmo esperado de
+ * 52.500 — mas aparecia "atrasado" na produção): o "realizado" NÃO pode ser
+ * só o saldo físico atual. Saldo físico é o que SOBROU depois de vender —
+ * um produto que vende rápido esvazia o estoque conforme expede, então
+ * saldo baixo não significa produção baixa, pode significar só que já saiu
+ * tudo pela porta. O que realmente mede "quanto já foi produzido e
+ * disponibilizado até agora" é `vendidoNoMes + saldoFisico` (o que já saiu
+ * + o que ainda está guardado). Ressalva aceita (mesma simplificação do
+ * pedido original): assume que o saldo no INÍCIO do mês era baixo/
+ * irrelevante — sem esse dado cadastrado, não dá pra descontar estoque
+ * herdado de meses anteriores.
+ *
+ * `null` quando o produto não tem saldo físico conhecido (não trata "sem
+ * dado" como estoque zero).
  */
 function calcularRitmoProducao(
   meta: number | null,
+  vendidoNoMes: number,
   saldoFisico: number | null,
   diasDoMes: number | null,
   diasDecorridos: number,
@@ -496,7 +511,7 @@ function calcularRitmoProducao(
       necessarioPorDiaUtil: null,
     }
   }
-  return calcularRitmo(meta, saldoFisico, diasDoMes, diasDecorridos, mesReferencia)
+  return calcularRitmo(meta, vendidoNoMes + saldoFisico, diasDoMes, diasDecorridos, mesReferencia)
 }
 
 /** Carrega e consolida (soma/média ponderada) as cotas cadastradas para todo mês tocado pelo período `from`..`to`. */
@@ -878,7 +893,14 @@ export function compararComCotas(
       // momento" — estoque já suficiente pra cobrir o restante da cota
       // anula o atraso de ritmo (só falta vender, não importa quando).
       const dentroDoRitmoEfetivo = saldoSuficiente === true ? true : ritmo.dentroDoRitmo
-      const ritmoProducao = calcularRitmoProducao(metaProdutoMes.get(q.codigoPrd) ?? null, saldoFisico, diasDoMes, diasDecorridosMes ?? 0, mesReferencia)
+      const ritmoProducao = calcularRitmoProducao(
+        metaProdutoMes.get(q.codigoPrd) ?? null,
+        vendaMes?.unidades ?? 0,
+        saldoFisico,
+        diasDoMes,
+        diasDecorridosMes ?? 0,
+        mesReferencia,
+      )
       return {
         ...q,
         vendidoUnidades,
