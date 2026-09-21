@@ -347,19 +347,60 @@ function monthsBetween(from: string, to: string): Date[] {
 }
 
 /**
- * Categoria/marca/subtipo de cada CODIGOPRD — pedido do usuário 2026-09-15:
- * "as cotas ainda aparecem produtos diferente do filtro". Construído a
- * partir de `linhas` ANTES dos filtros de categoria/marca/subtipo (ex.
- * `linhasPeriodo`/`linhasAno` nas rotas), pra cobrir todo produto que
- * apareceu em qualquer venda do período, independente do filtro ativo no
- * momento — o atributo do produto é fixo (vem do cadastro), não muda com o
- * filtro selecionado.
+ * Categoria/marca/subtipo de cada CODIGOPRD, direto do CADASTRO (dataset
+ * `fase3_saldo_produtos`, que cobre TODO produto do RM.TPRD, vendido ou
+ * não) — achado 2026-09-22: produto com cota cadastrada mas zero venda no
+ * período não tinha como ser classificado só a partir de `linhas`, ficando
+ * sempre visível em qualquer filtro (ver `mapaAtributosProduto` abaixo).
+ * Usa as MESMAS regras de classificação do dataset de vendas (ver
+ * `computedColumnsFase3` em prisma/seed.ts, aplicadas aqui como
+ * ComputedColumn também para `fase3_saldo_produtos`).
  */
-export function mapaAtributosProduto(linhas: VendaLinha[]): Map<string, { tipoProduto: string; subTipoProduto: string; marca: string }> {
+export async function carregarAtributosProdutosCadastro(): Promise<
+  Map<string, { tipoProduto: string; subTipoProduto: string; marca: string }>
+> {
+  let view: Awaited<ReturnType<typeof getDatasetView>> = []
+  try {
+    view = await getDatasetView('fase3_saldo_produtos')
+  } catch {
+    return new Map()
+  }
+  const map = new Map<string, { tipoProduto: string; subTipoProduto: string; marca: string }>()
+  for (const r of view as Record<string, unknown>[]) {
+    const codigo = String(r.CODIGOPRD ?? '').trim()
+    if (!codigo) continue
+    map.set(codigo, {
+      tipoProduto: String(r.TipoProduto ?? 'Agronegócio'),
+      subTipoProduto: String(r.SubTipoProduto ?? 'Outros'),
+      marca: String(r.Marca ?? 'Amaru'),
+    })
+  }
+  return map
+}
+
+/**
+ * Categoria/marca/subtipo de cada CODIGOPRD — pedido do usuário 2026-09-15:
+ * "as cotas ainda aparecem produtos diferente do filtro". Prioriza o
+ * atributo derivado de `linhas` (venda real do período) quando existir;
+ * cai para `atributosCadastro` (opcional, `carregarAtributosProdutosCadastro()`
+ * — achado 2026-09-22: produto com cota mas zero venda no período não tinha
+ * como ser classificado antes disso existir) quando o produto não vendeu
+ * nada nas `linhas` atuais. O atributo do produto é fixo (vem do cadastro),
+ * não muda com o filtro selecionado.
+ */
+export function mapaAtributosProduto(
+  linhas: VendaLinha[],
+  atributosCadastro?: Map<string, { tipoProduto: string; subTipoProduto: string; marca: string }>,
+): Map<string, { tipoProduto: string; subTipoProduto: string; marca: string }> {
   const map = new Map<string, { tipoProduto: string; subTipoProduto: string; marca: string }>()
   for (const l of linhas) {
     if (l.codigoPrd && !map.has(l.codigoPrd)) {
       map.set(l.codigoPrd, { tipoProduto: l.tipoProduto, subTipoProduto: l.subTipoProduto, marca: l.marca })
+    }
+  }
+  if (atributosCadastro) {
+    for (const [codigo, atributo] of atributosCadastro) {
+      if (!map.has(codigo)) map.set(codigo, atributo)
     }
   }
   return map

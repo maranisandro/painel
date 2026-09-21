@@ -25,6 +25,7 @@ import {
   PREFIXO_DESPESAS_IMPOSTOS_PCT_MES,
   carregarSaldoFisicoProdutos,
   mapaAtributosProduto,
+  carregarAtributosProdutosCadastro,
   filtrarMetaProdutosPorFiltro,
 } from '@/lib/fase3/cotas'
 import { aplicarEscopoUsuario } from '@/lib/fase3/escopo-usuario'
@@ -317,21 +318,24 @@ export async function GET(req: NextRequest) {
   // Comparativo com as cotas de venda cadastradas (pedido do usuário
   // 2026-08-13) — meta soma todo mês cadastrado dentro do período `from`..`to`,
   // realizado vem das MESMAS `linhas` já filtradas (categoria/tabela/subtipo/cliente).
-  const [metaPeriodo, nomesClientes, custosProducaoCadastrados, despesasImpostosCadastrados, saldoFisicoPorProduto] = await Promise.all([
-    carregarMetaPeriodo(from, toOficial),
-    carregarNomesClientes(),
-    carregarValoresMensais(PREFIXO_CUSTO_PRODUCAO_MES),
-    carregarValoresMensais(PREFIXO_DESPESAS_IMPOSTOS_PCT_MES),
-    carregarSaldoFisicoProdutos(),
-  ])
+  const [metaPeriodo, nomesClientes, custosProducaoCadastrados, despesasImpostosCadastrados, saldoFisicoPorProduto, atributosProdutosCadastro] =
+    await Promise.all([
+      carregarMetaPeriodo(from, toOficial),
+      carregarNomesClientes(),
+      carregarValoresMensais(PREFIXO_CUSTO_PRODUCAO_MES),
+      carregarValoresMensais(PREFIXO_DESPESAS_IMPOSTOS_PCT_MES),
+      carregarSaldoFisicoProdutos(),
+      carregarAtributosProdutosCadastro(),
+    ])
   // Restringe a lista de produtos-cota aos que batem com os filtros de
   // Categoria/Marca/Subtipo ativos na tela — pedido do usuário 2026-09-15:
-  // "as cotas ainda aparecem produtos diferente do filtro". Atributo vem de
-  // `linhasPeriodo` (antes desses filtros), pra cobrir todo produto do
-  // período independente do que está selecionado agora. Ver `cotas.ts`.
+  // "as cotas ainda aparecem produtos diferente do filtro". Atributo vem
+  // primeiro de `linhasPeriodo` (venda real, antes desses filtros), com
+  // fallback pro cadastro (`atributosProdutosCadastro`) para produto com
+  // cota mas zero venda no período (achado 2026-09-22, ver `cotas.ts`).
   const metaPeriodoFiltrada = filtrarMetaProdutosPorFiltro(
     metaPeriodo,
-    mapaAtributosProduto(linhasPeriodo),
+    mapaAtributosProduto(linhasPeriodo, atributosProdutosCadastro),
     categoriasSelecionadas,
     marcasSelecionadas,
     subTiposSelecionados,

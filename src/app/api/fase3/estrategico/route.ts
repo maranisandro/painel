@@ -10,6 +10,7 @@ import {
   resolverConfigVendas,
   carregarSaldoFisicoProdutos,
   mapaAtributosProduto,
+  carregarAtributosProdutosCadastro,
   filtrarMetaProdutosPorFiltro,
 } from '@/lib/fase3/cotas'
 import { aplicarEscopoUsuario } from '@/lib/fase3/escopo-usuario'
@@ -195,19 +196,21 @@ export async function GET(req: NextRequest) {
   // fechado, ritmo vira só um retrato histórico do último mês do ano).
   const hojeStr = hojeBrasil()
   const toRitmo = ano === hojeStr.slice(0, 4) ? hojeStr : `${ano}-12-31`
-  const [metaAno, nomesClientes, saldoFisicoPorProduto] = await Promise.all([
+  const [metaAno, nomesClientes, saldoFisicoPorProduto, atributosProdutosCadastro] = await Promise.all([
     carregarMetaPeriodo(`${ano}-01-01`, `${ano}-12-31`),
     carregarNomesClientes(),
     carregarSaldoFisicoProdutos(),
+    carregarAtributosProdutosCadastro(),
   ])
   // Restringe a lista de produtos-cota aos que batem com os filtros de
   // Categoria/Marca/Subtipo ativos na tela — pedido do usuário 2026-09-15:
-  // "as cotas ainda aparecem produtos diferente do filtro". Atributo vem de
-  // `linhasAno` (antes desses filtros), pra cobrir todo produto do ano
-  // independente do que está selecionado agora. Ver `cotas.ts`.
+  // "as cotas ainda aparecem produtos diferente do filtro". Atributo vem
+  // primeiro de `linhasAno` (venda real, antes desses filtros), com
+  // fallback pro cadastro (`atributosProdutosCadastro`) para produto com
+  // cota mas zero venda no ano (achado 2026-09-22, ver `cotas.ts`).
   const metaAnoFiltrada = filtrarMetaProdutosPorFiltro(
     metaAno,
-    mapaAtributosProduto(linhasAno),
+    mapaAtributosProduto(linhasAno, atributosProdutosCadastro),
     categoriasSelecionadas,
     marcasSelecionadas,
     subTiposSelecionados,

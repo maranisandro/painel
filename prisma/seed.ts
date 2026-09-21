@@ -281,14 +281,29 @@ AND     UPPER(TPRD.NOMEFANTASIA) NOT LIKE '%LATEX%'
 // ComputedColumn LOOKUP (`SALDO_FISICO_ATUAL`, ver abaixo) — assim toda
 // leitura do dataset de vendas já traz o saldo mais recente sincronizado,
 // sem precisar duplicar a coluna produto a produto na query grande.
+// NOMEFANTASIA adicionado 2026-09-22 (achado do usuário: "as cotas ainda
+// aparecem mesmo quando seleciono um grupo de produtos distintos") — sem o
+// nome, não dava pra classificar TipoProduto/SubTipoProduto/Marca (mesmas
+// regras do dataset de vendas, ver computedColumnsFase3 abaixo) para produto
+// com cota cadastrada mas ZERO venda no período — esses produtos ficavam
+// sempre visíveis em qualquer filtro (não tinha como saber a categoria).
+// fase3_saldo_produtos cobre TODO produto do cadastro (RM.TPRD), vendido ou
+// não, por isso é a fonte certa pra fechar essa lacuna.
+// Achado 2026-09-22: os produtos com cota cadastrada mas nunca vendidos
+// (ex. "MOURÃO (VARÃO)" 95.02.070033-070045) são todos INATIVO=1 no TPRD
+// (descontinuados, saldo zero) — o filtro `INATIVO = 0` abaixo os excluía
+// da classificação (Seção acima), então continuavam sem categoria
+// conhecida mesmo depois do fix. Tirado o filtro: saldo continua correto
+// (produto inativo realmente tem SALDOGERALFISICO 0), e agora todo produto
+// do cadastro — ativo ou não — fica classificável.
 const QUERY_FASE3_SALDO_PRODUTOS = `
 SELECT
 TPRD.CODCOLIGADA,
 TPRD.CODIGOPRD,
+TPRD.NOMEFANTASIA PRODUTO,
 TPRD.SALDOGERALFISICO
 FROM RM.TPRD
 WHERE TPRD.CODCOLIGADA = 5
-AND   TPRD.INATIVO = 0
 `.trim()
 
 // Cadastro de clientes (D_CLIENTES no Power BI "Planep_Faturamento_New") —
@@ -1325,6 +1340,28 @@ FROM rm.zfuncionarios
         position: col.position,
         type: col.type ?? 'CONDITIONAL',
         rules: col.rules,
+      },
+    })
+  }
+
+  // Mesma classificação TipoProduto/SubTipoProduto/Marca do dataset de
+  // vendas, agora também no dataset de saldo (achado 2026-09-22, ver
+  // comentário de QUERY_FASE3_SALDO_PRODUTOS) — reaproveita literalmente as
+  // MESMAS regras (mesmo princípio já usado para ABREV_DISTRIBUIDOR em
+  // fase3_clientes, alguns parágrafos abaixo), pra nunca dessincronizar: um
+  // produto tem que classificar igual, apareça ele numa venda ou só no
+  // cadastro.
+  for (const nome of ['TipoProduto', 'SubTipoProduto', 'Marca']) {
+    const origem = computedColumnsFase3.find((c) => c.name === nome)!
+    await prisma.computedColumn.upsert({
+      where: { datasetId_name: { datasetId: datasetFase3SaldoProdutos.id, name: nome } },
+      update: { rules: origem.rules, position: origem.position, type: origem.type ?? 'CONDITIONAL' },
+      create: {
+        datasetId: datasetFase3SaldoProdutos.id,
+        name: nome,
+        position: origem.position,
+        type: origem.type ?? 'CONDITIONAL',
+        rules: origem.rules,
       },
     })
   }
