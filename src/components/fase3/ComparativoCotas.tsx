@@ -184,6 +184,32 @@ export function ComparativoCotas({ data, periodoLabel }: { data: ComparativoCota
     },
     { key: 'meta', label: 'Meta', align: 'right', sortValue: (d) => d.metaValor, render: (d) => fmtMoeda(d.metaValor) },
     { key: 'realizado', label: 'Realizado', align: 'right', sortValue: (d) => d.realizado, render: (d) => fmtMoeda(d.realizado) },
+    // Campos de transparência — pedido do usuário 2026-09-22: "inserir na
+    // tabela de cotas todos os campos para chegar ao número, exemplo de
+    // dias considerados". Mostra os insumos exatos da conta de "Ritmo
+    // esperado" (meta ÷ dias do mês × dias com venda) e de "Nec./dia útil"
+    // (dias úteis restantes), em vez de só o resultado final.
+    {
+      key: 'diasDoMes',
+      label: 'Dias do mês',
+      align: 'right',
+      sortValue: (d) => d.ritmo.diasDoMes ?? 0,
+      render: (d) => d.ritmo.diasDoMes ?? '—',
+    },
+    {
+      key: 'diasComVenda',
+      label: 'Dias com venda',
+      align: 'right',
+      sortValue: (d) => d.ritmo.diasComFaturamento,
+      render: (d) => d.ritmo.diasComFaturamento,
+    },
+    {
+      key: 'diasUteisRestantes',
+      label: 'Dias úteis restantes',
+      align: 'right',
+      sortValue: (d) => d.ritmo.diasUteisRestantes,
+      render: (d) => d.ritmo.diasUteisRestantes,
+    },
     {
       key: 'ritmoEsperado',
       label: 'Ritmo esperado',
@@ -443,6 +469,10 @@ export function ComparativoCotas({ data, periodoLabel }: { data: ComparativoCota
                     <td className="px-3 py-2">Total ({linhas.length})</td>
                     <td className="px-3 py-2 text-right">{fmtMoeda(somaMeta)}</td>
                     <td className="px-3 py-2 text-right">{fmtMoeda(somaRealizado)}</td>
+                    {/* Dias do mês/com venda/úteis restantes não somam entre distribuidores — cada um com seu próprio calendário de referência */}
+                    <td className="px-3 py-2" />
+                    <td className="px-3 py-2" />
+                    <td className="px-3 py-2" />
                     <td className="px-3 py-2 text-right">{fmtMoeda(somaRitmoEsperado)}</td>
                     <td className="px-3 py-2 text-right">{fmtMoeda(somaProjecao)}</td>
                     <td className="px-3 py-2 text-right">{somaNecessario > 0 ? fmtMoeda(somaNecessario) : <span className="text-emerald-700">meta já alcançada</span>}</td>
