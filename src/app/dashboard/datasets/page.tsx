@@ -33,7 +33,19 @@ export default async function DatasetsPage() {
       intervalMinutes: d.schedule?.intervalMinutes ?? null,
       scheduleEnabled: d.schedule?.enabled ?? false,
       rowsCount: d._count.rows,
-      lastRun: last ? { status: last.status, startedAt: last.startedAt.toLocaleString('pt-BR'), error: last.error } : null,
+      lastRun: last
+        ? {
+            status: last.status,
+            // Corrigido 2026-09-22 (achado do usuário: "o horario que ele
+            // mostra que houve a atualização esta incorreto... 18:07 no
+            // entanto ainda são 15:14") — sem `timeZone`, `toLocaleString`
+            // usa o fuso do PROCESSO (o container de produção roda em UTC,
+            // não Brasília), mesma classe de bug já documentada em
+            // src/lib/horario-brasil.ts para outros pontos do sistema.
+            startedAt: last.startedAt.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+            error: last.error,
+          }
+        : null,
     }
   })
 
