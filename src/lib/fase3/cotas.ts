@@ -441,6 +441,39 @@ export function filtrarMetaProdutosPorFiltro(
   }
 }
 
+/**
+ * Restringe `meta.distribuidores`/`meta.distribuidoresPorMes` (toda cota de
+ * distribuidor cadastrada no mês) aos distribuidores selecionados no filtro
+ * de Distribuidor da tela — achado do usuário 2026-09-22: "quando filtrar
+ * um distribuidor tem de aparecer somente ele em todos os quadros". Sem
+ * isso, a tabela "Por distribuidor (R$)" dentro do quadro de cotas
+ * continuava mostrando TODA cota cadastrada (ex. GREANY'S, EXTRA...) mesmo
+ * filtrando só "TOP TOP", porque `meta.distribuidores` nunca passava pelo
+ * filtro — só o `realizado` de cada linha vinha filtrado.
+ * `DistributorQuota.codDistribuidor` é um código (CODCFO/CODDISTRIBUIDOR),
+ * não o bucket ABREV_DISTRIBUIDOR usado pelo filtro — `mapaAbrev`
+ * (`carregarNomesDistribuidoresVendas()`) resolve um pro outro. Sem match
+ * no mapa (código nunca apareceu em nenhuma venda), a linha fica visível
+ * independente do filtro — mesmo raciocínio de `filtrarMetaProdutosPorFiltro`.
+ */
+export function filtrarMetaDistribuidoresPorFiltro(
+  meta: MetaPeriodo,
+  mapaAbrev: Map<string, string>,
+  distribuidoresSelecionados: string[] | null,
+): MetaPeriodo {
+  if (!distribuidoresSelecionados) return meta
+  const bate = (codDistribuidor: string) => {
+    const abrev = mapaAbrev.get(codDistribuidor)
+    if (!abrev) return true
+    return distribuidoresSelecionados.includes(abrev)
+  }
+  return {
+    ...meta,
+    distribuidores: meta.distribuidores.filter((d) => bate(d.codDistribuidor)),
+    distribuidoresPorMes: meta.distribuidoresPorMes.filter((d) => bate(d.codDistribuidor)),
+  }
+}
+
 export interface MetaPeriodo {
   metaVolumeM3: number
   icms7Pct: number | null

@@ -15,6 +15,7 @@ import {
   carregarMetaPeriodo,
   compararComCotas,
   carregarNomesClientes,
+  carregarNomesDistribuidoresVendas,
   calcularInsightDiametroMourao,
   resolverConfigVendas,
   carregarFatoresBonificacao,
@@ -27,6 +28,7 @@ import {
   mapaAtributosProduto,
   carregarAtributosProdutosCadastro,
   filtrarMetaProdutosPorFiltro,
+  filtrarMetaDistribuidoresPorFiltro,
 } from '@/lib/fase3/cotas'
 import { aplicarEscopoUsuario } from '@/lib/fase3/escopo-usuario'
 import { hojeBrasil, corteOficial } from '@/lib/horario-brasil'
@@ -211,7 +213,14 @@ export async function GET(req: NextRequest) {
     return { ...a, distribuidor, cliente }
   })
   const distribuidoresComVenda = new Set(porDistribuidor.map((d) => d.chave))
-  const distribuidoresSemVenda = DISTRIBUIDORES_CONHECIDOS.filter((d) => !distribuidoresComVenda.has(d))
+  // Corrigido 2026-09-22 (achado do usuário: "quando filtrar um distribuidor
+  // tem de aparecer somente ele em todos os quadros") — antes comparava
+  // sempre contra DISTRIBUIDORES_CONHECIDOS (lista global), então filtrar só
+  // "TOP TOP" ainda listava PLANEP/EXTRA/... como "sem venda no recorte",
+  // mesmo não fazendo parte do filtro selecionado. Restrito ao próprio
+  // filtro de distribuidor quando ativo.
+  const universoDistribuidoresSemVenda = distribuidoresSelecionados ?? DISTRIBUIDORES_CONHECIDOS
+  const distribuidoresSemVenda = universoDistribuidoresSemVenda.filter((d) => !distribuidoresComVenda.has(d))
   // Produtos por cliente (pedido do usuário 2026-08-04: "no detalhamento por
   // cliente, quando estiver abaixo da meta, detalhar para sabermos qual
   // produto impacta na meta") — permite abrir cada cliente e ver qual
@@ -318,27 +327,43 @@ export async function GET(req: NextRequest) {
   // Comparativo com as cotas de venda cadastradas (pedido do usuário
   // 2026-08-13) — meta soma todo mês cadastrado dentro do período `from`..`to`,
   // realizado vem das MESMAS `linhas` já filtradas (categoria/tabela/subtipo/cliente).
-  const [metaPeriodo, nomesClientes, custosProducaoCadastrados, despesasImpostosCadastrados, saldoFisicoPorProduto, atributosProdutosCadastro] =
-    await Promise.all([
-      carregarMetaPeriodo(from, toOficial),
-      carregarNomesClientes(),
-      carregarValoresMensais(PREFIXO_CUSTO_PRODUCAO_MES),
-      carregarValoresMensais(PREFIXO_DESPESAS_IMPOSTOS_PCT_MES),
-      carregarSaldoFisicoProdutos(),
-      carregarAtributosProdutosCadastro(),
-    ])
+  const [
+    metaPeriodo,
+    nomesClientes,
+    custosProducaoCadastrados,
+    despesasImpostosCadastrados,
+    saldoFisicoPorProduto,
+    atributosProdutosCadastro,
+    nomesDistribuidoresVendas,
+  ] = await Promise.all([
+    carregarMetaPeriodo(from, toOficial),
+    carregarNomesClientes(),
+    carregarValoresMensais(PREFIXO_CUSTO_PRODUCAO_MES),
+    carregarValoresMensais(PREFIXO_DESPESAS_IMPOSTOS_PCT_MES),
+    carregarSaldoFisicoProdutos(),
+    carregarAtributosProdutosCadastro(),
+    carregarNomesDistribuidoresVendas(),
+  ])
   // Restringe a lista de produtos-cota aos que batem com os filtros de
   // Categoria/Marca/Subtipo ativos na tela — pedido do usuário 2026-09-15:
   // "as cotas ainda aparecem produtos diferente do filtro". Atributo vem
   // primeiro de `linhasPeriodo` (venda real, antes desses filtros), com
   // fallback pro cadastro (`atributosProdutosCadastro`) para produto com
   // cota mas zero venda no período (achado 2026-09-22, ver `cotas.ts`).
-  const metaPeriodoFiltrada = filtrarMetaProdutosPorFiltro(
+  const metaPeriodoFiltradaProdutos = filtrarMetaProdutosPorFiltro(
     metaPeriodo,
     mapaAtributosProduto(linhasPeriodo, atributosProdutosCadastro),
     categoriasSelecionadas,
     marcasSelecionadas,
     subTiposSelecionados,
+  )
+  // Restringe a lista de distribuidores-cota ao filtro de Distribuidor ativo
+  // na tela — achado do usuário 2026-09-22: "quando filtrar um distribuidor
+  // tem de aparecer somente ele em todos os quadros".
+  const metaPeriodoFiltrada = filtrarMetaDistribuidoresPorFiltro(
+    metaPeriodoFiltradaProdutos,
+    nomesDistribuidoresVendas,
+    distribuidoresSelecionados,
   )
   // Usuário restrito (escopoVendas != null): a meta/cota é company-wide, não
   // segmentada por distribuidor/cliente — comparar o realizado (já filtrado

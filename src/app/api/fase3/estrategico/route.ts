@@ -6,12 +6,14 @@ import {
   carregarMetaPeriodo,
   compararComCotas,
   carregarNomesClientes,
+  carregarNomesDistribuidoresVendas,
   calcularInsightDiametroMourao,
   resolverConfigVendas,
   carregarSaldoFisicoProdutos,
   mapaAtributosProduto,
   carregarAtributosProdutosCadastro,
   filtrarMetaProdutosPorFiltro,
+  filtrarMetaDistribuidoresPorFiltro,
 } from '@/lib/fase3/cotas'
 import { aplicarEscopoUsuario } from '@/lib/fase3/escopo-usuario'
 import { hojeBrasil } from '@/lib/horario-brasil'
@@ -141,7 +143,11 @@ export async function GET(req: NextRequest) {
     return { ...a, distribuidor, cliente, produto }
   })
   const distribuidoresComVenda = new Set(porDistribuidor.map((d) => d.chave))
-  const distribuidoresSemVenda = DISTRIBUIDORES_CONHECIDOS.filter((d) => !distribuidoresComVenda.has(d))
+  // Corrigido 2026-09-22 (achado do usuário: "quando filtrar um distribuidor
+  // tem de aparecer somente ele em todos os quadros") — ver mesmo comentário
+  // em /api/fase3/data/route.ts.
+  const universoDistribuidoresSemVenda = distribuidoresSelecionados ?? DISTRIBUIDORES_CONHECIDOS
+  const distribuidoresSemVenda = universoDistribuidoresSemVenda.filter((d) => !distribuidoresComVenda.has(d))
   // Pedido do usuário 2026-08-04: "o top perdas precisa saber com qual
   // distribuidor perdeu" — a chave passou a incluir distribuidor (antes era
   // só produto×tabela, sem dar pra saber de quem era a venda).
@@ -196,11 +202,12 @@ export async function GET(req: NextRequest) {
   // fechado, ritmo vira só um retrato histórico do último mês do ano).
   const hojeStr = hojeBrasil()
   const toRitmo = ano === hojeStr.slice(0, 4) ? hojeStr : `${ano}-12-31`
-  const [metaAno, nomesClientes, saldoFisicoPorProduto, atributosProdutosCadastro] = await Promise.all([
+  const [metaAno, nomesClientes, saldoFisicoPorProduto, atributosProdutosCadastro, nomesDistribuidoresVendas] = await Promise.all([
     carregarMetaPeriodo(`${ano}-01-01`, `${ano}-12-31`),
     carregarNomesClientes(),
     carregarSaldoFisicoProdutos(),
     carregarAtributosProdutosCadastro(),
+    carregarNomesDistribuidoresVendas(),
   ])
   // Restringe a lista de produtos-cota aos que batem com os filtros de
   // Categoria/Marca/Subtipo ativos na tela — pedido do usuário 2026-09-15:
@@ -208,13 +215,17 @@ export async function GET(req: NextRequest) {
   // primeiro de `linhasAno` (venda real, antes desses filtros), com
   // fallback pro cadastro (`atributosProdutosCadastro`) para produto com
   // cota mas zero venda no ano (achado 2026-09-22, ver `cotas.ts`).
-  const metaAnoFiltrada = filtrarMetaProdutosPorFiltro(
+  const metaAnoFiltradaProdutos = filtrarMetaProdutosPorFiltro(
     metaAno,
     mapaAtributosProduto(linhasAno, atributosProdutosCadastro),
     categoriasSelecionadas,
     marcasSelecionadas,
     subTiposSelecionados,
   )
+  // Restringe a lista de distribuidores-cota ao filtro de Distribuidor ativo
+  // na tela — achado do usuário 2026-09-22: "quando filtrar um distribuidor
+  // tem de aparecer somente ele em todos os quadros".
+  const metaAnoFiltrada = filtrarMetaDistribuidoresPorFiltro(metaAnoFiltradaProdutos, nomesDistribuidoresVendas, distribuidoresSelecionados)
   // Usuário restrito (escopoVendas != null): a meta/cota é company-wide, não
   // segmentada por distribuidor/cliente — comparar o realizado (já filtrado
   // pelo escopo) contra ela vazaria nome/meta de outros distribuidores e
