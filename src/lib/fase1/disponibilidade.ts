@@ -48,42 +48,64 @@ const GAP_MAXIMO_MINUTOS = 30
 // erro grosseiro de GPS antes de estimar velocidade por distância.
 const SALTO_GPS_MAXIMO_KM = 5
 
-/** Soma, em horas, os intervalos entre posições consecutivas em que a placa estava com velocidade acima do limiar (GPS real, não estimativa). */
-export function horasRodandoGps(posicoesOrdenadas: PosicaoSimples[]): number {
-  let minutos = 0
+export function classificarSegmentoRodando(anterior: PosicaoSimples, atual: PosicaoSimples): boolean {
+  let rodando =
+    (anterior.speedKmh ?? 0) > LIMIAR_VELOCIDADE_RODANDO_KMH || (atual.speedKmh ?? 0) > LIMIAR_VELOCIDADE_RODANDO_KMH
+
+  // Achado real 2026-08-26 (placa TAK5C12, madrugada 24→25/08): o
+  // rastreador Omnilink às vezes manda velocidade "-" (sem leitura
+  // instantânea) mesmo com a placa realmente em deslocamento — sem este
+  // fallback, o trecho inteiro "some" de qualquer cálculo baseado em
+  // velocidade, mesmo com posições reais mostrando o caminhão mudando de
+  // lugar. Só entra quando NENHUMA das duas leituras tem velocidade (não
+  // sobrescreve um "0 km/h" real, que continua contando como parado);
+  // mesma técnica de distância haversine já usada em `critica.ts`
+  // (`kmPercorridoGps`), descartando saltos de GPS implausíveis.
+  const deltaMin = (Date.parse(atual.capturedAt) - Date.parse(anterior.capturedAt)) / 60_000
+  if (
+    !rodando &&
+    anterior.speedKmh == null &&
+    atual.speedKmh == null &&
+    anterior.lat != null &&
+    anterior.lng != null &&
+    atual.lat != null &&
+    atual.lng != null &&
+    deltaMin > 0
+  ) {
+    const distKm = haversineKm({ lat: anterior.lat, lng: anterior.lng }, { lat: atual.lat, lng: atual.lng })
+    if (distKm <= SALTO_GPS_MAXIMO_KM) {
+      const velEstimadaKmh = distKm / (deltaMin / 60)
+      rodando = velEstimadaKmh > LIMIAR_VELOCIDADE_RODANDO_KMH
+    }
+  }
+  return rodando
+}
+
+export interface SegmentoGps {
+  de: PosicaoSimples
+  para: PosicaoSimples
+  rodando: boolean
+}
+
+/** Classifica cada par de posições consecutivas como rodando/parado — base compartilhada de `horasRodandoGps` e do desenho do trajeto no mapa (`/api/fase1/rastreamento/noite-rodando/detalhe`), pra nunca divergir entre o número mostrado e a linha desenhada. */
+export function segmentosRodandoGps(posicoesOrdenadas: PosicaoSimples[]): SegmentoGps[] {
+  const segmentos: SegmentoGps[] = []
   for (let i = 1; i < posicoesOrdenadas.length; i++) {
     const anterior = posicoesOrdenadas[i - 1]
     const atual = posicoesOrdenadas[i]
     const deltaMin = (Date.parse(atual.capturedAt) - Date.parse(anterior.capturedAt)) / 60_000
-    if (deltaMin <= 0 || deltaMin > GAP_MAXIMO_MINUTOS) continue
-    let rodando =
-      (anterior.speedKmh ?? 0) > LIMIAR_VELOCIDADE_RODANDO_KMH || (atual.speedKmh ?? 0) > LIMIAR_VELOCIDADE_RODANDO_KMH
+    const dentroDoGap = deltaMin > 0 && deltaMin <= GAP_MAXIMO_MINUTOS
+    segmentos.push({ de: anterior, para: atual, rodando: dentroDoGap && classificarSegmentoRodando(anterior, atual) })
+  }
+  return segmentos
+}
 
-    // Achado real 2026-08-26 (placa TAK5C12, madrugada 24→25/08): o
-    // rastreador Omnilink às vezes manda velocidade "-" (sem leitura
-    // instantânea) mesmo com a placa realmente em deslocamento — sem este
-    // fallback, o trecho inteiro "some" de qualquer cálculo baseado em
-    // velocidade, mesmo com posições reais mostrando o caminhão mudando de
-    // lugar. Só entra quando NENHUMA das duas leituras tem velocidade (não
-    // sobrescreve um "0 km/h" real, que continua contando como parado);
-    // mesma técnica de distância haversine já usada em `critica.ts`
-    // (`kmPercorridoGps`), descartando saltos de GPS implausíveis.
-    if (
-      !rodando &&
-      anterior.speedKmh == null &&
-      atual.speedKmh == null &&
-      anterior.lat != null &&
-      anterior.lng != null &&
-      atual.lat != null &&
-      atual.lng != null
-    ) {
-      const distKm = haversineKm({ lat: anterior.lat, lng: anterior.lng }, { lat: atual.lat, lng: atual.lng })
-      if (distKm <= SALTO_GPS_MAXIMO_KM) {
-        const velEstimadaKmh = distKm / (deltaMin / 60)
-        rodando = velEstimadaKmh > LIMIAR_VELOCIDADE_RODANDO_KMH
-      }
-    }
-    if (rodando) minutos += deltaMin
+/** Soma, em horas, os intervalos entre posições consecutivas em que a placa estava com velocidade acima do limiar (GPS real, não estimativa). */
+export function horasRodandoGps(posicoesOrdenadas: PosicaoSimples[]): number {
+  let minutos = 0
+  for (const seg of segmentosRodandoGps(posicoesOrdenadas)) {
+    if (!seg.rodando) continue
+    minutos += (Date.parse(seg.para.capturedAt) - Date.parse(seg.de.capturedAt)) / 60_000
   }
   return minutos / 60
 }
