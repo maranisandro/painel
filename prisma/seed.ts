@@ -180,6 +180,11 @@ AND TMOV.DATASAIDA >= TO_DATE('01/01/2026', 'DD/MM/YYYY')
 // Oracle pra ligar devolução↔origem, em vez do casamento heurístico por
 // (dia, distribuidor, produto, quantidade, m³) tentado e revertido em
 // 2026-09-02/03. Ver uso em `agregarVendas` (faturamento.ts).
+// CONSUMIDOR (pedido do usuário 2026-09-22): classificação do tipo de
+// cliente (Revenda/Consumidor final/Funcionário/Empreiteira...), mesma
+// tabela FCFOCOMPL já joinada — sem JOIN novo. Campo texto livre, tratado em
+// `classificarConsumidor()` (faturamento.ts) por regex tolerante a erro de
+// grafia (93% dos registros vêm vazios, confirmado ao vivo).
 const QUERY_FASE3_VENDAS_MADEIRA = `
 SELECT
 TMOV.CODCOLIGADA,
@@ -194,6 +199,7 @@ FCFO.CODETD,
 FCFO.CIDADE,
 FCFO.NOMEFANTASIA CLIENTE,
 FCFOCOMPL.DISTRIBUIDOR CODDISTRIBUIDOR,
+FCFOCOMPL.CONSUMIDOR,
 DISTRIBUIDOR.DESCRICAO DISTRIBUIDOR,
 TPRD.CODIGOPRD,
 TPRD.NOMEFANTASIA PRODUTO,
@@ -341,6 +347,7 @@ SELECT
 CLIENTE.CODCFO,
 CLIENTE.NOMEFANTASIA CLIENTE,
 FCFOCOMPL.DISTRIBUIDOR CODDISTRIBUIDOR,
+FCFOCOMPL.CONSUMIDOR,
 DISTRIBUIDOR.DESCRICAO DISTRIBUIDOR,
 CLIENTE.EMAIL,
 CLIENTE.CONTATO,
@@ -380,10 +387,22 @@ WHERE CODCOLIGADA IN (2, 3, 5, 6, 28, 33, 34)
 //    vivo (information_schema) que as 4 tabelas têm `id`/`created_at`/
 //    `updated_at` homônimos — sem apelido, o driver ficaria com a última
 //    coluna repetida (de outra tabela), não a da própria nota de
-//    abastecimento. supply_updated_at usa COALESCE(updated_at, created_at):
-//    confirmado ao vivo que `updated_at` só é preenchido em ~42% das notas
-//    (só quando a nota é editada depois de criada) — usar só updated_at
-//    faria o incremental nunca buscar notas novas que nunca foram editadas.
+//    abastecimento. supply_updated_at usa GREATEST(created_at,
+//    COALESCE(updated_at, created_at)): confirmado ao vivo que `updated_at`
+//    só é preenchido em ~42% das notas (só quando a nota é editada depois de
+//    criada) — usar só updated_at faria o incremental nunca buscar notas
+//    novas que nunca foram editadas. GREATEST (em vez de só COALESCE) é
+//    defesa contra `updated_at` vir preenchido porém menor que `created_at`
+//    (não deveria acontecer, mas o incremental não pode depender disso).
+//    Achado 2026-09-22 (caso real placa SDU4H75, abastecimento duplicado com
+//    hodômetro corrigido depois sem aparecer na Crítica ao modelo): parte da
+//    digitação da Officium vem em LOTE (importação), então é comum vários
+//    registros caírem no MESMO SEGUNDO de `created_at` — com o filtro
+//    incremental sendo estritamente `>` (`src/lib/sync/types.ts`,
+//    `wrapIncremental`), um registro empatado no segundo exato que virou a
+//    marca d'água fica pra trás pra sempre. Corrigido trocando `>` por `>=`
+//    no motor de sincronização (idempotente: upsert é por chave primária,
+//    reprocessar o mesmo registro não duplica nada).
 //  - Os demais `JOIN`s do PowerQuery (dCentroCusto, fmovRMAbastecimento,
 //    fPersonProviders, dPessoas) são só para nomes amigáveis (fornecedor,
 //    centro de custo) — não entram aqui porque não são necessários para o
@@ -419,7 +438,10 @@ WHERE CODCOLIGADA IN (2, 3, 5, 6, 28, 33, 34)
 const QUERY_ABASTECIMENTO = `
 SELECT
   object_note_fuel_supplies.id AS supply_id,
-  COALESCE(object_note_fuel_supplies.updated_at, object_note_fuel_supplies.created_at) AS supply_updated_at,
+  GREATEST(
+    object_note_fuel_supplies.created_at,
+    COALESCE(object_note_fuel_supplies.updated_at, object_note_fuel_supplies.created_at)
+  ) AS supply_updated_at,
   object_note_fuel_supplies.date AS date,
   object_note_fuel_supplies.pedometer AS pedometer,
   object_note_fuel_supplies.amount AS amount,

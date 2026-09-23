@@ -12,6 +12,8 @@ interface QuotaSettings {
   icms7Pct: string
   icms12Pct: string
   icms18Pct: string
+  diasUteisProducao: number | null
+  diasUteisVendas: number | null
 }
 
 interface DistributorQuota {
@@ -46,11 +48,30 @@ function fmtMoney(v: string | number): string {
   return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
 }
 
+/** Dias úteis (seg-sex, sem feriados) do mês inteiro — mesmo cálculo automático usado como fallback no ritmo (src/lib/fase3/cotas.ts), só pra mostrar como referência no placeholder do campo. */
+function diasUteisAutomaticoDoMes(m: string): number {
+  const [ano, mes] = m.split('-').map(Number)
+  const ultimoDia = new Date(ano, mes, 0).getDate()
+  let count = 0
+  for (let d = 1; d <= ultimoDia; d++) {
+    const diaSemana = new Date(ano, mes - 1, d).getDay()
+    if (diaSemana !== 0 && diaSemana !== 6) count++
+  }
+  return count
+}
+
 export default function CotasVendaPage() {
   const [month, setMonth] = useState(currentMonth())
 
   const [settings, setSettings] = useState<QuotaSettings | null>(null)
-  const [settingsForm, setSettingsForm] = useState({ metaVolumeM3: '', icms7Pct: '', icms12Pct: '', icms18Pct: '' })
+  const [settingsForm, setSettingsForm] = useState({
+    metaVolumeM3: '',
+    icms7Pct: '',
+    icms12Pct: '',
+    icms18Pct: '',
+    diasUteisProducao: '',
+    diasUteisVendas: '',
+  })
   const [settingsError, setSettingsError] = useState('')
   const [settingsSaving, setSettingsSaving] = useState(false)
 
@@ -82,8 +103,10 @@ export default function CotasVendaPage() {
             icms7Pct: found.icms7Pct,
             icms12Pct: found.icms12Pct,
             icms18Pct: found.icms18Pct,
+            diasUteisProducao: found.diasUteisProducao != null ? String(found.diasUteisProducao) : '',
+            diasUteisVendas: found.diasUteisVendas != null ? String(found.diasUteisVendas) : '',
           }
-        : { metaVolumeM3: '5000', icms7Pct: '60.04', icms12Pct: '4.46', icms18Pct: '35.5' },
+        : { metaVolumeM3: '5000', icms7Pct: '60.04', icms12Pct: '4.46', icms18Pct: '35.5', diasUteisProducao: '', diasUteisVendas: '' },
     )
     setDistribuidores(d.ok ? await d.json() : [])
     setProdutos(p.ok ? await p.json() : [])
@@ -108,6 +131,8 @@ export default function CotasVendaPage() {
         icms7Pct: Number(settingsForm.icms7Pct),
         icms12Pct: Number(settingsForm.icms12Pct),
         icms18Pct: Number(settingsForm.icms18Pct),
+        diasUteisProducao: settingsForm.diasUteisProducao ? Number(settingsForm.diasUteisProducao) : null,
+        diasUteisVendas: settingsForm.diasUteisVendas ? Number(settingsForm.diasUteisVendas) : null,
       }),
     })
     setSettingsSaving(false)
@@ -422,6 +447,36 @@ export default function CotasVendaPage() {
         <p className={`mt-2 text-xs ${Math.abs(somaIcms - 100) > 0.1 ? 'text-red-600' : 'text-slate-500'}`}>
           Soma das 3 faixas: {somaIcms}% {Math.abs(somaIcms - 100) > 0.1 && '— precisa somar 100%'}
         </p>
+
+        <h3 className="mt-4 text-sm font-medium">Dias úteis do mês</h3>
+        <p className="mt-1 text-xs text-slate-500">
+          Total de dias úteis do mês, opcional — sobrescreve o cálculo automático (seg-sex, sem feriados) usado no
+          ritmo de produção/vendas. Deixe em branco pra manter o automático (mostrado como referência abaixo).
+        </p>
+        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div>
+            <label className="block text-xs font-medium text-slate-600">Dias úteis — produção</label>
+            <input
+              type="number"
+              min={0}
+              value={settingsForm.diasUteisProducao}
+              onChange={(e) => setSettingsForm((f) => ({ ...f, diasUteisProducao: e.target.value }))}
+              placeholder={`auto: ${diasUteisAutomaticoDoMes(month)}`}
+              className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600">Dias úteis — vendas</label>
+            <input
+              type="number"
+              min={0}
+              value={settingsForm.diasUteisVendas}
+              onChange={(e) => setSettingsForm((f) => ({ ...f, diasUteisVendas: e.target.value }))}
+              placeholder={`auto: ${diasUteisAutomaticoDoMes(month)}`}
+              className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+            />
+          </div>
+        </div>
         {settingsError && <p className="mt-2 text-sm text-red-600">{settingsError}</p>}
         <button
           onClick={salvarSettings}

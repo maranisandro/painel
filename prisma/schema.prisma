@@ -896,17 +896,23 @@ model CriticaModeloAchado {
 // nos dados reais (nenhuma UF mapeia pra isso), confirmado com o usuário
 // 2026-08-12 antes de implementar.
 model MonthlyQuotaSettings {
-  id           String   @id @default(uuid())
-  month        DateTime @unique // sempre dia 1 do mês (ex.: 2026-08-01)
-  metaVolumeM3 Decimal  @map("meta_volume_m3")
-  icms7Pct     Decimal  @map("icms_7_pct") // meta %, ex. 60
-  icms12Pct    Decimal  @map("icms_12_pct") // meta %, ex. 20
-  icms18Pct    Decimal  @map("icms_18_pct") // meta %, ex. 20
-  holdingId    String?  @map("holding_id")
-  companyId    String?  @map("company_id")
-  branchId     String?  @map("branch_id")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  id                String   @id @default(uuid())
+  month             DateTime @unique // sempre dia 1 do mês (ex.: 2026-08-01)
+  metaVolumeM3      Decimal  @map("meta_volume_m3")
+  icms7Pct          Decimal  @map("icms_7_pct") // meta %, ex. 60
+  icms12Pct         Decimal  @map("icms_12_pct") // meta %, ex. 20
+  icms18Pct         Decimal  @map("icms_18_pct") // meta %, ex. 20
+  holdingId         String?  @map("holding_id")
+  companyId         String?  @map("company_id")
+  branchId          String?  @map("branch_id")
+  // Total de dias úteis do mês, cadastrado manualmente (produção e vendas podem
+  // divergir — ex. fábrica para num feriado, comercial continua vendendo).
+  // Nulo = sem cadastro, cai no cálculo automático seg-sex (ver diasUteisRestantesNoMes
+  // em src/lib/fase3/cotas.ts). Pedido do usuário 2026-09-21.
+  diasUteisProducao Int?     @map("dias_uteis_producao")
+  diasUteisVendas   Int?     @map("dias_uteis_vendas")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
 
   @@map("monthly_quota_settings")
 }

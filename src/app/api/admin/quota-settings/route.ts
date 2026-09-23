@@ -10,6 +10,8 @@ const settingsSchema = z.object({
   icms7Pct: z.number().min(0).max(100),
   icms12Pct: z.number().min(0).max(100),
   icms18Pct: z.number().min(0).max(100),
+  diasUteisProducao: z.number().int().positive().nullable().optional(),
+  diasUteisVendas: z.number().int().positive().nullable().optional(),
 })
 
 function firstDay(month: string): Date {
@@ -35,17 +37,18 @@ export async function POST(req: NextRequest) {
   const parsed = settingsSchema.safeParse(await req.json())
   if (!parsed.success) return badRequest(parsed.error.issues.map((i) => i.message).join('; '))
 
-  const { month, metaVolumeM3, icms7Pct, icms12Pct, icms18Pct } = parsed.data
+  const { month, metaVolumeM3, icms7Pct, icms12Pct, icms18Pct, diasUteisProducao, diasUteisVendas } = parsed.data
   const somaIcms = icms7Pct + icms12Pct + icms18Pct
   if (Math.abs(somaIcms - 100) > 0.1) {
     return badRequest(`As 3 faixas de ICMS devem somar 100% (soma atual: ${somaIcms}%).`)
   }
 
   const monthDate = firstDay(month)
+  const diasUteis = { diasUteisProducao: diasUteisProducao ?? null, diasUteisVendas: diasUteisVendas ?? null }
   const record = await prisma.monthlyQuotaSettings.upsert({
     where: { month: monthDate },
-    update: { metaVolumeM3, icms7Pct, icms12Pct, icms18Pct },
-    create: { month: monthDate, metaVolumeM3, icms7Pct, icms12Pct, icms18Pct },
+    update: { metaVolumeM3, icms7Pct, icms12Pct, icms18Pct, ...diasUteis },
+    create: { month: monthDate, metaVolumeM3, icms7Pct, icms12Pct, icms18Pct, ...diasUteis },
   })
   await logAudit({
     userId: auth.user.id,
