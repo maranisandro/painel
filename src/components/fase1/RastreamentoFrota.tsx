@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { MapaFrota } from './MapaFrota'
+import { TrechoMadrugadaMapa } from './TrechoMadrugadaMapa'
 import { DateRangeInputs, formatBRInput, parseBRToIso, fmtDateBR, MiniCalendarButton } from '@/components/shared/DateRangeInputs'
 import { SortableTable } from '@/components/shared/SortableTable'
 
@@ -112,6 +113,7 @@ interface NoiteRodandoInfo {
   placa: string
   noite: string
   horasRodando: number
+  kmEstimado: number
   nPosicoes: number
   primeiraHora: string
   ultimaHora: string
@@ -1109,11 +1111,13 @@ export function RastreamentoFrota({
                     ),
                 },
                 { key: 'horasRodando', label: 'Horas rodando', align: 'right', sortValue: (r) => r.horasRodando, render: (r) => `${r.horasRodando.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}h` },
+                { key: 'kmEstimado', label: 'KM estimado', align: 'right', sortValue: (r) => r.kmEstimado, render: (r) => `${r.kmEstimado.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} km` },
                 { key: 'primeira', label: 'Primeira posição', sortValue: (r) => new Date(r.primeiraHora).getTime(), render: (r) => <span className="whitespace-nowrap">{fmtDataHora(r.primeiraHora)}</span> },
                 { key: 'ultima', label: 'Última posição', sortValue: (r) => new Date(r.ultimaHora).getTime(), render: (r) => <span className="whitespace-nowrap">{fmtDataHora(r.ultimaHora)}</span> },
                 { key: 'localInicio', label: 'Local (início)', sortValue: (r) => r.localizacaoInicio ?? '', render: (r) => <span className="text-xs text-slate-500">{r.localizacaoInicio ?? '—'}</span> },
                 { key: 'localFim', label: 'Local (fim)', sortValue: (r) => r.localizacaoFim ?? '', render: (r) => <span className="text-xs text-slate-500">{r.localizacaoFim ?? '—'}</span> },
               ]}
+              renderExpanded={(r) => <TrechoMadrugadaMapa placa={r.placa} noite={r.noite} />}
             />
           </div>
         </div>
