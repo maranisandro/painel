@@ -252,27 +252,32 @@ export async function fetchPosicoesDaPlaca(
   }
 }
 
-// Janela fixa por execução — pedido do usuário 2026-09-21: "buscar a cada 10
-// minutos, mas trazer só um minuto anterior ao invés de trazer todo o
-// histórico, isto vai reduzir o volume de dados a recuperar". Substitui o
-// esquema anterior (marca d'água por placa + teto de 24h + rodízio de 15
-// placas por execução) por uma janela curta e FIXA, igual para toda placa,
-// toda execução — sempre "1 minuto atrás até agora", nunca crescendo pra
-// cobrir atraso acumulado. Trade-off aceito conscientemente: se o job ficar
-// fora do ar (deploy, crash, fila presa), o histórico daquele intervalo é
-// perdido (não há tentativa de recuperar depois) — aceitável porque o
-// consumo real deste dataset é "onde está o caminhão agora" (mapa da
-// frota), não reconstrução de viagem posição a posição.
-const JANELA_FIXA_MS = 60_000
+// Volta a usar a marca d'água real (achado 2026-09-23: a janela fixa de 1
+// min abaixo, decidida em 2026-09-21 antes de existir a reconstrução de
+// trecho de madrugada, descartava estruturalmente ~90% do histórico —
+// confirmado ao vivo consultando a Omnilink direto: a fonte tem posição
+// contínua o tempo todo, só o NOSSO cache tinha buracos de dezenas de
+// minutos entre cada janela de 1 min). `_watermark` (recebido do motor de
+// sync) volta a ser lido: busca desde a última posição conhecida até agora,
+// com um TETO de segurança (`TETO_ATRASO_MS`) pra não disparar uma busca
+// gigante em todas as placas se o job ficar fora do ar por muito tempo
+// (deploy, crash, fila presa) — mesmo espírito do esquema anterior a
+// 2026-09-21, só que sem o rodízio de 15 placas por execução (mantido:
+// "sem rodízio" já provou ser leve o suficiente com a frota atual). Upsert
+// já é idempotente por `placa,_capturedAtIso` — sobreposição de janela
+// entre execuções não duplica nada.
+const TETO_ATRASO_MS = 2 * 3_600_000 // 2h — evita backfill gigante após downtime longo
 
 export async function fetchOmnilinkPosicoes(
   source: DataSource,
   _dataset: Dataset,
-  _watermark: string | null,
+  watermark: string | null,
   syncRunId?: string,
 ): Promise<ExternalRow[]> {
   const agora = new Date()
-  const inicio = new Date(agora.getTime() - JANELA_FIXA_MS)
+  const desdeWatermark = watermark ? new Date(watermark) : null
+  const tetoAtraso = new Date(agora.getTime() - TETO_ATRASO_MS)
+  const inicio = desdeWatermark && desdeWatermark > tetoAtraso ? desdeWatermark : tetoAtraso
 
   // Sem rodízio (pedido do usuário 2026-09-21) — com a janela fixa de 1 min
   // (bem mais leve que os até 24h de antes), consultar a frota inteira a
