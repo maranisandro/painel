@@ -7,6 +7,8 @@ import { ComparativoCotas, type ComparativoCotasData } from './ComparativoCotas'
 import { ClienteFiltro } from './ClienteFiltro'
 import { TabelaDistribuidores } from './TabelaDistribuidores'
 import { VisibilidadeBadge } from './VisibilidadeBadge'
+import { ConsumidorBadge } from './ConsumidorBadge'
+import type { CategoriaConsumidor } from '@/lib/fase3/faturamento'
 import { SortableTable, type SortableColumn } from '@/components/shared/SortableTable'
 
 // Cores fixas por identidade (Mourão/Peças), nunca cicladas — mesma paleta
@@ -133,6 +135,7 @@ interface EstrategicoData {
   mesDetalhe: MesDetalhe | null
   comparativoCotas: ComparativoCotasData | null
   linhasSemDados: boolean
+  clienteConsumidor: Record<string, CategoriaConsumidor | null>
 }
 
 function fmt(n: number | null, digits = 0): string {
@@ -779,6 +782,7 @@ export function PainelEstrategico() {
         porDistribuidorCliente={data?.porDistribuidorCliente ?? []}
         porDistribuidorClienteProduto={data?.porDistribuidorClienteProduto ?? []}
         distribuidoresSemVenda={data?.distribuidoresSemVenda ?? []}
+        clienteConsumidor={data?.clienteConsumidor}
       />
 
       {[...perdaPorTabela.entries()].map(([tabelaPreco, linhas]) => (
@@ -859,7 +863,10 @@ export function PainelEstrategico() {
                         <tbody>
                           {clientes.map((c) => (
                             <tr key={c.cliente} className="border-t border-slate-100">
-                              <td className="py-1 pl-2">{c.cliente}</td>
+                              <td className="py-1 pl-2">
+                                {c.cliente}
+                                <ConsumidorBadge categoria={data?.clienteConsumidor[c.cliente] ?? null} />
+                              </td>
                               <td className="py-1 text-right">{fmtMoeda(c.valorM3Vendido)}</td>
                               <td className="py-1 text-right">{fmtMoeda(c.precoPonderado)}</td>
                               <td className="py-1 text-right text-red-700">{c.perdaEstimada > 0 ? fmtMoeda(c.perdaEstimada) : '—'}</td>

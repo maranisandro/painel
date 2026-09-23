@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { CategoriaFiltro, CATEGORIA_PADRAO } from './CategoriaFiltro'
 import { SortableTable, type SortableColumn } from '@/components/shared/SortableTable'
+import { ConsumidorBadge } from './ConsumidorBadge'
+import type { CategoriaConsumidor } from '@/lib/fase3/faturamento'
 
 interface ClienteHistorico {
   cliente: string
@@ -20,6 +22,7 @@ interface ClienteHistorico {
   codetd: string
   /** derivada do estado (CODETD) do cadastro — `null` sem estado cadastrado */
   tabelaIcms: string | null
+  categoriaConsumidor: CategoriaConsumidor | null
 }
 
 interface ClientesData {
@@ -47,7 +50,17 @@ function fmtMes(iso: string): string {
 
 function colunas(): SortableColumn<ClienteHistorico>[] {
   return [
-    { key: 'cliente', label: 'Cliente', sortValue: (c) => c.cliente, render: (c) => <span className="font-medium">{c.cliente}</span> },
+    {
+      key: 'cliente',
+      label: 'Cliente',
+      sortValue: (c) => c.cliente,
+      render: (c) => (
+        <span className="font-medium">
+          {c.cliente}
+          <ConsumidorBadge categoria={c.categoriaConsumidor} />
+        </span>
+      ),
+    },
     { key: 'distribuidor', label: 'Distribuidor', sortValue: (c) => c.distribuidor, render: (c) => c.distribuidor },
     { key: 'cidade', label: 'Cidade/UF', sortValue: (c) => c.cidade, render: (c) => `${c.cidade}${c.codetd && c.codetd !== '—' ? '/' + c.codetd : ''}` },
     {

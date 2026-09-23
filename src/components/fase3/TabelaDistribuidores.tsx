@@ -3,6 +3,8 @@
 import { Fragment, useState } from 'react'
 import { SortableTable, type SortableColumn } from '@/components/shared/SortableTable'
 import { VisibilidadeBadge } from './VisibilidadeBadge'
+import { ConsumidorBadge } from './ConsumidorBadge'
+import type { CategoriaConsumidor } from '@/lib/fase3/faturamento'
 
 interface VendaAgregada {
   chave: string
@@ -77,12 +79,14 @@ export function TabelaDistribuidores({
   porDistribuidorCliente,
   porDistribuidorClienteProduto,
   distribuidoresSemVenda,
+  clienteConsumidor,
 }: {
   titulo: string
   porDistribuidor: VendaAgregada[]
   porDistribuidorCliente: DistribuidorCliente[]
   porDistribuidorClienteProduto?: DistribuidorClienteProduto[]
   distribuidoresSemVenda: string[]
+  clienteConsumidor?: Record<string, CategoriaConsumidor | null>
 }) {
   const [clientesAbertos, setClientesAbertos] = useState<Set<string>>(new Set())
 
@@ -210,7 +214,10 @@ export function TabelaDistribuidores({
                             </button>
                           )}
                         </td>
-                        <td className="py-1 pl-2">{c.cliente}</td>
+                        <td className="py-1 pl-2">
+                          {c.cliente}
+                          <ConsumidorBadge categoria={clienteConsumidor?.[c.cliente] ?? null} />
+                        </td>
                         <td className="py-1 text-right">{fmtMoeda(c.faturamentoLiquido)}</td>
                         <td className="py-1 text-right">{fmtMoeda(c.valorM3Vendido)}</td>
                         <td className="py-1 text-right">{fmtMoeda(c.precoPonderado)}</td>

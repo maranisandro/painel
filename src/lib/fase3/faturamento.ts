@@ -66,6 +66,8 @@ export interface VendaLinha {
   /** FCFOCOMPL.DISTRIBUIDOR bruto (ex. "C00003154") — usado para casar com DistributorQuota.codDistribuidor; distinto de `distribuidor` (bucket ABREV_DISTRIBUIDOR usado para exibição/agrupamento) */
   codDistribuidor: string
   cliente: string
+  /** TMOV.CODCFO — código real do cliente no ERP, único (diferente de `cliente`, que é a razão social exibida e PODE se repetir entre CODCFO diferentes — achado 2026-09-23, ex. "MADEIREIRA IDEAL" e "LINEAGRO PRODUTOS AGROPECUARIOS SA" cada um com 2 CODCFO distintos). Usar para conferência/desambiguação, nunca só o nome. */
+  codCfo: string
   produto: string
   /** TPRD.CODIGOPRD (ex. "95.02.070006") — usado para casar com ProductQuota.codigoPrd; distinto de `produto` (nome de exibição) */
   codigoPrd: string
@@ -163,6 +165,8 @@ export interface VendaLinha {
    * usado só para achar, por CODIGOPRD, o saldo atual em `compararComCotas`.
    */
   saldoFisico: number
+  /** Classificação do cliente (RM.FCFOCOMPL.CONSUMIDOR normalizado) — ver `classificarConsumidor`. `null` = sem classificação cadastrada no ERP (maioria dos casos). */
+  categoriaConsumidor: CategoriaConsumidor | null
 }
 
 const REGEX_CLASSE_DIAMETRO = /X\s*(\d{2})\s*-\s*(\d{2})/
@@ -170,6 +174,35 @@ const REGEX_CLASSE_DIAMETRO = /X\s*(\d{2})\s*-\s*(\d{2})/
 function classeDiametro(produto: string): string | null {
   const m = produto.match(REGEX_CLASSE_DIAMETRO)
   return m ? `${m[1]}-${m[2]}` : null
+}
+
+/**
+ * Classificação do tipo de cliente (RM.FCFOCOMPL.CONSUMIDOR) — pedido do
+ * usuário 2026-09-22: ícone/selo ao lado do nome do cliente nas telas de
+ * venda, e quebra de maior/menor/média por essa classificação na Dispersão
+ * de preço. Campo é texto livre digitado à mão no ERP (confirmado ao vivo:
+ * ~129 mil linhas em FCFOCOMPL, 93% vazias, e o resto cheio de variação de
+ * grafia — "EMPRETEIRA", "COSUMIDOR"/"ONSUMIDOR"/"CONSUNIDOR" etc.) — por
+ * isso a comparação é por regex tolerante a erro, não igualdade exata, mesmo
+ * padrão de `categoriaProduto()` em `src/lib/fase1/fuel.ts`. `null` = campo
+ * vazio ou valor raro que não bate em nenhum padrão conhecido (ex.: CLIENTE,
+ * COLIGADA, PRODUTOR RURAL, DEPÓSITO — cada um com 1-9 ocorrências no total).
+ */
+export type CategoriaConsumidor = 'revenda' | 'consumidor' | 'funcionario' | 'empreiteira' | 'outros'
+
+const REVENDA_MATCH = /REVEND|DISTRIBUIDOR/i
+const CONSUMIDOR_MATCH = /C?[O0]N?SUM[I1]D[O0]R/i
+const FUNCIONARIO_MATCH = /FUNCION[AÁ]RIO|COLABORADOR/i
+const EMPREITEIRA_MATCH = /EMPRE[IE]?TEIRA/i
+
+export function classificarConsumidor(raw: unknown): CategoriaConsumidor | null {
+  const v = String(raw ?? '').trim()
+  if (!v) return null
+  if (REVENDA_MATCH.test(v)) return 'revenda'
+  if (CONSUMIDOR_MATCH.test(v)) return 'consumidor'
+  if (FUNCIONARIO_MATCH.test(v)) return 'funcionario'
+  if (EMPREITEIRA_MATCH.test(v)) return 'empreiteira'
+  return 'outros'
 }
 
 // CODTMV que participam do painel de vendas — pedido do usuário 2026-08-20:
@@ -251,6 +284,7 @@ export function prepararVendas(rows: Row[], from: string, to: string, config: Co
       distribuidor,
       codDistribuidor: String(r.CODDISTRIBUIDOR ?? '').trim(),
       cliente: String(r.CLIENTE ?? '').trim(),
+      codCfo: String(r.CODCFO ?? '').trim(),
       produto,
       codigoPrd: String(r.CODIGOPRD ?? '').trim(),
       tipoProduto,
@@ -278,6 +312,7 @@ export function prepararVendas(rows: Row[], from: string, to: string, config: Co
       marca: String(r.Marca ?? 'Amaru'),
       classeDiametro: classeDiametro(produto),
       saldoFisico: num(r.SALDO_FISICO_ATUAL),
+      categoriaConsumidor: classificarConsumidor(r.CONSUMIDOR),
     })
   }
   return out
@@ -422,6 +457,44 @@ export interface VendaAgregada {
  * tabela de preço, ou combinação) — a mesma função serve tanto para a
  * tabela detalhada quanto para totais por distribuidor.
  */
+/**
+ * Nome do cliente → classificação (RM.FCFOCOMPL.CONSUMIDOR normalizado) —
+ * pedido do usuário 2026-09-22: selo de classificação em TODA tela que
+ * mostra nome de cliente. Cada rota de API da Fase 3 monta seu próprio
+ * `linhas` (via `prepararVendas`) e seus próprios agregados por cliente
+ * (`porCliente`, `top3Clientes`, achados da Crítica ao modelo, etc.), sem
+ * repassar `categoriaConsumidor` adiante — este helper resolve isso de um
+ * jeito só, chamado em cada rota, com o resultado incluído na resposta
+ * (`clienteConsumidor`) e usado pelos componentes pra fazer o lookup por
+ * nome na hora de renderizar o selo (`ConsumidorBadge`).
+ *
+ * Correção 2026-09-23 (achado real: "MADEIREIRA IDEAL" e "LINEAGRO PRODUTOS
+ * AGROPECUARIOS SA" são cada um DOIS CODCFO diferentes com a mesma razão
+ * social) — essas agregações "por cliente" da Fase 3 já eram todas por NOME
+ * antes desta feature existir (não é problema novo, é arquitetura antiga do
+ * módulo), então não dá pra resolver a ambiguidade sem repassar CODCFO por
+ * toda a cadeia de agregação. O que dá pra fazer aqui: nunca escolher uma
+ * classificação arbitrária ("o último que processar ganha") quando dois
+ * CODCFO do mesmo nome DIVERGEM de fato — nesse caso fica `null` (sem selo),
+ * que é o resultado seguro. Tabelas que já mostram a transação bruta (ex.
+ * Dispersão de preço, via `TransacaoPreco.codCfo`) não passam por aqui —
+ * usam a classificação da própria linha, sempre exata.
+ */
+export function mapaConsumidorPorCliente(linhas: VendaLinha[]): Record<string, CategoriaConsumidor | null> {
+  const vistos = new Map<string, Set<CategoriaConsumidor>>()
+  for (const l of linhas) {
+    if (!l.cliente || l.categoriaConsumidor == null) continue
+    const s = vistos.get(l.cliente) ?? new Set<CategoriaConsumidor>()
+    s.add(l.categoriaConsumidor)
+    vistos.set(l.cliente, s)
+  }
+  const out: Record<string, CategoriaConsumidor | null> = {}
+  for (const [cliente, categorias] of vistos.entries()) {
+    out[cliente] = categorias.size === 1 ? [...categorias][0] : null
+  }
+  return out
+}
+
 export function agregarVendas(linhas: VendaLinha[], chaveFn: (l: VendaLinha) => string): VendaAgregada[] {
   // Pedido do usuário 2026-09-04: TMOV.IDMOVRELAC (`idMovRelac`) é a chave
   // real do Oracle que liga uma devolução ao movimento original que ela
@@ -933,17 +1006,41 @@ export interface TransacaoPreco {
   data: string
   distribuidor: string
   cliente: string
+  /** ver `VendaLinha.codCfo` — mostrado para conferência quando a razão social se repete entre clientes diferentes */
+  codCfo: string
   preco: number
+  categoriaConsumidor: CategoriaConsumidor | null
+}
+
+/** Rótulo de exibição por categoria — usado na quebra da Dispersão de preço e no selo `ConsumidorBadge`. */
+export const CATEGORIA_CONSUMIDOR_LABEL: Record<CategoriaConsumidor, string> = {
+  revenda: 'Revenda',
+  consumidor: 'Consumidor final',
+  funcionario: 'Funcionário',
+  empreiteira: 'Empreiteira',
+  outros: 'Outros',
 }
 
 export interface DispersaoPreco {
   produto: string
   tabelaPreco: string
+  /**
+   * Classificação do cliente (RM.FCFOCOMPL.CONSUMIDOR) — pedido do usuário
+   * 2026-09-23: "fazer uma análise por produto e tipo de consumidor, não
+   * misturar por exemplo revenda e consumidor final". Faz parte da CHAVE de
+   * agrupamento (não é mais uma quebra aninhada dentro de um número
+   * único/misturado) — cada linha da Dispersão de preço é UM produto × UMA
+   * alíquota × UM tipo de consumidor, nunca uma média que mistura tipos
+   * diferentes. Transações sem classificação cadastrada no ERP ficam de fora
+   * (pedido do usuário 2026-09-23: "quando não houver não precisa trazer") —
+   * por isso nunca `null` aqui, diferente de `VendaLinha`/`TransacaoPreco`.
+   */
+  categoriaConsumidor: CategoriaConsumidor
   n: number
   precoMin: number
   precoMax: number
   precoMedio: number
-  /** (precoMax - precoMin) / precoMedio — quanto o preço varia dentro da mesma alíquota de ICMS para o mesmo produto */
+  /** (precoMax - precoMin) / precoMedio — quanto o preço varia dentro da mesma alíquota/tipo de consumidor para o mesmo produto */
   variacaoPct: number
   /**
    * Transação (NF/cliente/data) que praticou o preço mínimo e o máximo —
@@ -957,35 +1054,57 @@ export interface DispersaoPreco {
 }
 
 /**
- * Para cada produto × tabela de ICMS, mede o quanto o PRECO_VENDIDO varia
- * entre as vendas (pedido do usuário 2026-08-04: "mostrar produtos que têm
- * um valor considerável de preço entre as vendas de acordo com cada
- * alíquota de ICMS") — um produto vendido pela mesma alíquota a preços
- * muito diferentes é candidato a inconsistência comercial (desconto informal,
- * erro de tabela, etc.), não só perda de preço médio.
+ * Para cada produto × tabela de ICMS × tipo de consumidor, mede o quanto o
+ * PRECO_VENDIDO varia entre as vendas (pedido do usuário 2026-08-04: "mostrar
+ * produtos que têm um valor considerável de preço entre as vendas de acordo
+ * com cada alíquota de ICMS"; refinado 2026-09-23: "não misturar por exemplo
+ * revenda e consumidor final, mostrar o comparativo entre cada tipo de
+ * consumidor" — cada perfil de cliente negocia num patamar de preço
+ * diferente por natureza, então misturar os dois no mesmo min/max/média
+ * mascarava a variação real dentro de cada perfil e inflava a variação total
+ * com uma diferença que é esperada, não uma inconsistência). Um produto
+ * vendido pela mesma alíquota, ao MESMO tipo de consumidor, a preços muito
+ * diferentes é candidato a inconsistência comercial (desconto informal, erro
+ * de tabela, etc.) — comparar entre tipos diferentes fica a cargo de quem lê
+ * a tabela (linhas adjacentes ao ordenar por produto), não da métrica.
  */
 export function dispersaoPrecoPorProdutoTabela(linhas: VendaLinha[], minVendas = 3): DispersaoPreco[] {
   const acc = new Map<string, { transacoes: TransacaoPreco[] }>()
   for (const l of linhas) {
     if (l.tipoMovimento !== 'Vendas' || l.quantidade <= 0) continue
+    // Pedido do usuário 2026-09-23: "quando não houver [classificação] não
+    // precisa trazer" — transação sem CONSUMIDOR cadastrado no ERP fica de
+    // fora da Dispersão de preço (não forma mais seu próprio grupo "Sem
+    // classificação").
+    if (l.categoriaConsumidor == null) continue
     const precoUnitario = l.valorBruto / l.quantidade
     if (!Number.isFinite(precoUnitario) || precoUnitario <= 0) continue
-    const chave = `${l.produto}|${l.tabelaPreco}`
+    const chave = `${l.produto}|${l.tabelaPreco}|${l.categoriaConsumidor}`
     const e = acc.get(chave) ?? { transacoes: [] }
-    e.transacoes.push({ numeroMov: l.numeroMov, data: l.data, distribuidor: l.distribuidor, cliente: l.cliente, preco: precoUnitario })
+    e.transacoes.push({
+      numeroMov: l.numeroMov,
+      data: l.data,
+      distribuidor: l.distribuidor,
+      cliente: l.cliente,
+      codCfo: l.codCfo,
+      preco: precoUnitario,
+      categoriaConsumidor: l.categoriaConsumidor,
+    })
     acc.set(chave, e)
   }
 
   return [...acc.entries()]
     .filter(([, e]) => e.transacoes.length >= minVendas)
     .map(([chave, e]) => {
-      const [produto, tabelaPreco] = chave.split('|')
+      const [produto, tabelaPreco, categoriaRaw] = chave.split('|')
       const precoMin = Math.min(...e.transacoes.map((t) => t.preco))
       const precoMax = Math.max(...e.transacoes.map((t) => t.preco))
       const precoMedio = e.transacoes.reduce((s, t) => s + t.preco, 0) / e.transacoes.length
+
       return {
         produto,
         tabelaPreco,
+        categoriaConsumidor: categoriaRaw as CategoriaConsumidor,
         n: e.transacoes.length,
         precoMin,
         precoMax,
@@ -995,7 +1114,7 @@ export function dispersaoPrecoPorProdutoTabela(linhas: VendaLinha[], minVendas =
         notaMax: e.transacoes.find((t) => t.preco === precoMax) ?? null,
       }
     })
-    .sort((a, b) => b.variacaoPct - a.variacaoPct)
+    .sort((a, b) => a.produto.localeCompare(b.produto) || a.tabelaPreco.localeCompare(b.tabelaPreco) || b.variacaoPct - a.variacaoPct)
 }
 
 export interface VendaAbaixoTabela4 {

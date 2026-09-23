@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSessionUser, hasModuleAccess } from '@/lib/authz'
 import { getDatasetView } from '@/lib/semantic/dataset-view'
-import { prepararVendas, agregarVendas, registrosAlteradosAposFechamento } from '@/lib/fase3/faturamento'
+import { prepararVendas, agregarVendas, registrosAlteradosAposFechamento, mapaConsumidorPorCliente } from '@/lib/fase3/faturamento'
 import { carregarMetaPeriodo, resolverConfigVendas } from '@/lib/fase3/cotas'
 import { aplicarEscopoUsuario } from '@/lib/fase3/escopo-usuario'
 import { buildCompositionResolver } from '@/lib/fase1/composition'
@@ -253,6 +253,7 @@ export async function GET(req: NextRequest) {
     achado12NotaVendaAposTritrem: achado12,
     achadosOperacionais,
     totalAberto: achadosOperacionais.filter((a) => a.status === 'aberto').length,
+    clienteConsumidor: mapaConsumidorPorCliente(linhas),
   })
 }
 

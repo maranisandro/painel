@@ -489,6 +489,8 @@ export interface MetaPeriodo {
   distribuidoresPorMes: { mes: string; codDistribuidor: string; metaValor: number }[]
   /** cota de cada produto em CADA mês individualmente (não somada) — pedido do usuário 2026-09-10: ritmo por produto (mesma finalidade de distribuidoresPorMes) */
   produtosPorMes: { mes: string; codigoPrd: string; cotaUnidades: number }[]
+  /** dias úteis cadastrados manualmente por mês (produção/vendas podem divergir) — null = sem cadastro, cai no automático seg-sex. Pedido do usuário 2026-09-21. */
+  diasUteisPorMes: { mes: string; diasUteisProducao: number | null; diasUteisVendas: number | null }[]
 }
 
 /**
@@ -513,26 +515,49 @@ export interface RitmoInfo {
   necessarioPorDiaUtil: number | null
 }
 
-/** Dias úteis (seg-sex, sem considerar feriados) do dia seguinte a hoje até o fim de `mesReferencia` — 0 se esse mês já não é o mês corrente (mês fechado ou futuro). */
-function diasUteisRestantesNoMes(mesReferencia: string): number {
-  const hoje = hojeBrasil()
-  if (mesReferencia !== hoje.slice(0, 7)) return 0
+/** Dias úteis (seg-sex, sem considerar feriados) de `mesReferencia` no intervalo [de, até] (ambos inclusive, dias-do-mês 1-31). */
+function contarDiasUteis(mesReferencia: string, de: number, ate: number): number {
   const [ano, mes] = mesReferencia.split('-').map(Number)
-  const ultimoDia = new Date(ano, mes, 0).getDate()
-  const hojeDia = Number(hoje.slice(8, 10))
   let count = 0
-  for (let d = hojeDia + 1; d <= ultimoDia; d++) {
+  for (let d = de; d <= ate; d++) {
     const diaSemana = new Date(ano, mes - 1, d).getDay()
     if (diaSemana !== 0 && diaSemana !== 6) count++
   }
   return count
 }
 
-function calcularRitmo(meta: number | null, realizado: number, diasDoMes: number | null, diasComFaturamento: number, mesReferencia: string): RitmoInfo {
+/**
+ * Dias úteis restantes de `mesReferencia` a partir de hoje — 0 se esse mês já
+ * não é o mês corrente (mês fechado ou futuro). `diasUteisCadastrado` (total
+ * de dias úteis do mês, cadastro manual em `MonthlyQuotaSettings` — pedido do
+ * usuário 2026-09-21, produção e vendas podem divergir) sobrescreve o TOTAL
+ * do mês; o que já passou continua contado pelo automático seg-sex, então sem
+ * cadastro o resultado é idêntico ao automático de sempre (identidade:
+ * totalAutomático − jáPassadoAutomático = restanteAutomático).
+ */
+function diasUteisRestantesNoMes(mesReferencia: string, diasUteisCadastrado?: number | null): number {
+  const hoje = hojeBrasil()
+  if (mesReferencia !== hoje.slice(0, 7)) return 0
+  const [ano, mes] = mesReferencia.split('-').map(Number)
+  const ultimoDia = new Date(ano, mes, 0).getDate()
+  const hojeDia = Number(hoje.slice(8, 10))
+  const jaPassados = contarDiasUteis(mesReferencia, 1, hojeDia)
+  const totalMes = diasUteisCadastrado ?? contarDiasUteis(mesReferencia, 1, ultimoDia)
+  return Math.max(0, totalMes - jaPassados)
+}
+
+function calcularRitmo(
+  meta: number | null,
+  realizado: number,
+  diasDoMes: number | null,
+  diasComFaturamento: number,
+  mesReferencia: string,
+  diasUteisCadastrado?: number | null,
+): RitmoInfo {
   const ritmoEsperado = meta != null && diasDoMes ? (meta / diasDoMes) * diasComFaturamento : null
   const dentroDoRitmo = ritmoEsperado != null ? realizado >= ritmoEsperado : null
   const projecaoFechamento = diasComFaturamento > 0 && diasDoMes ? (realizado / diasComFaturamento) * diasDoMes : null
-  const diasUteisRestantes = diasUteisRestantesNoMes(mesReferencia)
+  const diasUteisRestantes = diasUteisRestantesNoMes(mesReferencia, diasUteisCadastrado)
   const faltante = meta != null ? meta - realizado : null
   const necessarioPorDiaUtil =
     faltante == null ? null : faltante <= 0 ? 0 : diasUteisRestantes > 0 ? faltante / diasUteisRestantes : null
@@ -573,6 +598,7 @@ function calcularRitmoProducao(
   diasDoMes: number | null,
   diasDecorridos: number,
   mesReferencia: string,
+  diasUteisProducaoCadastrado?: number | null,
 ): RitmoInfo {
   if (saldoFisico == null) {
     return {
@@ -581,11 +607,11 @@ function calcularRitmoProducao(
       ritmoEsperado: null,
       dentroDoRitmo: null,
       projecaoFechamento: null,
-      diasUteisRestantes: diasUteisRestantesNoMes(mesReferencia),
+      diasUteisRestantes: diasUteisRestantesNoMes(mesReferencia, diasUteisProducaoCadastrado),
       necessarioPorDiaUtil: null,
     }
   }
-  return calcularRitmo(meta, vendidoNoMes + saldoFisico, diasDoMes, diasDecorridos, mesReferencia)
+  return calcularRitmo(meta, vendidoNoMes + saldoFisico, diasDoMes, diasDecorridos, mesReferencia, diasUteisProducaoCadastrado)
 }
 
 /** Carrega e consolida (soma/média ponderada) as cotas cadastradas para todo mês tocado pelo período `from`..`to`. */
@@ -650,6 +676,11 @@ export async function carregarMetaPeriodo(from: string, to: string): Promise<Met
       mes: r.month.toISOString().slice(0, 7),
       codigoPrd: r.codigoPrd,
       cotaUnidades: Number(r.cotaUnidades),
+    })),
+    diasUteisPorMes: settings.map((r) => ({
+      mes: r.month.toISOString().slice(0, 7),
+      diasUteisProducao: r.diasUteisProducao,
+      diasUteisVendas: r.diasUteisVendas,
     })),
   }
 }
@@ -826,6 +857,9 @@ export function compararComCotas(
   const realizadoM3 = total?.m3Total ?? 0
 
   const mesReferencia = to.slice(0, 7)
+  const diasUteisMesRef = meta.diasUteisPorMes.find((m) => m.mes === mesReferencia) ?? null
+  const diasUteisProducaoMesRef = diasUteisMesRef?.diasUteisProducao ?? null
+  const diasUteisVendasMesRef = diasUteisMesRef?.diasUteisVendas ?? null
   const metaMesRef = meta.metaVolumePorMes.find((m) => m.mes === mesReferencia)?.metaVolumeM3 ?? null
   const [anoRef, mesRefNum] = mesReferencia.split('-').map(Number)
   const diasDoMes = anoRef && mesRefNum ? new Date(anoRef, mesRefNum, 0).getDate() : null
@@ -835,7 +869,7 @@ export function compararComCotas(
   const diasComFaturamentoVolume = new Set(
     linhasDoMes.filter((l) => l.tipoMovimento === 'Vendas' && l.contaM3 && l.m3Total > 0).map((l) => l.data),
   ).size
-  const ritmoVolume = calcularRitmo(metaMesRef, realizadoM3Mes, diasDoMes, diasComFaturamentoVolume, mesReferencia)
+  const ritmoVolume = calcularRitmo(metaMesRef, realizadoM3Mes, diasDoMes, diasComFaturamentoVolume, mesReferencia, diasUteisVendasMesRef)
 
   const volume: ComparativoVolume = {
     metaVolumeM3: meta.metaVolumeM3,
@@ -892,8 +926,24 @@ export function compararComCotas(
   // Ritmo por distribuidor (pedido do usuário 2026-08-13: "para a meta do
   // distribuidor precisamos fazer a mesma conta do ritmo") — meta e
   // realizado restritos ao MÊS de referência (não o período somado), igual
-  // ao volume; dias com faturamento contam só os dias em que ESSE
-  // distribuidor teve venda, não a frota inteira.
+  // ao volume.
+  //
+  // Correção 2026-09-23 (achado do usuário no totalizador "Por distribuidor":
+  // a soma das projeções de fechamento de cada linha não batia com nada
+  // coerente): "dias com faturamento" ERA calculado por distribuidor (dias em
+  // que só ELE vendeu) — um distribuidor que vende poucas vezes no mês tinha
+  // a projeção de fechamento artificialmente inflada (realizado dividido por
+  // poucos dias, multiplicado pelos dias do mês inteiro), distorcendo tanto a
+  // linha dele quanto o somatório do totalizador. "Dias com venda não deve
+  // diferenciar por distribuidor, independente quem vendeu ele vale para
+  // todos" — mesmo raciocínio já usado no ritmo de volume
+  // (`diasComFaturamentoVolume` acima: conta qualquer venda da empresa,
+  // não filtra por distribuidor). Agora um único "dias com venda" da empresa
+  // inteira (sem a restrição de m³/contaM3 do volume, que não se aplica a
+  // R$) é calculado uma vez e usado no ritmo de TODOS os distribuidores.
+  const diasComFaturamentoDistribuidores = new Set(
+    linhasDoMes.filter((l) => l.tipoMovimento === 'Vendas').map((l) => l.data),
+  ).size
   const metaDistribuidorMes = new Map<string, number>()
   for (const r of meta.distribuidoresPorMes) {
     if (r.mes !== mesReferencia) continue
@@ -905,11 +955,8 @@ export function compararComCotas(
       const realizado = realizadoPorDistribuidor.get(q.codDistribuidor) ?? 0
       const nomeDistribuidor = nomesClientes?.get(q.codDistribuidor) ?? q.nomeDistribuidor
       const realizadoMes = realizadoPorDistribuidorMes.get(q.codDistribuidor)?.faturamentoLiquido ?? 0
-      const diasComFaturamentoDist = new Set(
-        linhasDoMes.filter((l) => l.tipoMovimento === 'Vendas' && (l.codDistribuidor || '—') === q.codDistribuidor).map((l) => l.data),
-      ).size
       const metaDistMes = metaDistribuidorMes.get(q.codDistribuidor) ?? null
-      const ritmo = calcularRitmo(metaDistMes, realizadoMes, diasDoMes, diasComFaturamentoDist, mesReferencia)
+      const ritmo = calcularRitmo(metaDistMes, realizadoMes, diasDoMes, diasComFaturamentoDistribuidores, mesReferencia, diasUteisVendasMesRef)
       return { ...q, nomeDistribuidor, realizado, pctAtingido: q.metaValor > 0 ? realizado / q.metaValor : null, ritmo }
     })
     .sort((a, b) => (a.pctAtingido ?? 0) - (b.pctAtingido ?? 0))
@@ -962,7 +1009,14 @@ export function compararComCotas(
       const necessarioRestanteUnidades = Math.max(0, q.cotaUnidades - vendidoUnidades)
       const saldoSuficiente = saldoFisico != null ? saldoFisico >= necessarioRestanteUnidades : null
       const vendaMes = vendaProdutoMes.get(q.codigoPrd)
-      const ritmo = calcularRitmo(metaProdutoMes.get(q.codigoPrd) ?? null, vendaMes?.unidades ?? 0, diasDoMes, diasDecorridosMes ?? 0, mesReferencia)
+      const ritmo = calcularRitmo(
+        metaProdutoMes.get(q.codigoPrd) ?? null,
+        vendaMes?.unidades ?? 0,
+        diasDoMes,
+        diasDecorridosMes ?? 0,
+        mesReferencia,
+        diasUteisVendasMesRef,
+      )
       // "quando temos o produto em estoque pode consumir em qualquer
       // momento" — estoque já suficiente pra cobrir o restante da cota
       // anula o atraso de ritmo (só falta vender, não importa quando).
@@ -974,6 +1028,7 @@ export function compararComCotas(
         diasDoMes,
         diasDecorridosMes ?? 0,
         mesReferencia,
+        diasUteisProducaoMesRef,
       )
       return {
         ...q,

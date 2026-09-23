@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSessionUser, hasModuleAccess } from '@/lib/authz'
 import { getDatasetView } from '@/lib/semantic/dataset-view'
-import { prepararVendas, agruparCargas } from '@/lib/fase3/faturamento'
+import { prepararVendas, agruparCargas, mapaConsumidorPorCliente } from '@/lib/fase3/faturamento'
 import { resolverConfigVendas } from '@/lib/fase3/cotas'
 import { aplicarEscopoUsuario } from '@/lib/fase3/escopo-usuario'
 
@@ -116,5 +116,6 @@ export async function GET(req: NextRequest) {
     melhoresCargas,
     pioresCargas,
     direcionamentoPorCliente,
+    clienteConsumidor: mapaConsumidorPorCliente(linhas),
   })
 }

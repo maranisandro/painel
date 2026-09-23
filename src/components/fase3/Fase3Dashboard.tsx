@@ -18,6 +18,8 @@ import { ClientesTab } from './ClientesTab'
 import { ClientesPotenciaisTab } from './ClientesPotenciaisTab'
 import { RelatorioDiaTab } from './RelatorioDiaTab'
 import { UltimaAtualizacao } from '@/components/shared/ui/UltimaAtualizacao'
+import { ConsumidorBadge } from './ConsumidorBadge'
+import { CATEGORIA_CONSUMIDOR_LABEL, type CategoriaConsumidor } from '@/lib/fase3/faturamento'
 
 // Cores fixas por identidade — mesmo padrão de cores já usado em
 // BonificacoesTab: âmbar = "o que foi realizado", cinza = "referência/meta".
@@ -211,6 +213,8 @@ interface ApiData {
   abaixoTabela4Total: { transacoes: number; valorPerdido: number }
   comparativoCotas: ComparativoCotasData | null
   linhasSemDados: boolean
+  /** Nome do cliente → classificação (RM.FCFOCOMPL.CONSUMIDOR) — ver `ConsumidorBadge`. */
+  clienteConsumidor: Record<string, CategoriaConsumidor | null>
 }
 
 interface InsightDiametroMourao {
@@ -237,12 +241,15 @@ interface TransacaoPreco {
   data: string
   distribuidor: string
   cliente: string
+  codCfo: string
   preco: number
+  categoriaConsumidor: CategoriaConsumidor | null
 }
 
 interface DispersaoPreco {
   produto: string
   tabelaPreco: string
+  categoriaConsumidor: CategoriaConsumidor
   n: number
   precoMin: number
   precoMax: number
@@ -300,7 +307,11 @@ function fmtMes(iso: string): string {
  * `porDistribuidorClienteProduto` (já calculado no servidor para o período
  * inteiro), filtrando pelo produto clicado — sem precisar de nova consulta.
  */
-function renderProdutoDistribuidorCliente(produto: string, linhas: (DistribuidorCliente & { produto: string })[]) {
+function renderProdutoDistribuidorCliente(
+  produto: string,
+  linhas: (DistribuidorCliente & { produto: string })[],
+  clienteConsumidor: Record<string, CategoriaConsumidor | null>,
+) {
   const doProduto = linhas.filter((l) => l.produto === produto).sort((a, b) => b.faturamentoLiquido - a.faturamentoLiquido)
   if (!doProduto.length) return <p className="text-xs text-slate-500">Sem detalhe por distribuidor/cliente.</p>
   return (
@@ -319,7 +330,10 @@ function renderProdutoDistribuidorCliente(produto: string, linhas: (Distribuidor
         {doProduto.map((l) => (
           <tr key={`${l.distribuidor}|${l.cliente}`} className="border-t border-slate-100">
             <td className="px-2 py-1">{l.distribuidor}</td>
-            <td className="px-2 py-1">{l.cliente}</td>
+            <td className="px-2 py-1">
+              {l.cliente}
+              <ConsumidorBadge categoria={clienteConsumidor[l.cliente] ?? null} />
+            </td>
             <td className="px-2 py-1 text-right">{fmtMoeda(l.faturamentoLiquido)}</td>
             <td className="px-2 py-1 text-right">{fmtMoeda(l.valorM3Vendido)}</td>
             <td className="px-2 py-1 text-right">{fmtMoeda(l.precoPonderado)}</td>
@@ -621,7 +635,17 @@ export function Fase3Dashboard() {
                   ),
                 },
                 { key: 'distribuidor', label: 'Distribuidor', sortValue: (n: NotaFiscal) => n.distribuidor, render: (n) => n.distribuidor },
-                { key: 'cliente', label: 'Cliente', sortValue: (n: NotaFiscal) => n.cliente, render: (n) => n.cliente },
+                {
+                  key: 'cliente',
+                  label: 'Cliente',
+                  sortValue: (n: NotaFiscal) => n.cliente,
+                  render: (n) => (
+                    <>
+                      {n.cliente}
+                      <ConsumidorBadge categoria={data?.clienteConsumidor[n.cliente] ?? null} />
+                    </>
+                  ),
+                },
                 { key: 'vendasUN', label: 'Quantidade (un)', align: 'right', sortValue: (n: NotaFiscal) => n.vendasUN, render: (n) => fmt(n.vendasUN, 0) },
                 { key: 'faturamentoBruto', label: 'Faturamento Bruto', align: 'right', sortValue: (n: NotaFiscal) => n.faturamentoBruto, render: (n) => fmtMoeda(n.faturamentoBruto) },
                 { key: 'descontos', label: 'Descontos', align: 'right', sortValue: (n: NotaFiscal) => n.descontos, render: (n) => fmtMoeda(n.descontos) },
@@ -1297,6 +1321,7 @@ export function Fase3Dashboard() {
         porDistribuidorCliente={data?.porDistribuidorCliente ?? []}
         porDistribuidorClienteProduto={data?.porDistribuidorClienteProduto ?? []}
         distribuidoresSemVenda={data?.distribuidoresSemVenda ?? []}
+        clienteConsumidor={data?.clienteConsumidor}
       />
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
@@ -1355,7 +1380,17 @@ export function Fase3Dashboard() {
         </div>
         <SortableTable
           columns={[
-            { key: 'chave', label: 'Cliente', sortValue: (c) => c.chave, render: (c) => <span className="font-medium">{c.chave}</span> },
+            {
+              key: 'chave',
+              label: 'Cliente',
+              sortValue: (c) => c.chave,
+              render: (c) => (
+                <span className="font-medium">
+                  {c.chave}
+                  <ConsumidorBadge categoria={data?.clienteConsumidor[c.chave] ?? null} />
+                </span>
+              ),
+            },
             {
               key: 'tabelaPreco',
               label: 'ICMS',
@@ -1587,7 +1622,7 @@ export function Fase3Dashboard() {
                   {aberto && (
                     <tr className="border-t border-slate-100 bg-slate-50">
                       <td colSpan={6} className="px-4 py-3">
-                        {renderProdutoDistribuidorCliente(p.produto, data?.porDistribuidorClienteProduto ?? [])}
+                        {renderProdutoDistribuidorCliente(p.produto, data?.porDistribuidorClienteProduto ?? [], data?.clienteConsumidor ?? {})}
                       </td>
                     </tr>
                   )}
@@ -1682,14 +1717,27 @@ export function Fase3Dashboard() {
       {subAba === 'dispersao' && (
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
         <div className="border-b border-slate-100 px-4 py-3 font-medium">
-          Dispersão de preço por produto × ICMS (top 30) — mesmo produto, mesma alíquota, preços muito
-          diferentes entre vendas
+          Dispersão de preço por produto × ICMS × tipo de consumidor (top 30) — mesmo produto, mesma
+          alíquota, MESMO tipo de cliente (Revenda/Consumidor final/...), preços muito diferentes entre
+          vendas. Cada tipo de consumidor negocia num patamar de preço diferente por natureza — por isso
+          nunca aparece misturado numa média só; ordene por Produto pra comparar os tipos lado a lado.
           <VisibilidadeBadge nivel="externo" />
         </div>
         <SortableTable
           columns={[
             { key: 'produto', label: 'Produto', sortValue: (d: DispersaoPreco) => d.produto, render: (d) => <span className="font-medium">{d.produto}</span> },
             { key: 'tabelaPreco', label: 'ICMS', sortValue: (d: DispersaoPreco) => d.tabelaPreco, render: (d) => d.tabelaPreco },
+            {
+              key: 'categoriaConsumidor',
+              label: 'Tipo de cliente',
+              sortValue: (d: DispersaoPreco) => CATEGORIA_CONSUMIDOR_LABEL[d.categoriaConsumidor],
+              // Achado do usuário 2026-09-23: sem isso o filtro buscava no
+              // código bruto ("consumidor"), não no rótulo exibido
+              // ("Consumidor final") — digitar o nome com espaço nunca
+              // encontrava nada, mesmo a opção existindo na coluna.
+              filterValue: (d: DispersaoPreco) => CATEGORIA_CONSUMIDOR_LABEL[d.categoriaConsumidor],
+              render: (d) => CATEGORIA_CONSUMIDOR_LABEL[d.categoriaConsumidor],
+            },
             { key: 'n', label: 'Nº vendas', align: 'right', sortValue: (d: DispersaoPreco) => d.n, render: (d) => fmt(d.n) },
             { key: 'precoMin', label: 'Preço mín.', align: 'right', sortValue: (d: DispersaoPreco) => d.precoMin, render: (d) => fmtMoeda(d.precoMin) },
             { key: 'precoMedio', label: 'Preço médio', align: 'right', sortValue: (d: DispersaoPreco) => d.precoMedio, render: (d) => fmtMoeda(d.precoMedio) },
@@ -1707,10 +1755,11 @@ export function Fase3Dashboard() {
             },
           ]}
           rows={data?.dispersaoPreco ?? []}
-          rowKey={(d) => `${d.produto}|${d.tabelaPreco}`}
-          defaultSortKey="variacaoPct"
+          rowKey={(d) => `${d.produto}|${d.tabelaPreco}|${d.categoriaConsumidor ?? '—'}`}
+          defaultSortKey="produto"
           emptyMessage="Sem produtos com vendas suficientes no período para medir variação."
           renderExpanded={(d) => (
+            <div className="space-y-3">
             <table className="w-full text-xs">
               <thead className="text-left text-slate-500">
                 <tr>
@@ -1731,7 +1780,10 @@ export function Fase3Dashboard() {
                     <td className="py-1 pl-2 font-medium text-slate-500">{rotulo}</td>
                     {t ? (
                       <>
-                        <td className="py-1">{t.cliente}</td>
+                        <td className="py-1">
+                          {t.cliente} <span className="text-slate-400">({t.codCfo})</span>
+                          <ConsumidorBadge categoria={t.categoriaConsumidor} />
+                        </td>
                         <td className="py-1">{t.distribuidor}</td>
                         <td className="py-1">{fmtDateBR(t.data)}</td>
                         <td className="py-1 text-right">{fmtMoeda(t.preco)}</td>
@@ -1753,6 +1805,7 @@ export function Fase3Dashboard() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         />
       </div>

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSessionUser, hasModuleAccess } from '@/lib/authz'
 import { getDatasetView } from '@/lib/semantic/dataset-view'
-import { prepararVendas, agregarVendas, analisarClientes } from '@/lib/fase3/faturamento'
+import { prepararVendas, agregarVendas, analisarClientes, classificarConsumidor } from '@/lib/fase3/faturamento'
 import { resolverConfigVendas } from '@/lib/fase3/cotas'
 import { aplicarEscopoUsuario } from '@/lib/fase3/escopo-usuario'
 import { prisma } from '@/lib/prisma'
@@ -49,7 +49,10 @@ export async function GET(req: NextRequest) {
   const clientes = analisarClientes(linhas, mesReferencia)
   const inativos = clientes.filter((c) => c.inativo).sort((a, b) => b.faturamentoTotal - a.faturamentoTotal)
 
-  let contatoPorCliente = new Map<string, { distribuidor: string; email: string; telefone: string; celular: string; cidade: string; codetd: string }>()
+  let contatoPorCliente = new Map<
+    string,
+    { distribuidor: string; email: string; telefone: string; celular: string; cidade: string; codetd: string; consumidor: string }
+  >()
   try {
     const clientesView = await getDatasetView('fase3_clientes')
     contatoPorCliente = new Map(
@@ -62,6 +65,7 @@ export async function GET(req: NextRequest) {
           celular: String(r.CELULAR ?? '').trim(),
           cidade: String(r.CIDADE ?? '').trim(),
           codetd: String(r.CODETD ?? '').trim(),
+          consumidor: String(r.CONSUMIDOR ?? '').trim(),
         },
       ]),
     )
@@ -84,6 +88,7 @@ export async function GET(req: NextRequest) {
       codetd: contato?.codetd || '—',
       status: acao?.status ?? null,
       observacao: acao?.observacao ?? null,
+      categoriaConsumidor: classificarConsumidor(contato?.consumidor),
     }
   })
 

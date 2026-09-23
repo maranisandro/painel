@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { DateRangeInputs, fmtDateBR } from '@/components/shared/DateRangeInputs'
 import { SortableTable, type SortableColumn } from '@/components/shared/SortableTable'
+import { ConsumidorBadge } from './ConsumidorBadge'
+import type { CategoriaConsumidor } from '@/lib/fase3/faturamento'
 
 interface ResumoTipoTabela {
   subTipoProduto: string
@@ -63,6 +65,7 @@ interface MelhorCargaData {
   melhoresCargas: Carga[]
   pioresCargas: Carga[]
   direcionamentoPorCliente: DirecionamentoCliente[]
+  clienteConsumidor: Record<string, CategoriaConsumidor | null>
 }
 
 function fmt(n: number, digits = 0): string {
@@ -80,7 +83,7 @@ function todayStr(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
-function colunasCarga(): SortableColumn<Carga>[] {
+function colunasCarga(clienteConsumidor: Record<string, CategoriaConsumidor | null>): SortableColumn<Carga>[] {
   return [
     { key: 'data', label: 'Data', sortValue: (c) => c.data, render: (c) => fmtDateBR(c.data) },
     { key: 'placa', label: 'Placa', sortValue: (c) => c.placa, render: (c) => c.placa },
@@ -99,7 +102,17 @@ function colunasCarga(): SortableColumn<Carga>[] {
       render: (c) => <span className="text-slate-500">{fmt(c.numLinhas)}</span>,
     },
     { key: 'distribuidor', label: 'Distribuidor', sortValue: (c) => c.distribuidor, render: (c) => c.distribuidor },
-    { key: 'cliente', label: 'Cliente', sortValue: (c) => c.cliente, render: (c) => <span className="text-xs">{c.cliente}</span> },
+    {
+      key: 'cliente',
+      label: 'Cliente',
+      sortValue: (c) => c.cliente,
+      render: (c) => (
+        <span className="text-xs">
+          {c.cliente}
+          <ConsumidorBadge categoria={clienteConsumidor[c.cliente] ?? null} />
+        </span>
+      ),
+    },
     {
       key: 'subTipoProdutoPrincipal',
       label: 'Mourão/Peças predominante',
@@ -140,7 +153,7 @@ function colunasCarga(): SortableColumn<Carga>[] {
  * entregas distintas da mesma placa no mesmo dia — não uma carga física
  * única.
  */
-function renderCargaExpandida(c: Carga) {
+function renderCargaExpandida(c: Carga, clienteConsumidor: Record<string, CategoriaConsumidor | null>) {
   return (
     <div className="space-y-3">
       {c.notas.length > 2 && (
@@ -154,7 +167,11 @@ function renderCargaExpandida(c: Carga) {
         <div key={n.numeroMov} className="rounded-lg border border-slate-200">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-2 py-1.5 text-xs">
             <span className="font-medium">
-              NF {n.numeroMov || '—'} <span className="font-normal text-slate-500">— {n.cliente}</span>
+              NF {n.numeroMov || '—'}{' '}
+              <span className="font-normal text-slate-500">
+                — {n.cliente}
+                <ConsumidorBadge categoria={clienteConsumidor[n.cliente] ?? null} />
+              </span>
             </span>
             <span className="text-slate-500">
               {fmt(n.m3Total, 2)} m³ — {fmtMoeda(n.faturamentoBruto)}
@@ -264,23 +281,23 @@ export function MelhorCargaTab() {
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
         <div className="border-b border-slate-100 px-4 py-3 font-medium">Melhores cargas (top 20 por margem vs mínimo)</div>
         <SortableTable
-          columns={colunasCarga()}
+          columns={colunasCarga(data?.clienteConsumidor ?? {})}
           rows={data?.melhoresCargas ?? []}
           rowKey={(c) => c.chave}
           defaultSortKey="margem"
-          renderExpanded={renderCargaExpandida}
+          renderExpanded={(c) => renderCargaExpandida(c, data?.clienteConsumidor ?? {})}
         />
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
         <div className="border-b border-slate-100 px-4 py-3 font-medium">Piores cargas (top 20 por margem vs mínimo)</div>
         <SortableTable
-          columns={colunasCarga()}
+          columns={colunasCarga(data?.clienteConsumidor ?? {})}
           rows={data?.pioresCargas ?? []}
           rowKey={(c) => c.chave}
           defaultSortKey="margem"
           defaultSortDir="asc"
-          renderExpanded={renderCargaExpandida}
+          renderExpanded={(c) => renderCargaExpandida(c, data?.clienteConsumidor ?? {})}
         />
       </div>
 
@@ -295,7 +312,17 @@ export function MelhorCargaTab() {
         <SortableTable
           columns={
             [
-              { key: 'cliente', label: 'Cliente', sortValue: (d) => d.cliente, render: (d) => <span className="font-medium">{d.cliente}</span> },
+              {
+                key: 'cliente',
+                label: 'Cliente',
+                sortValue: (d) => d.cliente,
+                render: (d) => (
+                  <span className="font-medium">
+                    {d.cliente}
+                    <ConsumidorBadge categoria={data?.clienteConsumidor[d.cliente] ?? null} />
+                  </span>
+                ),
+              },
               { key: 'numCargas', label: 'Cargas no período', align: 'right', sortValue: (d) => d.numCargas, render: (d) => fmt(d.numCargas) },
               { key: 'data', label: 'Data da melhor carga', sortValue: (d) => d.melhorCarga.data, render: (d) => fmtDateBR(d.melhorCarga.data) },
               {
@@ -320,7 +347,7 @@ export function MelhorCargaTab() {
           rows={data?.direcionamentoPorCliente ?? []}
           rowKey={(d) => d.cliente}
           defaultSortKey="margem"
-          renderExpanded={(d) => renderCargaExpandida(d.melhorCarga)}
+          renderExpanded={(d) => renderCargaExpandida(d.melhorCarga, data?.clienteConsumidor ?? {})}
           emptyMessage="Nenhuma carga relevante no período para os clientes selecionados."
         />
       </div>

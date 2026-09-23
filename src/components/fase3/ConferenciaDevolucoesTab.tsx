@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { DateRangeInputs, fmtDateBR } from '@/components/shared/DateRangeInputs'
 import { SortableTable, type SortableColumn } from '@/components/shared/SortableTable'
+import { ConsumidorBadge } from './ConsumidorBadge'
+import type { CategoriaConsumidor } from '@/lib/fase3/faturamento'
 
 interface NotaOrigem {
   numeroMov: string
@@ -58,6 +60,7 @@ interface ApiData {
   }
   grupos: GrupoConferencia[]
   semOrigem: DevolucaoSemOrigem[]
+  clienteConsumidor: Record<string, CategoriaConsumidor | null>
 }
 
 function fmtMoeda(n: number): string {
@@ -200,7 +203,17 @@ export function ConferenciaDevolucoesTab() {
                 ),
               },
               { key: 'distribuidor', label: 'Distribuidor', sortValue: (g) => g.distribuidor, render: (g) => g.distribuidor },
-              { key: 'cliente', label: 'Cliente', sortValue: (g) => g.cliente, render: (g) => g.cliente },
+              {
+                key: 'cliente',
+                label: 'Cliente',
+                sortValue: (g) => g.cliente,
+                render: (g) => (
+                  <>
+                    {g.cliente}
+                    <ConsumidorBadge categoria={data?.clienteConsumidor[g.cliente] ?? null} />
+                  </>
+                ),
+              },
               { key: 'valorOrigemTotal', label: 'Valor origem', align: 'right', sortValue: (g) => g.valorOrigemTotal, render: (g) => fmtMoeda(g.valorOrigemTotal) },
               { key: 'valorDevolvidoTotal', label: 'Valor devolvido', align: 'right', sortValue: (g) => g.valorDevolvidoTotal, render: (g) => fmtMoeda(g.valorDevolvidoTotal) },
               {
@@ -273,7 +286,17 @@ export function ConferenciaDevolucoesTab() {
               { key: 'numeroMov', label: 'NF devolução', sortValue: (d) => d.numeroMov, render: (d) => <span className="font-medium">{d.numeroMov || '—'}</span> },
               { key: 'data', label: 'Data', sortValue: (d) => d.data, render: (d) => fmtDateBR(d.data) },
               { key: 'distribuidor', label: 'Distribuidor', sortValue: (d) => d.distribuidor, render: (d) => d.distribuidor },
-              { key: 'cliente', label: 'Cliente', sortValue: (d) => d.cliente, render: (d) => d.cliente },
+              {
+                key: 'cliente',
+                label: 'Cliente',
+                sortValue: (d) => d.cliente,
+                render: (d) => (
+                  <>
+                    {d.cliente}
+                    <ConsumidorBadge categoria={data?.clienteConsumidor[d.cliente] ?? null} />
+                  </>
+                ),
+              },
               { key: 'produto', label: 'Produto', sortValue: (d) => d.produto, render: (d) => <span className="text-xs">{d.produto}</span> },
               { key: 'quantidade', label: 'Quantidade', align: 'right', sortValue: (d) => d.quantidade, render: (d) => fmt(d.quantidade) },
               { key: 'valorBruto', label: 'Valor bruto', align: 'right', sortValue: (d) => d.valorBruto, render: (d) => fmtMoeda(d.valorBruto) },

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSessionUser, hasModuleAccess, isAdmin } from '@/lib/authz'
 import { getDatasetView } from '@/lib/semantic/dataset-view'
-import { prepararVendas, agregarVendas, DISTRIBUIDORES_CONHECIDOS } from '@/lib/fase3/faturamento'
+import { prepararVendas, agregarVendas, DISTRIBUIDORES_CONHECIDOS, mapaConsumidorPorCliente } from '@/lib/fase3/faturamento'
 import {
   carregarMetaPeriodo,
   compararComCotas,
@@ -417,5 +417,6 @@ export async function GET(req: NextRequest) {
     mesDetalhe,
     comparativoCotas,
     linhasSemDados: linhas.length === 0,
+    clienteConsumidor: mapaConsumidorPorCliente(linhas),
   })
 }

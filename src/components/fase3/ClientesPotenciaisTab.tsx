@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { CategoriaFiltro, CATEGORIA_PADRAO } from './CategoriaFiltro'
 import { SortableTable, type SortableColumn } from '@/components/shared/SortableTable'
+import { ConsumidorBadge } from './ConsumidorBadge'
+import type { CategoriaConsumidor } from '@/lib/fase3/faturamento'
 
 type StatusAcao = 'FAZER_CONTATO' | 'NEGATIVADO' | 'SEM_INTERESSE' | 'ENCERROU_ATIVIDADE'
 
@@ -33,6 +35,7 @@ interface ClientePotencial {
   status: StatusAcao | null
   observacao: string | null
   historicoMensal: { mes: string; faturamento: number }[]
+  categoriaConsumidor: CategoriaConsumidor | null
 }
 
 interface ClientesPotenciaisData {
@@ -165,7 +168,17 @@ export function ClientesPotenciaisTab() {
 
   function colunas(): SortableColumn<ClientePotencial>[] {
     return [
-      { key: 'cliente', label: 'Cliente', sortValue: (c) => c.cliente, render: (c) => <span className="font-medium">{c.cliente}</span> },
+      {
+        key: 'cliente',
+        label: 'Cliente',
+        sortValue: (c) => c.cliente,
+        render: (c) => (
+          <span className="font-medium">
+            {c.cliente}
+            <ConsumidorBadge categoria={c.categoriaConsumidor} />
+          </span>
+        ),
+      },
       { key: 'status', label: 'Ação', sortValue: (c) => c.status ?? '', render: (c) => <StatusBadge status={c.status} /> },
       { key: 'cidade', label: 'Cidade/UF', sortValue: (c) => c.cidade, render: (c) => `${c.cidade}${c.codetd && c.codetd !== '—' ? '/' + c.codetd : ''}` },
       { key: 'distribuidor', label: 'Distribuidor', sortValue: (c) => c.distribuidor, render: (c) => c.distribuidor },

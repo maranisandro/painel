@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { DateRangeInputs, fmtDateBR } from '@/components/shared/DateRangeInputs'
 import { SortableTable, type SortableColumn } from '@/components/shared/SortableTable'
+import { ConsumidorBadge } from './ConsumidorBadge'
+import type { CategoriaConsumidor } from '@/lib/fase3/faturamento'
 
 const COR_NOMINAL = '#b45309'
 const COR_TABELA4 = '#475569'
@@ -64,6 +66,7 @@ interface BonificacoesData {
   linhasDetalhe: LinhaDetalhe[]
   semTabela4: BonificacaoSemTabela4[]
   totalSemTabela4: number
+  clienteConsumidor: Record<string, CategoriaConsumidor | null>
 }
 
 function fmt(n: number, digits = 0): string {
@@ -128,7 +131,17 @@ export function BonificacoesTab() {
 
   const colunasCliente: SortableColumn<DistribuidorClienteResumo>[] = [
     { key: 'distribuidor', label: 'Distribuidor', sortValue: (d) => d.distribuidor, render: (d) => d.distribuidor },
-    { key: 'cliente', label: 'Cliente', sortValue: (d) => d.cliente, render: (d) => <span className="font-medium">{d.cliente}</span> },
+    {
+      key: 'cliente',
+      label: 'Cliente',
+      sortValue: (d) => d.cliente,
+      render: (d) => (
+        <span className="font-medium">
+          {d.cliente}
+          <ConsumidorBadge categoria={data?.clienteConsumidor[d.cliente] ?? null} />
+        </span>
+      ),
+    },
     { key: 'n', label: 'Transações', align: 'right', sortValue: (d) => d.n, render: (d) => fmt(d.n) },
     { key: 'quantidade', label: 'Quantidade', align: 'right', sortValue: (d) => d.quantidade, render: (d) => fmt(d.quantidade, 2) },
     { key: 'valorNominal', label: 'Valor nominal', align: 'right', sortValue: (d) => d.valorNominal, render: (d) => fmtMoeda(d.valorNominal) },
@@ -144,7 +157,17 @@ export function BonificacoesTab() {
   const colunasDetalhe: SortableColumn<LinhaDetalhe>[] = [
     { key: 'data', label: 'Data', sortValue: (l) => l.data, render: (l) => fmtDateBR(l.data) },
     { key: 'distribuidor', label: 'Distribuidor', sortValue: (l) => l.distribuidor, render: (l) => l.distribuidor },
-    { key: 'cliente', label: 'Cliente', sortValue: (l) => l.cliente, render: (l) => l.cliente },
+    {
+      key: 'cliente',
+      label: 'Cliente',
+      sortValue: (l) => l.cliente,
+      render: (l) => (
+        <>
+          {l.cliente}
+          <ConsumidorBadge categoria={data?.clienteConsumidor[l.cliente] ?? null} />
+        </>
+      ),
+    },
     { key: 'produto', label: 'Produto', sortValue: (l) => l.produto, render: (l) => <span className="text-xs">{l.produto}</span> },
     { key: 'quantidade', label: 'Qtd', align: 'right', sortValue: (l) => l.quantidade, render: (l) => fmt(l.quantidade, 2) },
     { key: 'precoVendido', label: 'Preço vendido', align: 'right', sortValue: (l) => l.precoVendido, render: (l) => fmtMoeda(l.precoVendido) },
@@ -155,7 +178,17 @@ export function BonificacoesTab() {
   const colunasSemTabela4: SortableColumn<BonificacaoSemTabela4>[] = [
     { key: 'data', label: 'Data', sortValue: (l) => l.data, render: (l) => fmtDateBR(l.data) },
     { key: 'distribuidor', label: 'Distribuidor', sortValue: (l) => l.distribuidor, render: (l) => l.distribuidor },
-    { key: 'cliente', label: 'Cliente', sortValue: (l) => l.cliente, render: (l) => <span className="font-medium">{l.cliente}</span> },
+    {
+      key: 'cliente',
+      label: 'Cliente',
+      sortValue: (l) => l.cliente,
+      render: (l) => (
+        <span className="font-medium">
+          {l.cliente}
+          <ConsumidorBadge categoria={data?.clienteConsumidor[l.cliente] ?? null} />
+        </span>
+      ),
+    },
     { key: 'produto', label: 'Produto', sortValue: (l) => l.produto, render: (l) => <span className="text-xs">{l.produto}</span> },
     { key: 'quantidade', label: 'Qtd', align: 'right', sortValue: (l) => l.quantidade, render: (l) => fmt(l.quantidade, 2) },
     { key: 'precoVendido', label: 'Preço vendido', align: 'right', sortValue: (l) => l.precoVendido, render: (l) => fmtMoeda(l.precoVendido) },

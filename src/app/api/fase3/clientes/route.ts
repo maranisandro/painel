@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSessionUser, hasModuleAccess } from '@/lib/authz'
 import { getDatasetView } from '@/lib/semantic/dataset-view'
-import { prepararVendas, agregarVendas, analisarClientes, tabelaIcmsPorEstado } from '@/lib/fase3/faturamento'
+import { prepararVendas, agregarVendas, analisarClientes, tabelaIcmsPorEstado, classificarConsumidor } from '@/lib/fase3/faturamento'
 import { resolverConfigVendas } from '@/lib/fase3/cotas'
 import { aplicarEscopoUsuario } from '@/lib/fase3/escopo-usuario'
 
@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
   // com o dataset `fase3_clientes` (mesmo padrão já usado em
   // /api/fase3/clientes-potenciais), trazendo distribuidor/cidade/estado do
   // cadastro e derivando a tabela de ICMS a partir do estado.
-  let cadastroPorCliente = new Map<string, { distribuidor: string; cidade: string; codetd: string }>()
+  let cadastroPorCliente = new Map<string, { distribuidor: string; cidade: string; codetd: string; consumidor: string }>()
   try {
     const clientesView = await getDatasetView('fase3_clientes')
     cadastroPorCliente = new Map(
@@ -57,6 +57,7 @@ export async function GET(req: NextRequest) {
           distribuidor: String(r.ABREV_DISTRIBUIDOR ?? 'SEM DISTRIBUIDOR'),
           cidade: String(r.CIDADE ?? '').trim(),
           codetd: String(r.CODETD ?? '').trim(),
+          consumidor: String(r.CONSUMIDOR ?? '').trim(),
         },
       ]),
     )
@@ -72,6 +73,7 @@ export async function GET(req: NextRequest) {
       cidade: cadastro?.cidade || '—',
       codetd: cadastro?.codetd || '—',
       tabelaIcms: cadastro?.codetd ? tabelaIcmsPorEstado(cadastro.codetd) : null,
+      categoriaConsumidor: classificarConsumidor(cadastro?.consumidor),
     }
   })
 

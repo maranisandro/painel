@@ -444,6 +444,18 @@ export function ComparativoCotas({ data, periodoLabel }: { data: ComparativoCota
       {distribuidores.length > 0 && (
         <div>
           <p className="mb-2 text-xs font-medium text-slate-600">Por distribuidor (R$)</p>
+          {/* Quadro explicativo do cálculo — pedido do usuário 2026-09-23:
+              "não ficou claro, não consegui chegar nos números" — mesmo
+              padrão visual do quadro "Mix de ICMS" acima, mas sempre visível
+              (não é um alerta condicional, é a explicação da conta em si). */}
+          <div className="mb-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+            <strong>Como as colunas Ritmo esperado / Projeção de fechamento são calculadas:</strong>{' '}
+            “Dias com venda” é o mesmo pra todos os distribuidores (dias do mês em que a empresa vendeu
+            algo, não é por distribuidor). <strong>Ritmo esperado</strong> = meta ÷ dias do mês × dias com
+            venda — quanto já deveria ter vendido até hoje pra bater a meta no fim do mês, num ritmo
+            constante. <strong>Projeção de fechamento</strong> = realizado ÷ dias com venda × dias do mês —
+            pega a média de venda por dia (nos dias em que vendeu) e estica pro mês inteiro.
+          </div>
           <div className="overflow-x-auto rounded-lg border border-slate-200 text-xs">
             <SortableTable
               columns={colunasDistribuidor}
@@ -464,15 +476,18 @@ export function ComparativoCotas({ data, periodoLabel }: { data: ComparativoCota
                 const somaProjecao = linhas.reduce((s, d) => s + (d.ritmo.projecaoFechamento ?? 0), 0)
                 const somaNecessario = linhas.reduce((s, d) => s + (d.ritmo.necessarioPorDiaUtil ?? 0), 0)
                 const pctTotal = somaMeta > 0 ? somaRealizado / somaMeta : null
+                // Dias do mês/com venda/úteis restantes são o MESMO calendário da
+                // empresa inteira pra todo distribuidor desde a correção de
+                // 2026-09-23 — mostra o valor de qualquer linha (todas batem).
+                const diasRef = linhas[0]?.ritmo
                 return (
                   <>
                     <td className="px-3 py-2">Total ({linhas.length})</td>
                     <td className="px-3 py-2 text-right">{fmtMoeda(somaMeta)}</td>
                     <td className="px-3 py-2 text-right">{fmtMoeda(somaRealizado)}</td>
-                    {/* Dias do mês/com venda/úteis restantes não somam entre distribuidores — cada um com seu próprio calendário de referência */}
-                    <td className="px-3 py-2" />
-                    <td className="px-3 py-2" />
-                    <td className="px-3 py-2" />
+                    <td className="px-3 py-2 text-right">{diasRef?.diasDoMes ?? '—'}</td>
+                    <td className="px-3 py-2 text-right">{diasRef?.diasComFaturamento ?? '—'}</td>
+                    <td className="px-3 py-2 text-right">{diasRef?.diasUteisRestantes ?? '—'}</td>
                     <td className="px-3 py-2 text-right">{fmtMoeda(somaRitmoEsperado)}</td>
                     <td className="px-3 py-2 text-right">{fmtMoeda(somaProjecao)}</td>
                     <td className="px-3 py-2 text-right">{somaNecessario > 0 ? fmtMoeda(somaNecessario) : <span className="text-emerald-700">meta já alcançada</span>}</td>

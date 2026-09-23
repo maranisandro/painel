@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { DateRangeInputs, fmtDateBR } from '@/components/shared/DateRangeInputs'
 import { SortableTable, type SortableColumn } from '@/components/shared/SortableTable'
+import { ConsumidorBadge } from './ConsumidorBadge'
+import type { CategoriaConsumidor } from '@/lib/fase3/faturamento'
 
 interface RegistroAlterado {
   data: string
@@ -71,6 +73,7 @@ interface CriticaData {
   }
   achadosOperacionais: AchadoOperacional[]
   totalAberto: number
+  clienteConsumidor: Record<string, CategoriaConsumidor | null>
 }
 
 type StatusAchado = 'aberto' | 'reconhecido' | 'encaminhado_origem' | 'resolvido'
@@ -384,7 +387,8 @@ export function CriticaModeloTab() {
         <ul className="list-inside list-disc">
           {(data?.achado1PlanepBonificacaoIndevida.top3Clientes ?? []).map((c) => (
             <li key={c.cliente}>
-              {c.cliente} — {c.n} transações, {fmtMoeda(c.valor)}
+              {c.cliente}
+              <ConsumidorBadge categoria={data?.clienteConsumidor[c.cliente] ?? null} /> — {c.n} transações, {fmtMoeda(c.valor)}
             </li>
           ))}
         </ul>
@@ -662,7 +666,10 @@ export function CriticaModeloTab() {
                   <tr key={i} className="border-t border-slate-100">
                     <td className="px-2 py-1">{fmtDateBR(e.data)}</td>
                     <td className="px-2 py-1">{e.distribuidor}</td>
-                    <td className="px-2 py-1">{e.cliente}</td>
+                    <td className="px-2 py-1">
+                      {e.cliente}
+                      <ConsumidorBadge categoria={data?.clienteConsumidor[e.cliente] ?? null} />
+                    </td>
                     <td className="px-2 py-1">{e.produto}</td>
                     <td className="px-2 py-1 text-right">{fmtMoeda(e.precoVendido)}</td>
                     <td className="px-2 py-1 text-right">{fmtMoeda(e.precoMedioTabela4)}</td>

@@ -10,6 +10,7 @@ import {
   calcularBonificacaoDoMes,
   ofensoresDePerda,
   DISTRIBUIDORES_CONHECIDOS,
+  mapaConsumidorPorCliente,
 } from '@/lib/fase3/faturamento'
 import {
   carregarMetaPeriodo,
@@ -574,5 +575,6 @@ export async function GET(req: NextRequest) {
     },
     comparativoCotas,
     linhasSemDados: linhas.length === 0,
+    clienteConsumidor: mapaConsumidorPorCliente(linhas),
   })
 }
