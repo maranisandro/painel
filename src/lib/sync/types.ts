@@ -27,7 +27,16 @@ export function envFor(source: DataSource, suffix: string): string {
 /**
  * Envolve a consulta base com o filtro incremental. Funciona em Oracle e
  * MySQL por usar subconsulta; `literal` já deve vir formatado pelo conector.
+ *
+ * `>=` (não `>`) de propósito — achado 2026-09-22 (dataset `fase1_abastecimento`,
+ * caso real placa SDU4H75): quando vários registros de origem compartilham o
+ * MESMO valor do campo incremental (comum em digitação/importação em lote,
+ * timestamp com granularidade de segundo), um `>` estrito deixa pra trás pra
+ * sempre qualquer registro empatado no valor exato que virou a marca d'água.
+ * Seguro reprocessar o próprio registro que gerou a marca d'água: o upsert no
+ * cache (`dataset_rows`) é por chave primária (`primaryKeyFields`), então
+ * repetir o mesmo registro apenas o resincroniza, não duplica nada.
  */
 export function wrapIncremental(query: string, field: string, literal: string): string {
-  return `SELECT * FROM (${query}) W_INC WHERE W_INC.${field} > ${literal}`
+  return `SELECT * FROM (${query}) W_INC WHERE W_INC.${field} >= ${literal}`
 }
