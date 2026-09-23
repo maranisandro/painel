@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { diaBrasilDe, horaBrasilDe, diaAnteriorStr } from '@/lib/horario-brasil'
 import { horasRodandoGps } from '@/lib/fase1/disponibilidade'
 import { getAllTripsBasic } from '@/lib/fase1/get-trips-simple'
+import { kmPercorridoGps } from '@/lib/fase1/critica'
 
 function normPlaca(v: unknown): string {
   return String(v ?? '').trim().toUpperCase()
@@ -137,6 +138,7 @@ export async function GET(req: NextRequest) {
     placa: string
     noite: string
     horasRodando: number
+    kmEstimado: number
     nPosicoes: number
     primeiraHora: string
     ultimaHora: string
@@ -148,10 +150,14 @@ export async function GET(req: NextRequest) {
     if (grupo.length < 2) continue // 1 leitura isolada não confirma deslocamento
     const horasRodando = horasRodandoGps(grupo)
     if (horasRodando < HORAS_MINIMAS_RODANDO) continue
+    const kmEstimado = kmPercorridoGps(
+      grupo.map((p) => ({ placa: p.placa, capturedAt: p.capturedAt, latitude: p.lat, longitude: p.lng })),
+    )
     rodandoNoite.push({
       placa: grupo[0].placa,
       noite: grupo[0].noite,
       horasRodando,
+      kmEstimado,
       nPosicoes: grupo.length,
       primeiraHora: grupo[0].capturedAt,
       ultimaHora: grupo[grupo.length - 1].capturedAt,
