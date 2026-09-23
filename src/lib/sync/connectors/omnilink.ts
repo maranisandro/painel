@@ -252,39 +252,57 @@ export async function fetchPosicoesDaPlaca(
   }
 }
 
-// Volta a usar a marca d'água real (achado 2026-09-23: a janela fixa de 1
-// min abaixo, decidida em 2026-09-21 antes de existir a reconstrução de
-// trecho de madrugada, descartava estruturalmente ~90% do histórico —
-// confirmado ao vivo consultando a Omnilink direto: a fonte tem posição
-// contínua o tempo todo, só o NOSSO cache tinha buracos de dezenas de
-// minutos entre cada janela de 1 min). `_watermark` (recebido do motor de
-// sync) volta a ser lido: busca desde a última posição conhecida até agora,
-// com um TETO de segurança (`TETO_ATRASO_MS`) pra não disparar uma busca
-// gigante em todas as placas se o job ficar fora do ar por muito tempo
-// (deploy, crash, fila presa) — mesmo espírito do esquema anterior a
-// 2026-09-21, só que sem o rodízio de 15 placas por execução (mantido:
-// "sem rodízio" já provou ser leve o suficiente com a frota atual). Upsert
-// já é idempotente por `placa,_capturedAtIso` — sobreposição de janela
-// entre execuções não duplica nada.
-const TETO_ATRASO_MS = 2 * 3_600_000 // 2h — evita backfill gigante após downtime longo
+// Volta a usar marca d'água real, mas POR PLACA — achado 2026-09-23: a
+// janela fixa de 1 min (decidida 2026-09-21, antes da reconstrução de
+// trecho de madrugada existir) descartava estruturalmente ~90% do
+// histórico — confirmado ao vivo consultando a Omnilink direto: a fonte
+// tem posição contínua o tempo todo, só o NOSSO cache tinha buracos de
+// dezenas de minutos entre cada janela de 1 min. Primeira correção usou a
+// marca d'água ÚNICA do dataset (`_dataset.watermark`, a mesma pra frota
+// inteira) — mas isso não cobre o caso real apontado pelo usuário: uma
+// placa específica pode ficar sem sinal por horas (área sem cobertura,
+// rastreador desligado) enquanto as OUTRAS placas continuam reportando e
+// empurrando a marca d'água global pra frente; quando essa placa volta a
+// ter sinal, buscar só "desde a marca d'água global (recente)" perde todo
+// o histórico que ela perdeu enquanto esteve sem comunicação. Por isso
+// agora cada placa usa a PRÓPRIA última posição conhecida (`VehiclePosition`
+// já salvo) como início da busca, não a marca d'água do dataset inteiro —
+// uma placa que sumiu a noite inteira automaticamente busca desde a última
+// vez que ela mesma foi vista, recuperando o período inteiro sem sinal
+// assim que voltar a responder. Teto de segurança (`TETO_ATRASO_MS`, 24h —
+// cobre "rodou a madrugada inteira em área sem sinal") evita busca gigante
+// pra uma placa nunca vista ou fora do ar há muito tempo. Upsert já é
+// idempotente por `placa,_capturedAtIso` — sobreposição de janela entre
+// execuções não duplica nada.
+const TETO_ATRASO_MS = 24 * 3_600_000 // 24h — cobre uma madrugada inteira sem sinal
 
 export async function fetchOmnilinkPosicoes(
   source: DataSource,
   _dataset: Dataset,
-  watermark: string | null,
+  _watermark: string | null,
   syncRunId?: string,
 ): Promise<ExternalRow[]> {
   const agora = new Date()
-  const desdeWatermark = watermark ? new Date(watermark) : null
   const tetoAtraso = new Date(agora.getTime() - TETO_ATRASO_MS)
-  const inicio = desdeWatermark && desdeWatermark > tetoAtraso ? desdeWatermark : tetoAtraso
 
-  // Sem rodízio (pedido do usuário 2026-09-21) — com a janela fixa de 1 min
-  // (bem mais leve que os até 24h de antes), consultar a frota inteira a
-  // cada execução deixou de ser pesado o suficiente para justificar
+  // Sem rodízio (pedido do usuário 2026-09-21) — consultar a frota inteira a
+  // cada execução não é pesado o suficiente com a frota atual pra justificar
   // processar só um lote por vez.
   const placas = await placasProprias()
   if (placas.length === 0) return []
+
+  // Última posição conhecida POR PLACA — base do início de busca de cada
+  // uma (ver comentário acima). `groupBy` traz só o MAX(capturedAt) de cada
+  // placa numa query só, sem precisar carregar as posições em si.
+  const ultimasPorPlaca = await prisma.vehiclePosition.groupBy({
+    by: ['placa'],
+    where: { placa: { in: placas } },
+    _max: { capturedAt: true },
+  })
+  const ultimaConhecida = new Map<string, Date>()
+  for (const r of ultimasPorPlaca) {
+    if (r._max.capturedAt) ultimaConhecida.set(r.placa, r._max.capturedAt)
+  }
 
   // IMPORTANTE (achado ao vivo 2026-07-30): se UMA única placa do array não
   // for reconhecida pela conta Omnilink, a API rejeita a consulta INTEIRA
@@ -298,6 +316,8 @@ export async function fetchOmnilinkPosicoes(
   const fim = agora
   const linhas: ExternalRow[] = []
   for (const placa of placas) {
+    const ultimaDaPlaca = ultimaConhecida.get(placa) ?? null
+    const inicio = ultimaDaPlaca && ultimaDaPlaca > tetoAtraso ? ultimaDaPlaca : tetoAtraso
     const resultado = await fetchPosicoesDaPlaca(source, placa, inicio, fim)
     linhas.push(...resultado.linhas)
 
