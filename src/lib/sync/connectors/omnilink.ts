@@ -175,14 +175,14 @@ export type ResultadoPlacaOmnilink = {
  */
 type RespostaPagina = { res: Response; body: { dados?: { tabela?: ExternalRow[] } | string; mensagem?: string } | null }
 
-// Achado real 2026-09-24 (backfill de histórico completo, 56 placas): sem
-// timeout, uma chamada que trava do lado da Omnilink (rede, servidor lento)
-// prende o processo pra sempre — confirmado ao vivo (fetch de uma placa
-// ficou 21 min parado, sem nenhum erro, até ser morto manualmente). 30s é
-// generoso pra uma única página de posições; se a API não respondeu nesse
-// tempo, algo está errado e vale tratar como falha (cai no catch de
-// `fetchPosicoesDaPlaca`, placa não trava as demais).
-const TIMEOUT_REQUISICAO_MS = 30_000
+// Achado real 2026-09-24 (backfill de histórico completo, 56 placas): uma
+// única página pode conter DEZENAS DE MILHARES de posições quando a janela é
+// larga (30 dias) e a placa é bem movimentada (ex. TBH2C14: ~4.400 posições
+// em só 1,5 dia) — uma resposta assim pode legitimamente demorar bastante
+// (achado real: uma placa levou ~21min para uma janela de 30 dias, e
+// terminou com sucesso). 120s dá folga pra isso sem deixar a chamada travar
+// pra sempre em caso de problema de rede real.
+const TIMEOUT_REQUISICAO_MS = 120_000
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -201,7 +201,19 @@ async function consultarPagina(baseUrl: string, token: string, placa: string, pa
     }),
     signal: AbortSignal.timeout(TIMEOUT_REQUISICAO_MS),
   })
-  const body = (await res.json().catch(() => null)) as RespostaPagina['body']
+  // ACHADO REAL 2026-09-24 (grave): `.catch(() => null)` aqui fazia qualquer
+  // falha de parse do JSON (resposta grande demais truncada, pressão de
+  // memória da máquina — a mesma que já matou um processo nesta sessão)
+  // virar `body: null` silenciosamente. Mais abaixo, `body: null` faz
+  // `pagina` ficar `undefined`, que cai no MESMO caminho de "página vazia,
+  // fim da paginação normal" — ou seja, um ERRO de rede virava "esta placa
+  // não tem posição nenhuma no período", sem nenhum aviso. Confirmado ao
+  // vivo: TBH2C14 (uma das placas do caso relatado pelo usuário) "gravou 0
+  // posições" pro período inteiro, mas uma sub-janela de 1,5 dia dentro dele
+  // tinha 4.406 posições reais. Deixando o erro de parse propagar (sem
+  // `.catch`), ele agora cai no `throw` mais abaixo → status ERRO de
+  // verdade, nunca mais confundido com ausência de dado.
+  const body = (await res.json()) as RespostaPagina['body']
   return { res, body }
 }
 
