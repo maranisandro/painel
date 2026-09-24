@@ -175,6 +175,19 @@ export type ResultadoPlacaOmnilink = {
  */
 type RespostaPagina = { res: Response; body: { dados?: { tabela?: ExternalRow[] } | string; mensagem?: string } | null }
 
+// Achado real 2026-09-24 (backfill de histórico completo, 56 placas): sem
+// timeout, uma chamada que trava do lado da Omnilink (rede, servidor lento)
+// prende o processo pra sempre — confirmado ao vivo (fetch de uma placa
+// ficou 21 min parado, sem nenhum erro, até ser morto manualmente). 30s é
+// generoso pra uma única página de posições; se a API não respondeu nesse
+// tempo, algo está errado e vale tratar como falha (cai no catch de
+// `fetchPosicoesDaPlaca`, placa não trava as demais).
+const TIMEOUT_REQUISICAO_MS = 30_000
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 async function consultarPagina(baseUrl: string, token: string, placa: string, parte: number, inicio: Date, fim: Date): Promise<RespostaPagina> {
   const res = await fetch(`${baseUrl}/api/omniturbo/relatorios/posicoes`, {
     method: 'POST',
@@ -186,6 +199,7 @@ async function consultarPagina(baseUrl: string, token: string, placa: string, pa
       withSinalVida: false,
       parte,
     }),
+    signal: AbortSignal.timeout(TIMEOUT_REQUISICAO_MS),
   })
   const body = (await res.json().catch(() => null)) as RespostaPagina['body']
   return { res, body }
@@ -207,6 +221,10 @@ export async function fetchPosicoesDaPlaca(
   const linhas: ExternalRow[] = []
   try {
     for (let parte = 1; parte <= MAX_PARTES; parte++) {
+      // Pausa entre páginas (não antes da 1ª) — mitigação preventiva do
+      // achado 2026-09-24 acima: reduz a chance de estourar o rate limit em
+      // vez de só reagir a ele depois de já ter tomado o 429.
+      if (parte > 1) await sleep(150)
       let { res, body } = await consultarPagina(baseUrl, token, placa, parte, inicio, fim)
 
       // ACHADO REAL 2026-08-17: o sync automático ficou dias travado com
@@ -218,6 +236,21 @@ export async function fetchPosicoesDaPlaca(
       if (res.status === 401 && tokenInvalido(body)) {
         tokenCache = null
         token = await login(source)
+        ;({ res, body } = await consultarPagina(baseUrl, token, placa, parte, inicio, fim))
+      }
+
+      // Achado real 2026-09-24 (backfill de histórico completo): rajada de
+      // requisições (uma placa após a outra, sem pausa, cada uma paginando
+      // várias vezes) estourou o rate limit da Omnilink ("Muitas requisições
+      // inválidas, tente novamente mais tarde", HTTP 429) — atingiu 7 placas
+      // seguidas em ~25s antes de eu perceber. Backoff exponencial (10s, 30s,
+      // 60s) dá tempo da API se recuperar; se persistir após 3 tentativas,
+      // desiste desta placa (cai no catch abaixo) em vez de travar o lote
+      // inteiro — próxima sincronização tenta de novo.
+      let tentativas429 = 0
+      while (res.status === 429 && tentativas429 < 3) {
+        tentativas429++
+        await sleep(10_000 * 2 ** (tentativas429 - 1))
         ;({ res, body } = await consultarPagina(baseUrl, token, placa, parte, inicio, fim))
       }
 
@@ -315,7 +348,13 @@ export async function fetchOmnilinkPosicoes(
   // ERRO para aquela placa específica.
   const fim = agora
   const linhas: ExternalRow[] = []
-  for (const placa of placas) {
+  for (const [i, placa] of placas.entries()) {
+    // Mesma mitigação preventiva de rate limit da paginação (ver achado
+    // 2026-09-24 acima) — mais relevante ainda agora que a marca d'água é
+    // por placa: uma placa que volta de um buraco longo de sinal pagina
+    // muito mais do que o normal, e 56 placas em sequência sem pausa é
+    // exatamente o padrão que estourou o 429 no backfill.
+    if (i > 0) await sleep(150)
     const ultimaDaPlaca = ultimaConhecida.get(placa) ?? null
     const inicio = ultimaDaPlaca && ultimaDaPlaca > tetoAtraso ? ultimaDaPlaca : tetoAtraso
     const resultado = await fetchPosicoesDaPlaca(source, placa, inicio, fim)
