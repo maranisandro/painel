@@ -18,8 +18,8 @@ import { RETENCAO_DIAS, upsertPosicaoOmnilink } from './post-process'
  *
  * Desenho (aprovado pelo usuário):
  *  - Placa a placa, janelas de 1h — cada resposta fica pequena.
- *  - Do presente para o passado: a retenção de 60 dias (`RETENCAO_DIAS`)
- *    apaga o mais antigo continuamente, então o mais recente vale mais.
+ *  - Do presente para o passado, até `INICIO_BACKFILL` (01/09) ou o limite
+ *    de retenção (`RETENCAO_DIAS`), o que for mais recente.
  *  - Poucas janelas por execução do cron (orçamento de tempo), cursor
  *    persistido em `OmnilinkBackfillPlaca` — retoma sozinho após reinício.
  *  - Janela com erro é tentada de novo na próxima execução; após
@@ -30,6 +30,9 @@ import { RETENCAO_DIAS, upsertPosicaoOmnilink } from './post-process'
  */
 
 const JANELA_MS = 3_600_000 // 1h
+// Pedido do usuário 2026-09-25: recuperar só a partir de 01/09 ("o
+// restante pode desconsiderar") em vez de ir até o limite de retenção.
+const INICIO_BACKFILL = new Date('2026-09-01T03:00:00Z') // 01/09 00h em Brasília
 const MAX_FALHAS_SEGUIDAS = 3
 const PAUSA_ENTRE_JANELAS_MS = 300
 // Nova leitura da lista de placas próprias (view de vendas/transporte, cara)
@@ -84,7 +87,7 @@ export async function executarBackfillOmnilink(orcamentoMs: number): Promise<Res
       })
       if (!item) break
 
-      const limite = new Date(Date.now() - RETENCAO_DIAS * 86_400_000)
+      const limite = new Date(Math.max(Date.now() - RETENCAO_DIAS * 86_400_000, INICIO_BACKFILL.getTime()))
       if (item.cursorAt <= limite) {
         await prisma.omnilinkBackfillPlaca.update({
           where: { id: item.id },

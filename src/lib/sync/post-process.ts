@@ -51,9 +51,26 @@ export async function processCustosTransporteRodoviario(rows: ExternalRow[]): Pr
 // existe), não precisa de um agendador à parte.
 export const RETENCAO_DIAS = 60
 
+// Pedido do usuário 2026-09-25: "a limpeza dos dados a cada 60 dias vamos
+// ajustar para ser feita apenas de dados que não estão em desacordo com as
+// regras". Posição dentro de ±MARGEM_OCORRENCIA_MIN de uma ocorrência
+// registrada (hoje: alerta de excesso de velocidade) é preservada para
+// sempre — é o rastro que sustenta a ocorrência ao confrontar o motorista.
+// As ocorrências do relatório do motorista (desvio de rota etc.) entram
+// nesta mesma regra quando passarem a ser gravadas.
+const MARGEM_OCORRENCIA_MIN = 30
+
 async function purgeOldVehiclePositions(): Promise<void> {
   const limite = new Date(Date.now() - RETENCAO_DIAS * 86_400_000)
-  const { count } = await prisma.vehiclePosition.deleteMany({ where: { capturedAt: { lt: limite } } })
+  const count = await prisma.$executeRaw`
+    DELETE FROM vehicle_positions vp
+    WHERE vp.captured_at < ${limite}
+      AND NOT EXISTS (
+        SELECT 1 FROM speed_alerts sa
+        WHERE sa.placa = vp.placa
+          AND vp.captured_at BETWEEN sa.captured_at - make_interval(mins => ${MARGEM_OCORRENCIA_MIN})
+                                 AND sa.captured_at + make_interval(mins => ${MARGEM_OCORRENCIA_MIN})
+      )`
   if (count > 0) console.log(`[omnilink] limpeza: ${count} posição(ões) com mais de ${RETENCAO_DIAS} dias removida(s)`)
 }
 
