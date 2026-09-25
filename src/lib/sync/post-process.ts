@@ -49,7 +49,7 @@ export async function processCustosTransporteRodoviario(rows: ExternalRow[]): Pr
 // trabalhar com um histórico de 60 dias e limpar o log de viagem das viagens
 // com mais de 60 dias". Roda a cada sync (mesmo gatilho periódico que já
 // existe), não precisa de um agendador à parte.
-const RETENCAO_DIAS = 60
+export const RETENCAO_DIAS = 60
 
 async function purgeOldVehiclePositions(): Promise<void> {
   const limite = new Date(Date.now() - RETENCAO_DIAS * 86_400_000)
@@ -144,6 +144,57 @@ async function processarVisitaLocal(
 }
 
 /**
+ * Converte uma linha crua da Omnilink e grava em `VehiclePosition` (upsert
+ * idempotente por placa+capturedAt). Só o rastro de GPS — sem alerta de
+ * velocidade nem visita a local. Compartilhado entre o fluxo ao vivo
+ * (`processOmnilinkPosicoes`, que aplica esses efeitos em seguida) e o
+ * backfill histórico (`omnilink-backfill.ts`), onde esses efeitos gerariam
+ * alertas/visitas fantasmas de semanas atrás. Devolve null se a linha não
+ * tem placa, data ou coordenada válida.
+ */
+/** "Ligado/-" → true, "Desligado/-" → false, qualquer outra coisa → null (campo "ignição/temperatura" da Omnilink). */
+function parseIgnicao(s: string): boolean | null {
+  const v = s.split('/')[0]?.trim().toLowerCase()
+  if (v === 'ligado') return true
+  if (v === 'desligado') return false
+  return null
+}
+
+export async function upsertPosicaoOmnilink(row: ExternalRow) {
+  const placa = String(row.placa ?? '').trim().toUpperCase()
+  const capturedAtIso = row._capturedAtIso ? String(row._capturedAtIso) : null
+  const coords = parseLatLog(String(row.lat_log ?? ''))
+  if (!placa || !capturedAtIso || !coords) return null
+
+  const capturedAt = new Date(capturedAtIso)
+  const { speedKmh, heading } = parseVelocidadeSentido(String(row.velocidade_sentido ?? ''))
+  const estado = String(row.estado ?? '').trim()
+  const causa = String(row.causa ?? '').trim()
+  const status = causa && causa !== estado ? [estado, causa].filter(Boolean).join(' — ') : estado || null
+  const localizacaoRaw = String(row.localizacao ?? '').trim()
+  const localizacao = localizacaoRaw && localizacaoRaw !== '-' ? localizacaoRaw : null
+  const ignicaoLigada = parseIgnicao(String(row.ignition_temperatute ?? ''))
+
+  await prisma.vehiclePosition.upsert({
+    where: { placa_capturedAt: { placa, capturedAt } },
+    update: { latitude: coords.lat, longitude: coords.lng, speedKmh, heading, status, localizacao, ignicaoLigada },
+    create: {
+      placa,
+      capturedAt,
+      latitude: coords.lat,
+      longitude: coords.lng,
+      speedKmh,
+      heading,
+      status,
+      localizacao,
+      ignicaoLigada,
+      source: 'OMNILINK',
+    },
+  })
+  return { placa, capturedAt, coords, speedKmh, localizacao }
+}
+
+/**
  * Depois de sincronizar `fase1_omnilink_posicoes`, converte cada linha bruta
  * (campos em texto formatado — ver comentário em
  * `src/lib/sync/connectors/omnilink.ts`) em `VehiclePosition`, usado pelo
@@ -180,34 +231,9 @@ export async function processOmnilinkPosicoes(rows: ExternalRow[]): Promise<void
   })
 
   for (const row of rowsOrdenadas) {
-    const placa = String(row.placa ?? '').trim().toUpperCase()
-    const capturedAtIso = row._capturedAtIso ? String(row._capturedAtIso) : null
-    const coords = parseLatLog(String(row.lat_log ?? ''))
-    if (!placa || !capturedAtIso || !coords) continue
-
-    const capturedAt = new Date(capturedAtIso)
-    const { speedKmh, heading } = parseVelocidadeSentido(String(row.velocidade_sentido ?? ''))
-    const estado = String(row.estado ?? '').trim()
-    const causa = String(row.causa ?? '').trim()
-    const status = causa && causa !== estado ? [estado, causa].filter(Boolean).join(' — ') : estado || null
-    const localizacaoRaw = String(row.localizacao ?? '').trim()
-    const localizacao = localizacaoRaw && localizacaoRaw !== '-' ? localizacaoRaw : null
-
-    await prisma.vehiclePosition.upsert({
-      where: { placa_capturedAt: { placa, capturedAt } },
-      update: { latitude: coords.lat, longitude: coords.lng, speedKmh, heading, status, localizacao },
-      create: {
-        placa,
-        capturedAt,
-        latitude: coords.lat,
-        longitude: coords.lng,
-        speedKmh,
-        heading,
-        status,
-        localizacao,
-        source: 'OMNILINK',
-      },
-    })
+    const posicao = await upsertPosicaoOmnilink(row)
+    if (!posicao) continue
+    const { placa, capturedAt, coords, speedKmh, localizacao } = posicao
 
     if (speedKmh != null && speedKmh > limiteVelocidade) {
       await registrarExcessoVelocidade(placa, speedKmh, limiteVelocidade, capturedAt, coords.lat, coords.lng, localizacao)

@@ -238,6 +238,40 @@ model OmnilinkSyncPlaca {
   @@map("omnilink_sync_placa")
 }
 
+enum OmnilinkBackfillStatus {
+  PENDENTE
+  CONCLUIDA
+  NAO_LOCALIZADA // placa sem rastreador na Omnilink — nada a recuperar
+}
+
+// Backfill do histórico de posições GPS, placa a placa, em janelas de 1h do
+// presente para o passado até o limite de retenção (60 dias) — pedido do
+// usuário 2026-09-24/25 ("tentar buscar de hora em hora deixando este
+// processo em background ... colocar no servidor de produção"). O backfill
+// rodado antes na máquina de dev gravava só no banco de dev e caía junto com
+// a máquina; aqui ele roda dentro do cron de produção, poucas janelas por
+// minuto, e esta tabela guarda até onde cada placa já foi (retoma sozinho
+// após reinício do container). Ver src/lib/sync/omnilink-backfill.ts.
+model OmnilinkBackfillPlaca {
+  id               String                 @id @default(uuid())
+  placa            String                 @unique
+  status           OmnilinkBackfillStatus @default(PENDENTE)
+  // Fim da PRÓXIMA janela a consultar — anda para trás a cada janela OK.
+  cursorAt         DateTime               @map("cursor_at")
+  posicoesGravadas Int                    @default(0) @map("posicoes_gravadas")
+  falhasSeguidas   Int                    @default(0) @map("falhas_seguidas")
+  ultimoErro       String?                @map("ultimo_erro")
+  // Janelas desistidas após falhas seguidas: [{ de, ate, erro }] — para
+  // reprocessar depois, sem travar a placa inteira numa janela ruim.
+  janelasComErro   Json                   @default("[]") @map("janelas_com_erro")
+  concluidaEm      DateTime?              @map("concluida_em")
+  createdAt        DateTime               @default(now()) @map("created_at")
+  updatedAt        DateTime               @updatedAt @map("updated_at")
+
+  @@index([status, createdAt])
+  @@map("omnilink_backfill_placa")
+}
+
 // ============================================================
 // Camada semântica: colunas condicionais e parâmetros
 // ============================================================
@@ -480,6 +514,12 @@ model VehiclePosition {
   // guardado a partir de 2026-08-03 (pedido do usuário: "inserir no painel as
   // informações recuperadas da viagem"), antes descartado no post-process.
   localizacao String?
+  // Ignição no momento da posição (campo bruto "ignition_temperatute" da
+  // Omnilink, ex. "Ligado/-") — antes descartado. Descoberto 2026-09-25 ao
+  // desenhar o relatório do motorista: separa "rodando" de "parado com
+  // motor ligado" (dúvida do usuário sobre o rodando de madrugada). null =
+  // não informado (posições gravadas antes desta coluna existir).
+  ignicaoLigada Boolean? @map("ignicao_ligada")
   source      String   @default("OMNILINK")
   holdingId   String?  @map("holding_id")
   companyId   String?  @map("company_id")

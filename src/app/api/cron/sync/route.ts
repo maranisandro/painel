@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { runDueSchedules } from '@/lib/sync/engine'
 import { limparUsageEventsAntigos } from '@/lib/usage/cleanup'
+import { executarBackfillOmnilink, type ResultadoBackfillOmnilink } from '@/lib/sync/omnilink-backfill'
+
+// Backfill do histórico Omnilink roda no tempo que sobra desta execução do
+// cron (1 em 1 min), depois das sincronizações vencidas — ver
+// src/lib/sync/omnilink-backfill.ts. Teto de ~45s a partir do início da
+// requisição para não empilhar com a próxima chamada do cron.
+const TETO_EXECUCAO_BACKFILL_MS = 45_000
 
 /**
  * Endpoint chamado pelo Agendador de Tarefas do Windows (ou outro cron):
@@ -20,6 +27,7 @@ export async function GET(req: NextRequest) {
   if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
     return NextResponse.json({ error: 'não autorizado' }, { status: 401 })
   }
+  const inicio = Date.now()
   const results = await runDueSchedules()
 
   // Limpeza de eventos de uso antigos (S da retenção do módulo de
@@ -30,5 +38,13 @@ export async function GET(req: NextRequest) {
     usageEventsApagados = await limparUsageEventsAntigos()
   }
 
-  return NextResponse.json({ ran: results.length, results, usageEventsApagados })
+  let backfillOmnilink: ResultadoBackfillOmnilink | { erro: string }
+  try {
+    backfillOmnilink = await executarBackfillOmnilink(TETO_EXECUCAO_BACKFILL_MS - (Date.now() - inicio))
+  } catch (err) {
+    console.error('[omnilink-backfill] falha:', err)
+    backfillOmnilink = { erro: err instanceof Error ? err.message : String(err) }
+  }
+
+  return NextResponse.json({ ran: results.length, results, usageEventsApagados, backfillOmnilink })
 }
